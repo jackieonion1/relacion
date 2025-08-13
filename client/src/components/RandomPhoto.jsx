@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { getDailyPhotoId, getPhotoThumbUrl, getOriginal, getOriginalUrl } from '../lib/photos';
+import { getDailyPhotoId, getOriginal, getOriginalUrl } from '../lib/photos';
 
 export default function RandomPhoto() {
   const [photo, setPhoto] = useState(null); // { id, src, fallbackUrl, source }
