@@ -1,6 +1,6 @@
 // Simple IndexedDB-based photo cache with LRU for standard images
 const DB_NAME = 'photo-cache-v1';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const THUMBS = 'thumbs';
 const ORIG = 'orig';
 
@@ -13,7 +13,7 @@ function openDB() {
         db.createObjectStore(THUMBS, { keyPath: 'id' }); // { id, blob }
       }
       if (!db.objectStoreNames.contains(ORIG)) {
-        const store = db.createObjectStore(ORIG, { keyPath: 'id' }); // { id, blob, ts }
+        const store = db.createObjectStore(ORIG, { keyPath: 'id' }); // { id, data|blob, type, ts }
         store.createIndex('ts', 'ts');
       }
     };
@@ -78,16 +78,41 @@ export async function putThumb(id, blob) {
 
 export async function getOrig(id) {
   const rec = await get(ORIG, id);
-  if (rec) {
-    // touch LRU
-    await set(ORIG, { ...rec, ts: Date.now() });
+  if (!rec) return null;
+  // touch LRU (without mutating stored data shape)
+  await set(ORIG, { ...rec, ts: Date.now() });
+  // Legacy shape with blob
+  if (rec.blob) {
+    try {
+      // Some iOS PWA cases return zero-sized blobs from IDB; treat as miss
+      if (typeof rec.blob.size === 'number' && rec.blob.size < 32) return null;
+    } catch {}
     return rec.blob;
+  }
+  // New shape with ArrayBuffer + type
+  if (rec.data) {
+    try {
+      const buf = rec.data;
+      const type = rec.type || 'image/jpeg';
+      const blob = new Blob([buf], { type });
+      if (blob.size < 32) return null;
+      return blob;
+    } catch {
+      return null;
+    }
   }
   return null;
 }
 
 export async function putOrig(id, blob) {
-  await set(ORIG, { id, blob, ts: Date.now() });
+  try {
+    const arr = await blob.arrayBuffer();
+    const record = { id, data: arr, type: blob.type || 'image/jpeg', ts: Date.now() };
+    await set(ORIG, record);
+  } catch {
+    // Fallback to legacy shape if arrayBuffer fails
+    await set(ORIG, { id, blob, ts: Date.now() });
+  }
 }
 
 export async function pruneOrig(max = 20) {

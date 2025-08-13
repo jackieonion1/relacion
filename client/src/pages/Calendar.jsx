@@ -173,13 +173,17 @@ export default function CalendarPage() {
 
   async function onAdd(e) {
     e.preventDefault();
-    const { title, location, date, time, endDate } = Object.fromEntries(new FormData(e.currentTarget));
+    const form = new FormData(e.currentTarget);
+    const data = Object.fromEntries(form);
+    const { title, location, date, time, endDate } = data;
     if (!title || !date) return;
     setSaving(true);
     setError('');
     
+    const seeEachOther = form.has('seeEachOther');
+    const finalEventType = seeEachOther ? 'conjunto' : selectedEventType;
     // Call addEvent and close popup regardless of result
-    addEvent(pairId, { title, date, time, endDate, location, eventType: selectedEventType }, identity);
+    addEvent(pairId, { title, date, time, endDate, location, eventType: finalEventType, seeEachOther }, identity);
     
     e.currentTarget.reset();
     setSelectedEventType('conjunto'); // Reset to default
@@ -438,6 +442,10 @@ export default function CalendarPage() {
                 onChange={setSelectedEventType} 
               />
             </div>
+            <label className="flex items-center gap-2 text-sm text-gray-700 select-none">
+              <input type="checkbox" name="seeEachOther" className="accent-rose-500 w-4 h-4" />
+              ¿Nos vemos?
+            </label>
           </div>
           {error && <p className="text-xs text-rose-600">{error}</p>}
           <div className="flex justify-end gap-2">
