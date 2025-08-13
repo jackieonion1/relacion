@@ -6,6 +6,31 @@ function genId() {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`.toUpperCase();
 }
 
+// Ensure the original (HD) is cached at most once per Madrid day
+export async function prefetchOriginalOncePerDay(pairId, id) {
+  if (!pairId || !id) return false;
+  const dayKey = madridDayKey();
+  const flagKey = `daily-prefetch:${pairId}:${id}:${dayKey}`;
+  try {
+    if (localStorage.getItem(flagKey) === '1') return false;
+  } catch {}
+  try {
+    // If already cached and non-trivial size, just mark done
+    const cached = await getOrig(id);
+    if (cached && (!cached.size || cached.size > 32)) {
+      try { localStorage.setItem(flagKey, '1'); } catch {}
+      return false;
+    }
+  } catch {}
+  // Fetch and cache via existing pipeline
+  const blob = await getOriginal(pairId, id);
+  if (blob && (!blob.size || blob.size > 32)) {
+    try { localStorage.setItem(flagKey, '1'); } catch {}
+    return true;
+  }
+  return false;
+}
+
 async function fileToCanvas(file) {
   const img = document.createElement('img');
   img.decoding = 'async';
@@ -138,6 +163,100 @@ export async function listPhotos(pairId, max = 100) {
   // Sort desc by createdAt
   items.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
   return items.slice(0, max);
+}
+
+// Europe/Madrid day key (YYYY-MM-DD)
+function madridDayKey(d = new Date()) {
+  try {
+    const fmt = new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Europe/Madrid', year: 'numeric', month: '2-digit', day: '2-digit'
+    });
+    const [dd, mm, yyyy] = fmt.format(d).split('/');
+    return `${yyyy}-${mm}-${dd}`;
+  } catch {
+    // Fallback to local timezone if Intl not available
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+  }
+}
+
+function hash32(str) {
+  let h = 2166136261;
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return (h >>> 0);
+}
+
+// Get or compute the shared daily photo id for today (Europe/Madrid). Writes to Firestore so all devices share it.
+export async function getDailyPhotoId(pairId) {
+  if (!pairId) return '';
+  const fblib = await fb();
+  if (!(db && fblib)) return '';
+  const dayKey = madridDayKey();
+  try {
+    await waitAuth();
+  } catch {}
+  try {
+    const { collection, doc, getDoc, setDoc, getDocs, query, orderBy, limit } = fblib;
+    const metaCol = collection(db, 'pairs', pairId, 'meta');
+    const metaRef = doc(metaCol, 'dailyPhoto');
+    // If already set for today and photo exists, return it
+    try {
+      const snap = await getDoc(metaRef);
+      const data = snap?.exists?.() ? snap.data() : null;
+      if (data && data.dayKey === dayKey && data.photoId) {
+        const pRef = doc(collection(db, 'pairs', pairId, 'photos'), data.photoId);
+        const pSnap = await getDoc(pRef).catch(() => null);
+        if (pSnap && pSnap.exists?.()) return data.photoId;
+      }
+    } catch {}
+
+    // Compute deterministically
+    const col = collection(db, 'pairs', pairId, 'photos');
+    const q = query(col, orderBy('createdAt', 'desc'), limit(200));
+    const snap = await getDocs(q);
+    const ids = snap.docs.map((d) => d.id);
+    if (ids.length === 0) return '';
+    const idx = hash32(`${pairId}|${dayKey}`) % ids.length;
+    const chosen = ids[idx];
+    // Persist so all devices use the same
+    await setDoc(metaRef, { dayKey, photoId: chosen, updatedAt: fblib.serverTimestamp ? fblib.serverTimestamp() : new Date() }, { merge: true });
+    return chosen;
+  } catch {
+    return '';
+  }
+}
+
+// Fetch the thumbUrl for a given photo id (regenerates if legacy/invalid)
+export async function getPhotoThumbUrl(pairId, id) {
+  const fblib = await fb();
+  if (!(db && storage && fblib)) return '';
+  try {
+    await waitAuth();
+    const { collection, doc, getDoc, setDoc, ref, getDownloadURL } = fblib;
+    let url = '';
+    try {
+      const dRef = doc(collection(db, 'pairs', pairId, 'photos'), id);
+      const dsnap = await getDoc(dRef);
+      url = dsnap?.exists?.() && dsnap.data()?.thumbUrl ? dsnap.data().thumbUrl : '';
+    } catch {}
+    const invalid = url && (/\.appspot\.com\//.test(url) || url.indexOf('alt=media') === -1);
+    if (!url || invalid) {
+      const tRef = ref(storage, `pairs/${pairId}/photos/${id}/thumb.jpg`);
+      url = await getDownloadURL(tRef);
+      try {
+        const dRef = doc(collection(db, 'pairs', pairId, 'photos'), id);
+        await setDoc(dRef, { thumbUrl: url }, { merge: true });
+      } catch {}
+    }
+    return url || '';
+  } catch {
+    return '';
+  }
 }
 
 export async function getOriginal(pairId, id) {

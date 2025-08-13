@@ -1,36 +1,56 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { listPhotos } from '../lib/photos';
+import { getDailyPhotoId, getPhotoThumbUrl, getOriginal, getOriginalUrl } from '../lib/photos';
 
 export default function RandomPhoto() {
-  const [photo, setPhoto] = useState(null);
+  const [photo, setPhoto] = useState(null); // { id, src, fallbackUrl, source }
   const [loading, setLoading] = useState(true);
+  const timerRef = useRef(null);
+  const revokeRef = useRef(null);
 
   useEffect(() => {
-    let isCancelled = false;
-    async function fetchRandomPhoto() {
+    let cancelled = false;
+    async function pickDaily() {
       try {
         const pairId = localStorage.getItem('pairId');
-        if (!pairId) {
-          setLoading(false);
-          return;
+        if (!pairId) { setLoading(false); return; }
+        const id = await getDailyPhotoId(pairId);
+        if (!id) { if (!cancelled) setPhoto(null); setLoading(false); return; }
+        // Cargar HD: intentar blob cacheado/descargar y usar blob:URL; preparar fallback remota
+        // Limpia blob anterior
+        if (revokeRef.current) { try { URL.revokeObjectURL(revokeRef.current); } catch {} revokeRef.current = null; }
+        setLoading(true);
+        let blob = null;
+        try { blob = await getOriginal(pairId, id); } catch {}
+        if (cancelled) return;
+        if (blob && (!blob.size || blob.size > 32)) {
+          const blobUrl = URL.createObjectURL(blob);
+          revokeRef.current = blobUrl;
+          setPhoto({ id, src: blobUrl, fallbackUrl: '', source: 'blob' });
+          // Prepara fallback remota por si iOS falla renderizando el blob
+          getOriginalUrl(pairId, id)
+            .then((remote) => {
+              if (!cancelled && remote) {
+                setPhoto((p) => (p && p.id === id ? { ...p, fallbackUrl: remote } : p));
+              }
+            })
+            .catch(() => {});
+        } else {
+          // No hay blob (todavía): usa URL remota (HD) como fuente
+          const remote = await getOriginalUrl(pairId, id);
+          if (cancelled) return;
+          setPhoto(remote ? { id, src: remote, fallbackUrl: '', source: 'remote' } : null);
         }
-        const photos = await listPhotos(pairId);
-        if (!isCancelled && photos.length > 0) {
-          const randomIndex = Math.floor(Math.random() * photos.length);
-          setPhoto(photos[randomIndex]);
-        }
-      } catch (error) {
-        console.error("Error fetching random photo:", error);
+      } catch (e) {
+        console.error('Error fetching daily photo:', e);
       } finally {
-        if (!isCancelled) {
-          setLoading(false);
-        }
+        if (!cancelled) setLoading(false);
       }
     }
-
-    fetchRandomPhoto();
-    return () => { isCancelled = true; };
+    pickDaily();
+    // Revisa cada 60s para cambiar a medianoche de Madrid y para recuperarse si se borra
+    timerRef.current = setInterval(pickDaily, 60 * 1000);
+    return () => { cancelled = true; if (timerRef.current) clearInterval(timerRef.current); if (revokeRef.current) { try { URL.revokeObjectURL(revokeRef.current); } catch {} revokeRef.current = null; } };
   }, []);
 
   // Always render the same card structure to prevent any layout shift
@@ -48,10 +68,18 @@ export default function RandomPhoto() {
           <div className="w-full h-full bg-gray-200"></div>
         ) : photo ? (
           <Link to={`/gallery?photo=${photo.id}`} className="block w-full h-full">
-            <img 
-              src={photo.thumbUrl}
-              alt="Recuerdo aleatorio"
+            <img
+              src={photo.src}
+              onError={(e) => {
+                // Si falla renderizar el blob, alterna a remota
+                if (photo.source === 'blob' && photo.fallbackUrl) {
+                  e.currentTarget.src = photo.fallbackUrl;
+                }
+              }}
+              alt="Foto del día"
               className="w-full h-full object-cover hover:scale-105 transition-transform duration-200"
+              decoding="async"
+              loading="eager"
             />
           </Link>
         ) : (
