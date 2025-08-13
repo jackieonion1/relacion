@@ -1,0 +1,27 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root { color-scheme: light; }
+
+html, body, #root { height: 100%; }
+
+body { @apply bg-rose-50/50; }
+
+/***** Tipografía *****/
+@layer base {
+  h1, h2, h3 { @apply text-gray-900; }
+  p { @apply text-gray-700; }
+}
+
+/* Componentes reutilizables para visual más profesional */
+@layer components {
+  .card { @apply bg-white/90 rounded-2xl p-4 border border-rose-100 shadow-sm; }
+  .input { @apply rounded-xl border border-rose-200 px-3 py-2 outline-none focus:ring-2 focus:ring-rose-300; }
+  .btn-primary { @apply inline-flex items-center justify-center px-3 py-2 rounded-lg bg-rose-600 text-white hover:bg-rose-500 active:scale-[0.99] transition; }
+  .btn-ghost { @apply inline-flex items-center justify-center px-3 py-2 rounded-lg bg-rose-50 text-rose-700 hover:bg-rose-100; }
+  .btn-link { @apply text-rose-600 hover:underline; }
+  .chip { @apply inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-rose-50 text-rose-700 text-xs border border-rose-100; }
+  .title-sm { @apply font-semibold text-gray-900; }
+  .muted { @apply text-gray-500; }
+}
