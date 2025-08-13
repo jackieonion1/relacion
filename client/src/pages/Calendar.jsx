@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useLocation } from 'react-router-dom';
+import { createPortal } from 'react-dom';
 import { addEvent, listEvents, deleteEvent } from '../lib/calendar';
 import Modal from '../components/Modal';
 import EventTypeSwitcher from '../components/EventTypeSwitcher';
@@ -22,8 +23,8 @@ const EventList = ({ events, onDelete, onItemClick }) => {
         if (startDate) {
           const startStr = startDate.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
           if (endDate && endDate.toDateString() !== startDate.toDateString()) {
-            // Multi-day event: show date range
-            const endStr = endDate.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
+            // Multi-day event: show date range (remove end time)
+            const endStr = endDate.toLocaleString([], { dateStyle: 'medium' });
             when = `${startStr} - ${endStr}`;
           } else {
             // Single day event
@@ -56,7 +57,10 @@ const EventList = ({ events, onDelete, onItemClick }) => {
                 <span className="truncate">{ev.title}</span>
                 <div className={`w-2 h-2 rounded-full flex-shrink-0 ${eventTypeColor}`}></div>
               </div>
-              <div className="text-sm text-gray-500 truncate">{when}{ev.location ? ` · ${ev.location}` : ''}</div>
+              <div className="text-sm text-gray-500 truncate">{when}</div>
+              {ev.location ? (
+                <div className="text-sm text-gray-500 font-medium truncate">{ev.location}</div>
+              ) : null}
             </div>
             {!ev.isSpecialEvent && (
               <button
@@ -84,6 +88,18 @@ export default function CalendarPage() {
   const [refreshKey, setRefreshKey] = useState(0);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  // New event form state (controlled for iOS/web consistency)
+  const [startDate, setStartDate] = useState('');
+  const [startTime, setStartTime] = useState('');
+  const [endDate, setEndDate] = useState('');
+  const [touchedEndDate, setTouchedEndDate] = useState(false);
+  const isIOS = useMemo(() => {
+    if (typeof navigator === 'undefined') return false;
+    return /iPad|iPhone|iPod/.test(navigator.userAgent) || (
+      /Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 2
+    );
+  }, []);
+  const inputClass = `input w-full${isIOS ? ' appearance-none bg-white text-gray-900 h-11' : ''}`;
   const [selectedEventType, setSelectedEventType] = useState('conjunto');
   const [selectedDay, setSelectedDay] = useState(null);
   const [dayEventsPopup, setDayEventsPopup] = useState(false);
@@ -418,23 +434,60 @@ export default function CalendarPage() {
           <MonthlyCalendarView events={items} onDayClick={onDayClick} targetDate={targetDate} />
         </div>
       )}
+      
 
-      {/* New event button - visible in both views */}
-      <button onClick={() => setIsModalOpen(true)} className="fixed bottom-24 right-4 bg-rose-500 text-white rounded-full px-5 py-3 font-semibold shadow-lg hover:bg-rose-600 transition-transform active:scale-95">
-        Nuevo evento
-      </button>
+      {/* New event button - portal to body so it floats above scroll */}
+      {createPortal(
+        <button
+          onClick={() => { setStartDate(''); setStartTime(''); setEndDate(''); setTouchedEndDate(false); setIsModalOpen(true); }}
+          className="fab btn-primary shadow-lg rounded-full px-5 py-3 font-semibold"
+          aria-label="Nuevo evento"
+          title="Nuevo evento"
+        >
+          Nuevo evento
+        </button>,
+        document.body
+      )}
 
       <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)}>
         <form onSubmit={onAdd} className="p-6 space-y-4">
           <h3 className="font-semibold text-lg">Añadir evento</h3>
           <div className="space-y-3">
-            <input name="title" placeholder="Título" className="input w-full" required />
-            <input name="location" placeholder="Ubicación (opcional)" className="input w-full" />
+            <input name="title" placeholder="Título" className={inputClass} required />
+            <input name="location" placeholder="Ubicación (opcional)" className={inputClass} />
             <div className="grid grid-cols-2 gap-3">
-              <input name="date" type="date" className="input w-full" required />
-              <input name="time" type="time" className="input w-full" />
+              <div>
+                <label className="block text-sm text-gray-600 mb-1">Fecha de inicio</label>
+                <input
+                  name="date"
+                  type="date"
+                  className={inputClass}
+                  value={startDate}
+                  onChange={(e) => { const v = e.target.value; setStartDate(v); if (!touchedEndDate) setEndDate(v); }}
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-sm text-gray-600 mb-1">Hora</label>
+                <input
+                  name="time"
+                  type="time"
+                  className={inputClass}
+                  value={startTime}
+                  onChange={(e) => setStartTime(e.target.value)}
+                />
+              </div>
             </div>
-            <input name="endDate" type="date" className="input w-full" />
+            <div>
+              <label className="block text-sm text-gray-600 mb-1">Fecha de fin (opcional)</label>
+              <input
+                name="endDate"
+                type="date"
+                className={inputClass}
+                value={endDate}
+                onChange={(e) => { setTouchedEndDate(true); setEndDate(e.target.value); }}
+              />
+            </div>
             <div className="space-y-2">
               <label className="block text-sm text-gray-600">Tipo de evento</label>
               <EventTypeSwitcher 

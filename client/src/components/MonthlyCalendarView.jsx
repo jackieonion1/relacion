@@ -146,7 +146,7 @@ export default function MonthlyCalendarView({ events = [], onDayClick, targetDat
       }
       
       // Position based on assigned lane with uniform 6px spacing (using safe positions)
-      const bottomPosition = eventInfo.lane === 0 ? 'bottom-2' : eventInfo.lane === 1 ? 'bottom-3.5' : 'bottom-5';
+      const bottomPosition = eventInfo.lane === 0 ? 'bottom-1' : eventInfo.lane === 1 ? 'bottom-2.5' : 'bottom-4';
       const baseClasses = `absolute ${bottomPosition} h-1 ${colorClass}`;
       
       if (eventInfo.type === 'single') {
@@ -167,7 +167,7 @@ export default function MonthlyCalendarView({ events = [], onDayClick, targetDat
     calendarDays.push(
       <div 
         key={`day-${day}`} 
-        className={`p-2 text-center border border-gray-200/80 rounded-lg h-20 flex items-center justify-center relative cursor-pointer hover:bg-gray-50 transition-colors ${isSpecialDay ? 'bg-rose-50 hover:bg-rose-100' : ''} ${isAprilParty ? 'bg-purple-50 hover:bg-purple-100' : ''} ${isNovemberParty ? 'bg-yellow-50 hover:bg-yellow-100' : ''}`}
+        className={`p-1 text-center border border-gray-200/80 rounded-lg h-16 flex items-center justify-center relative cursor-pointer hover:bg-gray-50 transition-colors ${isSpecialDay ? 'bg-rose-50 hover:bg-rose-100' : ''} ${isAprilParty ? 'bg-purple-50 hover:bg-purple-100' : ''} ${isNovemberParty ? 'bg-yellow-50 hover:bg-yellow-100' : ''}`}
         onClick={() => onDayClick && onDayClick(day, currentDate.getMonth(), currentDate.getFullYear())}
       >
         <span className={`w-8 h-8 flex items-center justify-center rounded-full ${isToday ? 'bg-rose-500 text-white' : ''}`}>

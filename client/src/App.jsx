@@ -123,35 +123,38 @@ export default function App() {
   return (
     <PairGate>
       <IdentityGate>
-        <div className="min-h-screen bg-rose-50/50 text-gray-900 flex flex-col">
-          <header className="sticky top-0 z-10 backdrop-blur bg-white/70 border-b border-rose-100 transition-all duration-300">
-            <div className="max-w-screen-md mx-auto px-4 h-14 grid grid-cols-3 items-center">
-              <span className="font-semibold text-rose-600 transition-all duration-200">🍪🫒</span>
-              <span className="text-sm text-gray-500 transition-all duration-200 text-center">{title}</span>
-              <Link to="/settings" className="justify-self-end text-gray-500 hover:text-rose-600 transition-colors duration-200 transform hover:scale-110">
-                <CogIcon className="w-6 h-6 transition-all duration-200" />
-              </Link>
+        <div className="app-shell">
+          <div className="app-scroll">
+            <div className="min-h-screen bg-rose-50/50 text-gray-900 flex flex-col">
+              <header className="sticky top-0 z-10 backdrop-blur bg-white/70 border-b border-rose-100 transition-all duration-300">
+                <div className="max-w-screen-md mx-auto px-4 h-14 grid grid-cols-3 items-center">
+                  <span className="font-semibold text-rose-600 transition-all duration-200">🍪🫒</span>
+                  <span className="text-sm text-gray-500 transition-all duration-200 text-center">{title}</span>
+                  <Link to="/settings" className="justify-self-end text-gray-500 hover:text-rose-600 transition-colors duration-200 transform hover:scale-110">
+                    <CogIcon className="w-6 h-6 transition-all duration-200" />
+                  </Link>
+                </div>
+              </header>
+
+              <InstallPrompt />
+
+              <main className={`flex-1 max-w-screen-md mx-auto w-full px-4 pb-safe-content pt-4 transition-all duration-300 ease-out ${
+                isTransitioning 
+                  ? 'opacity-0 transform translate-y-1 scale-[0.98]'
+                  : 'opacity-100'
+              }`}>
+                <Routes>
+                  <Route path="/" element={<Dashboard />} />
+                  <Route path="/gallery" element={<Gallery />} />
+                  <Route path="/calendar" element={<CalendarPage />} />
+                  <Route path="/notes" element={<Notes />} />
+                  <Route path="/map" element={<MapPage />} />
+                  <Route path="/settings" element={<Settings />} />
+                  <Route path="*" element={<Navigate to="/" replace />} />
+                </Routes>
+              </main>
             </div>
-          </header>
-
-          <InstallPrompt />
-
-          <main className={`flex-1 max-w-screen-md mx-auto w-full px-4 pb-20 pt-4 transition-all duration-300 ease-out ${
-            isTransitioning 
-              ? 'opacity-0 transform translate-y-1 scale-[0.98]' 
-              : 'opacity-100 transform translate-y-0 scale-100'
-          }`}>
-            <Routes>
-              <Route path="/" element={<Dashboard />} />
-              <Route path="/gallery" element={<Gallery />} />
-              <Route path="/calendar" element={<CalendarPage />} />
-              <Route path="/notes" element={<Notes />} />
-              <Route path="/map" element={<MapPage />} />
-              <Route path="/settings" element={<Settings />} />
-              <Route path="*" element={<Navigate to="/" replace />} />
-            </Routes>
-          </main>
-
+          </div>
           <NavBar />
         </div>
       </IdentityGate>
