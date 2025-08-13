@@ -64,8 +64,12 @@ export default function MapPage() {
     newStateEmoji: ''
   });
 
-  // Fixed distance between the two addresses
-  const fixedDistance = 505.62; // km between Barcelona and Madrid
+  // Live distance and city labels from SimpleMap
+  const [distanceInfo, setDistanceInfo] = useState({
+    distanceKm: null,
+    loading: false,
+    cities: { novio: '', novia: '' }
+  });
 
   // Load initial state from Firestore and subscribe to changes
   useEffect(() => {
@@ -140,15 +144,16 @@ export default function MapPage() {
       case 'home':
         return (
           <div>
-            <div className="text-center py-6">
+            <div className="text-center py-4">
               <div className="text-6xl mb-4">🏠</div>
               <div className="text-sm text-gray-600 mb-2">Distancia</div>
-              <div className="text-3xl font-semibold text-rose-600 mb-2">{fixedDistance} km</div>
-              <div className="text-sm text-gray-500">
-                Barcelona ↔ Madrid
+              <div className="text-3xl font-semibold text-rose-600 mb-1">
+                {distanceInfo.loading
+                  ? 'Calculando…'
+                  : (distanceInfo.distanceKm != null ? `${distanceInfo.distanceKm} km` : '— km')}
               </div>
             </div>
-            <SimpleMap />
+            <SimpleMap onDistanceChange={setDistanceInfo} />
           </div>
         );
       
@@ -182,7 +187,7 @@ export default function MapPage() {
   }
 
   return (
-    <div className="space-y-4 relative">
+    <div className="space-y-4 relative pb-20">
       <div className="card">
         <div className="text-sm text-gray-600 mb-3">Estado actual</div>
         <MapViewSwitcher 
