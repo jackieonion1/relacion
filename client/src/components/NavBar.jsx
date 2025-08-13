@@ -4,11 +4,13 @@ import HomeIcon from './icons/HomeIcon';
 import CameraIcon from './icons/CameraIcon';
 import CalendarIcon from './icons/CalendarIcon';
 import MapIcon from './icons/MapIcon';
+import NotesIcon from './icons/NotesIcon';
 
 const tabs = [
   { to: '/', label: 'Inicio', icon: HomeIcon },
   { to: '/gallery', label: 'Galería', icon: CameraIcon },
   { to: '/calendar', label: 'Calendario', icon: CalendarIcon },
+  { to: '/notes', label: 'Notas', icon: NotesIcon },
   { to: '/map', label: 'Mapa', icon: MapIcon },
 ];
 
@@ -16,7 +18,7 @@ export default function NavBar() {
   const loc = useLocation();
   return (
     <nav className="fixed bottom-0 inset-x-0 z-10 border-t border-rose-100 bg-white/90 backdrop-blur">
-      <div className="max-w-screen-md mx-auto grid grid-cols-4">
+      <div className="max-w-screen-md mx-auto grid grid-cols-5">
         {tabs.map(t => {
           const active = loc.pathname === t.to;
           const Icon = t.icon;
