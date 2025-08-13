@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { listEvents } from '../lib/calendar';
+import { listenEvents } from '../lib/calendar';
 import Countdown from '../components/Countdown';
 import RandomPhoto from '../components/RandomPhoto';
 
@@ -144,48 +144,55 @@ export default function Dashboard() {
   }, [anniv]);
 
   useEffect(() => {
-    let isCancelled = false;
-    async function fetchEvents() {
-      console.log('🔄 Dashboard: Starting to load events');
-      setLoading(true);
+    let cancelled = false;
+    let unsub = () => {};
+    console.log('🔄 Dashboard: Subscribing to events');
+    setLoading(true);
+    (async () => {
       try {
         const pairId = localStorage.getItem('pairId');
-        if (pairId && !isCancelled) {
-          const firestoreEvents = await listEvents(pairId, { futureOnly: true, max: 100 });
-          
-          // Generate special events
+        if (!pairId) {
+          const specials = generateSpecialEvents();
+          if (!cancelled) {
+            specials.sort((a, b) => {
+              const dateA = a.start?.toDate ? a.start.toDate() : new Date(0);
+              const dateB = b.start?.toDate ? b.start.toDate() : new Date(0);
+              return dateA - dateB;
+            });
+            setEvents(specials);
+            setLoading(false);
+          }
+          return;
+        }
+        unsub = await listenEvents(pairId, { futureOnly: true, max: 100 }, (list) => {
           const specialEvents = generateSpecialEvents();
-          
-          // Merge and sort all events chronologically
-          const allEvents = [...firestoreEvents, ...specialEvents];
+          const allEvents = [...list, ...specialEvents];
           allEvents.sort((a, b) => {
             const dateA = a.start?.toDate ? a.start.toDate() : new Date(0);
             const dateB = b.start?.toDate ? b.start.toDate() : new Date(0);
             return dateA - dateB;
           });
-          
-          console.log('✅ Dashboard: Events loaded', allEvents.length, 'events');
-          setEvents(allEvents);
-        }
+          if (!cancelled) {
+            console.log('✅ Dashboard: Events updated', allEvents.length, 'events');
+            setEvents(allEvents);
+            setLoading(false);
+          }
+        });
       } catch (error) {
-        console.error("Error fetching events:", error);
-        // Even if Firestore fails, show special events
-        const specialEvents = generateSpecialEvents();
-        specialEvents.sort((a, b) => {
+        console.error('Dashboard subscribe error:', error);
+        const specials = generateSpecialEvents();
+        specials.sort((a, b) => {
           const dateA = a.start?.toDate ? a.start.toDate() : new Date(0);
           const dateB = b.start?.toDate ? b.start.toDate() : new Date(0);
           return dateA - dateB;
         });
-        setEvents(specialEvents);
-      } finally {
-        if (!isCancelled) {
-          console.log('🏁 Dashboard: Loading finished');
+        if (!cancelled) {
+          setEvents(specials);
           setLoading(false);
         }
       }
-    }
-    fetchEvents();
-    return () => { isCancelled = true; };
+    })();
+    return () => { cancelled = true; try { unsub(); } catch {} };
   }, []);
 
   const nextEvent = useMemo(() => {

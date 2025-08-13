@@ -86,3 +86,21 @@ export async function deleteEvent(pairId, id) {
   const ref = f.doc(f.collection(db, 'pairs', pairId, 'events'), id);
   await f.deleteDoc(ref);
 }
+
+export async function listenEvents(pairId, { futureOnly = true, max = 50 } = {}, onChange) {
+  if (!pairId || !db) return () => {};
+  await waitAuth();
+  const f = await fb();
+  const col = f.collection(db, 'pairs', pairId, 'events');
+  let q;
+  if (futureOnly) {
+    const now = f.Timestamp.fromDate(new Date());
+    q = f.query(col, f.where('start', '>=', now), f.orderBy('start', 'asc'), f.limit(max));
+  } else {
+    q = f.query(col, f.orderBy('start', 'asc'), f.limit(max));
+  }
+  return f.onSnapshot(q, (snap) => {
+    const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    onChange(list);
+  });
+}

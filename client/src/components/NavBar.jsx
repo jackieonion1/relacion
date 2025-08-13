@@ -17,7 +17,7 @@ const tabs = [
 export default function NavBar() {
   const loc = useLocation();
   return (
-    <nav className="fixed bottom-0 inset-x-0 z-10 border-t border-rose-100 bg-white/90 backdrop-blur">
+    <nav className="fixed bottom-0 inset-x-0 z-10 border-t border-rose-100 bg-white/90 backdrop-blur navbar-safe">
       <div className="max-w-screen-md mx-auto grid grid-cols-5">
         {tabs.map(t => {
           const active = loc.pathname === t.to;

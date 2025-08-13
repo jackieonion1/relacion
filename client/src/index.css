@@ -2,7 +2,19 @@
 @tailwind components;
 @tailwind utilities;
 
-:root { color-scheme: light; }
+/* Fix iOS overscroll background color */
+html, body {
+  background-color: #ffffff !important;
+}
+
+body {
+  overscroll-behavior: none;
+}
+
+:root { 
+  color-scheme: light; 
+  --navbar-height: 4rem; /* 64px */
+}
 
 html, body, #root { height: 100%; }
 
@@ -32,8 +44,103 @@ body { @apply bg-rose-50/50; }
   /* In the notes grid cards, keep link styling but disable click */
   .note-card a { pointer-events: none; cursor: default; }
   /* Clamp note preview to 6 lines in the grid */
-  .note-snippet { display: -webkit-box; -webkit-line-clamp: 6; line-clamp: 6; -webkit-box-orient: vertical; overflow: hidden; }
+  .note-snippet { 
+    display: -webkit-box; 
+    -webkit-line-clamp: 6; 
+    line-clamp: 6; 
+    -webkit-box-orient: vertical; 
+    overflow: hidden; 
+    font-size: 0.875rem; 
+    line-height: 1.25rem;
+  }
   /* Masonry layout: two columns with variable card heights */
-  .masonry { column-count: 2; column-gap: 12px; }
-  .masonry .card { break-inside: avoid; -webkit-column-break-inside: avoid; margin-bottom: 12px; width: 100%; }
+  .masonry { 
+    column-count: 2; 
+    column-gap: 12px; 
+    column-fill: balance;
+  }
+  .masonry .card { 
+    break-inside: avoid; 
+    -webkit-column-break-inside: avoid; 
+    margin-bottom: 12px; 
+    width: 100%; 
+    display: inline-block;
+  }
+
+  /* Safe-area helpers and FAB placement */
+  .navbar-safe { padding-bottom: env(safe-area-inset-bottom); }
+  .fab { position: fixed; right: 1rem; bottom: calc(4rem + env(safe-area-inset-bottom) + 0.75rem); z-index: 50; }
+
+  /* Content bottom padding accounting for navbar (h-16 ~ 4rem) + extra + safe area */
+  .pb-safe-content { padding-bottom: 170px; }
+
+
+
+  /* Spacer div to push content up from the bottom navbar */
+  .scroll-spacer {
+    height: 170px; /* Manual override for iOS */
+    flex-shrink: 0; /* Prevents the spacer from shrinking in a flex container */
+  }
+
+  /* Extra spacer for pages with a FAB, adds FAB height (3.5rem) */
+  .fab-spacer {
+    height: 3.5rem; /* 56px */
+    flex-shrink: 0;
+  }
+}
+
+/* Hide scrollbars on mobile (touch devices) */
+@media (hover: none) and (pointer: coarse) {
+  /* Hide viewport scrollbar by preventing body scroll */
+  html, body { overflow: hidden; }
+
+  /* App wrapper fixed to viewport; inner container will scroll */
+  .app-shell { position: fixed; inset: 0; width: 100%; height: 100vh; overflow: hidden; }
+
+  /* Firefox */
+  * { scrollbar-width: none; }
+  /* IE/Edge legacy */
+  * { -ms-overflow-style: none; }
+  /* WebKit (iOS Safari, Chrome Android) */
+  *::-webkit-scrollbar { display: none; width: 0; height: 0; }
+
+  /* Inner app scroll container with momentum scrolling */
+  .app-scroll { 
+    height: 100%; 
+    overflow-y: auto; 
+    -webkit-overflow-scrolling: touch; 
+    overscroll-behavior: contain;
+    scrollbar-width: none; 
+  }
+  .app-scroll::-webkit-scrollbar { display: none; width: 0; height: 0; }
+}
+
+/* Extra guard for iOS Safari */
+@supports (-webkit-touch-callout: none) {
+  html, body { overflow: hidden; }
+  .app-shell { position: fixed; inset: 0; width: 100%; height: 100vh; overflow: hidden; }
+  .app-scroll {
+    /* Hide scrollbar on mobile while keeping functionality */
+    scrollbar-width: none; /* Firefox */
+    -ms-overflow-style: none; /* Internet Explorer 10+ */
+    /* Reduce rubber-band effect on iOS */
+    -webkit-overflow-scrolling: auto;
+    overscroll-behavior-y: contain;
+  }
+
+  .app-scroll::-webkit-scrollbar {
+    display: none; /* WebKit */
+  }
+
+  /* Scroll spacer to ensure content is not hidden behind fixed navbar on iOS */
+  .scroll-spacer {
+    height: 170px; /* Fixed height to guarantee space on all iOS devices */
+    flex-shrink: 0;
+  }
+
+  /* FAB spacer for pages with floating action button */
+  .fab-spacer {
+    height: 3.5rem; /* 56px - height of FAB button */
+    flex-shrink: 0;
+  }
 }

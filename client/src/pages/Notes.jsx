@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import Modal from '../components/Modal';
 import RichTextEditor from '../components/RichTextEditor';
 import MarkdownRenderer from '../components/MarkdownRenderer';
@@ -161,15 +162,18 @@ export default function Notes() {
         </div>
       )}
 
-      {/* FAB Nueva nota */}
-      <button
-        className="fixed bottom-20 right-5 btn-primary shadow-lg rounded-full px-5 py-3 font-semibold"
-        onClick={startNewNote}
-        aria-label="Nueva nota"
-        title="Nueva nota"
-      >
-        Nueva nota
-      </button>
+      {/* FAB Nueva nota: render fuera del contenedor con scroll */}
+      {createPortal(
+        <button
+          className="fab btn-primary shadow-lg rounded-full px-5 py-3 font-semibold"
+          onClick={startNewNote}
+          aria-label="Nueva nota"
+          title="Nueva nota"
+        >
+          Nueva nota
+        </button>,
+        document.body
+      )}
 
       {/* Modal Nueva Nota */}
       <Modal isOpen={isModalOpen} onClose={() => { setIsModalOpen(false); setEditingId(''); setHtml(''); setError(''); setSelectedNote(null); setIsEditing(false); setTitle(''); }}>
