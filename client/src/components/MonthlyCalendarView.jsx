@@ -1,10 +1,17 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 
 const monthNames = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
 const dayNames = ['D', 'L', 'M', 'X', 'J', 'V', 'S'];
 
-export default function MonthlyCalendarView({ events = [], onDayClick }) {
+export default function MonthlyCalendarView({ events = [], onDayClick, targetDate }) {
   const [currentDate, setCurrentDate] = useState(new Date());
+
+  // If parent provides a targetDate, sync the shown month to it
+  useEffect(() => {
+    if (targetDate instanceof Date && !isNaN(targetDate)) {
+      setCurrentDate(new Date(targetDate.getFullYear(), targetDate.getMonth(), 1));
+    }
+  }, [targetDate]);
 
   const eventsByDay = useMemo(() => {
     const eventMap = new Map();

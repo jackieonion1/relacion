@@ -123,10 +123,10 @@ export default function App() {
       <IdentityGate>
         <div className="min-h-screen bg-rose-50/50 text-gray-900 flex flex-col">
           <header className="sticky top-0 z-10 backdrop-blur bg-white/70 border-b border-rose-100 transition-all duration-300">
-            <div className="max-w-screen-md mx-auto px-4 h-14 flex items-center justify-between">
-              <span className="font-semibold text-rose-600 transition-all duration-200">Nosotros</span>
-              <span className="text-sm text-gray-500 transition-all duration-200 transform">{title}</span>
-              <Link to="/settings" className="text-gray-500 hover:text-rose-600 transition-colors duration-200 transform hover:scale-110">
+            <div className="max-w-screen-md mx-auto px-4 h-14 grid grid-cols-3 items-center">
+              <span className="font-semibold text-rose-600 transition-all duration-200">🍪🫒</span>
+              <span className="text-sm text-gray-500 transition-all duration-200 text-center">{title}</span>
+              <Link to="/settings" className="justify-self-end text-gray-500 hover:text-rose-600 transition-colors duration-200 transform hover:scale-110">
                 <CogIcon className="w-6 h-6 transition-all duration-200" />
               </Link>
             </div>

@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { listPhotos, uploadPhoto, getOriginal } from '../lib/photos';
+import { listPhotos, uploadPhoto, getOriginal, getOriginalUrl, deletePhoto } from '../lib/photos';
 import Modal from '../components/Modal';
 
 export default function Gallery() {
@@ -17,6 +17,7 @@ export default function Gallery() {
   const [uploading, setUploading] = useState(false);
   const urlsRef = useRef([]);
   const [viewer, setViewer] = useState({ open: false, id: null, url: '', loading: false });
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -25,9 +26,9 @@ export default function Gallery() {
       try {
         const list = await listPhotos(pairId, 100);
         if (cancelled) return;
-        urlsRef.current.forEach((u) => URL.revokeObjectURL(u));
+        urlsRef.current.forEach((u) => { if (u && u.startsWith('blob:')) URL.revokeObjectURL(u); });
         urlsRef.current = [];
-        list.forEach((it) => { if (it.thumbUrl) urlsRef.current.push(it.thumbUrl); });
+        list.forEach((it) => { if (it.thumbUrl && it.thumbUrl.startsWith('blob:')) urlsRef.current.push(it.thumbUrl); });
         setItems(list);
       } finally {
         if (!cancelled) setLoading(false);
@@ -36,9 +37,9 @@ export default function Gallery() {
     if (pairId) load();
     return () => {
       cancelled = true;
-      urlsRef.current.forEach((u) => URL.revokeObjectURL(u));
+      urlsRef.current.forEach((u) => { if (u && u.startsWith('blob:')) URL.revokeObjectURL(u); });
       urlsRef.current = [];
-      if (viewer.url) URL.revokeObjectURL(viewer.url);
+      if (viewer.url && viewer.url.startsWith('blob:')) URL.revokeObjectURL(viewer.url);
     };
   }, [pairId]);
 
@@ -69,15 +70,38 @@ export default function Gallery() {
   async function openViewer(id) {
     setViewer({ open: true, id, url: '', loading: true });
     const blob = await getOriginal(pairId, id);
-    const url = blob ? URL.createObjectURL(blob) : '';
+    let url = '';
+    if (blob) {
+      url = URL.createObjectURL(blob);
+    } else {
+      // Fallback to remote URL (works online without CORS for <img>)
+      url = await getOriginalUrl(pairId, id);
+    }
     setViewer({ open: true, id, url, loading: false });
   }
 
   function closeViewer() {
-    if (viewer.url) URL.revokeObjectURL(viewer.url);
+    if (viewer.url && viewer.url.startsWith('blob:')) URL.revokeObjectURL(viewer.url);
     setViewer({ open: false, id: null, url: '', loading: false });
     // Navigate to clear the URL parameter, preventing the viewer from re-opening
     navigate('/gallery', { replace: true });
+  }
+
+  async function onDeleteCurrent() {
+    if (!pairId || !viewer.id || deleting) return;
+    const id = viewer.id;
+    setDeleting(true);
+    try {
+      await deletePhoto(pairId, id);
+      // remove from UI list
+      setItems((prev) => prev.filter((it) => it.id !== id));
+      closeViewer();
+    } catch (e) {
+      console.error('Delete failed', e);
+      alert('No se pudo borrar la foto.');
+    } finally {
+      setDeleting(false);
+    }
   }
 
   return (
@@ -122,7 +146,14 @@ export default function Gallery() {
             ) : (
               <div className="text-center text-gray-500">No disponible offline</div>
             )}
-            <div className="text-center mt-4">
+            <div className="flex items-center justify-between mt-4">
+              <button
+                onClick={onDeleteCurrent}
+                disabled={deleting}
+                className="px-4 py-2 rounded-lg bg-rose-600 text-white hover:bg-rose-700 disabled:opacity-50"
+              >
+                {deleting ? 'Borrando…' : 'Borrar'}
+              </button>
               <button onClick={closeViewer} className="btn-primary">Cerrar</button>
             </div>
           </div>

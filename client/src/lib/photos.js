@@ -1,5 +1,5 @@
 import { auth, db, storage, authReady } from './firebase';
-import { getThumb, putThumb, getOrig, putOrig, pruneOrig } from './photoCache';
+import { getThumb, putThumb, getOrig, putOrig, pruneOrig, deleteThumb, deleteOrig } from './photoCache';
 
 // Helpers
 function genId() {
@@ -62,9 +62,9 @@ let _fb;
 async function fb() {
   if (!_fb) {
     try {
-      const { ref, uploadBytes, getDownloadURL } = await import('firebase/storage');
-      const { collection, doc, setDoc, getDoc, getDocs, query, orderBy, limit, serverTimestamp } = await import('firebase/firestore');
-      _fb = { ref, uploadBytes, getDownloadURL, collection, doc, setDoc, getDoc, getDocs, query, orderBy, limit, serverTimestamp };
+      const { ref, uploadBytes, getDownloadURL, deleteObject } = await import('firebase/storage');
+      const { collection, doc, setDoc, getDoc, getDocs, query, orderBy, limit, serverTimestamp, deleteDoc } = await import('firebase/firestore');
+      _fb = { ref, uploadBytes, getDownloadURL, deleteObject, collection, doc, setDoc, getDoc, getDocs, query, orderBy, limit, serverTimestamp, deleteDoc };
     } catch (e) {
       _fb = null;
     }
@@ -91,25 +91,21 @@ export async function listPhotos(pairId, max = 100) {
         if (blob) {
           thumbUrl = URL.createObjectURL(blob);
         } else {
-          // fetch via saved URL (preferred) or from storage and cache
+          // No cached blob: show remote URL immediately to avoid CORS fetch issues,
+          // and backfill Firestore if needed. Background caching can be added later.
           try {
             const { ref, getDownloadURL, collection, doc, setDoc } = fblib;
-            let url = data?.thumbUrl || '';
-            if (!url) {
+            let displayUrl = data?.thumbUrl || '';
+            const invalid = displayUrl && (/\.firebasestorage\.app\//.test(displayUrl) || displayUrl.indexOf('alt=media') === -1);
+            if (!displayUrl || invalid) {
               const tRef = ref(storage, `pairs/${pairId}/photos/${id}/thumb.jpg`);
-              url = await getDownloadURL(tRef);
-              // backfill thumbUrl into Firestore for cross-user access
+              displayUrl = await getDownloadURL(tRef);
               try {
                 const dRef = doc(collection(db, 'pairs', pairId, 'photos'), id);
-                await setDoc(dRef, { thumbUrl: url }, { merge: true });
+                await setDoc(dRef, { thumbUrl: displayUrl }, { merge: true });
               } catch {}
             }
-            if (url) {
-              const resp = await fetch(url);
-              const b = await resp.blob();
-              await putThumb(id, b);
-              thumbUrl = URL.createObjectURL(b);
-            }
+            thumbUrl = displayUrl;
           } catch {}
         }
         items.push({ id, thumbUrl, createdAt: data?.createdAt?.toMillis?.() || Date.now() });
@@ -146,25 +142,68 @@ export async function getOriginal(pairId, id) {
         const dsnap = await getDoc(dRef);
         url = dsnap?.exists?.() && dsnap.data()?.origUrl ? dsnap.data().origUrl : '';
       } catch {}
-      if (!url) {
-        const oRef = ref(storage, `pairs/${pairId}/photos/${id}/orig.jpg`);
-        url = await getDownloadURL(oRef);
-        // Backfill origUrl into Firestore so other clients can access without Storage permissions
+
+      // Try to fetch using saved URL first
+      let fetched = null;
+      if (url) {
         try {
-          const dRef = doc(collection(db, 'pairs', pairId, 'photos'), id);
-          await setDoc(dRef, { origUrl: url }, { merge: true });
+          const resp = await fetch(url);
+          if (resp.ok) {
+            fetched = await resp.blob();
+          }
         } catch {}
       }
-      if (url) {
-        const resp = await fetch(url);
-        const blob = await resp.blob();
-        await putOrig(id, blob);
+      // Fallback to generating a fresh URL from Storage (handles wrong/expired URLs)
+      if (!fetched) {
+        try {
+          const oRef = ref(storage, `pairs/${pairId}/photos/${id}/orig.jpg`);
+          const freshUrl = await getDownloadURL(oRef);
+          try {
+            const dRef = doc(collection(db, 'pairs', pairId, 'photos'), id);
+            await setDoc(dRef, { origUrl: freshUrl }, { merge: true });
+          } catch {}
+          const resp2 = await fetch(freshUrl);
+          if (resp2.ok) {
+            fetched = await resp2.blob();
+          }
+        } catch {}
+      }
+      if (fetched) {
+        await putOrig(id, fetched);
         await pruneOrig(20);
-        return blob;
+        return fetched;
       }
     } catch {}
   }
   return null;
+}
+
+// Get a remote URL for the original image (no fetch), for online viewing fallback
+export async function getOriginalUrl(pairId, id) {
+  const fblib = await fb();
+  if (!(storage && fblib)) return '';
+  try {
+    await waitAuth();
+    const { ref, getDownloadURL, collection, doc, getDoc, setDoc } = fblib;
+    let url = '';
+    try {
+      const dRef = doc(collection(db, 'pairs', pairId, 'photos'), id);
+      const dsnap = await getDoc(dRef);
+      url = dsnap?.exists?.() && dsnap.data()?.origUrl ? dsnap.data().origUrl : '';
+    } catch {}
+    const invalid = url && (/\.firebasestorage\.app\//.test(url) || url.indexOf('alt=media') === -1);
+    if (!url || invalid) {
+      const oRef = ref(storage, `pairs/${pairId}/photos/${id}/orig.jpg`);
+      url = await getDownloadURL(oRef);
+      try {
+        const dRef = doc(collection(db, 'pairs', pairId, 'photos'), id);
+        await setDoc(dRef, { origUrl: url }, { merge: true });
+      } catch {}
+    }
+    return url || '';
+  } catch {
+    return '';
+  }
 }
 
 export async function uploadPhoto(pairId, file, identity = 'yo') {
@@ -215,4 +254,38 @@ export async function uploadPhoto(pairId, file, identity = 'yo') {
   writeLocalMeta(pairId, meta);
 
   return { id, thumbUrl: URL.createObjectURL(thumbBlob), createdAt: now, remote: remoteOk };
+}
+
+// Delete photo from Storage, Firestore and local cache/meta
+export async function deletePhoto(pairId, id) {
+  const fblib = await fb();
+  try {
+    await waitAuth();
+  } catch {}
+
+  if (db && storage && fblib) {
+    try {
+      const { ref, deleteObject, collection, doc, deleteDoc } = fblib;
+      const base = `pairs/${pairId}/photos/${id}`;
+      const tRef = ref(storage, `${base}/thumb.jpg`);
+      const oRef = ref(storage, `${base}/orig.jpg`);
+      await Promise.all([
+        deleteObject(tRef).catch(() => {}),
+        deleteObject(oRef).catch(() => {}),
+      ]);
+      await deleteDoc(doc(collection(db, 'pairs', pairId, 'photos'), id)).catch(() => {});
+    } catch (e) {
+      // proceed to local cleanup even if remote fails
+      console.warn('Remote delete failed or partial:', e);
+    }
+  }
+
+  // Local cache cleanup
+  try { await deleteThumb(id); } catch {}
+  try { await deleteOrig(id); } catch {}
+  // Local meta cleanup
+  try {
+    const meta = readLocalMeta(pairId).filter((m) => m.id !== id);
+    writeLocalMeta(pairId, meta);
+  } catch {}
 }

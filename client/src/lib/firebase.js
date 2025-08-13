@@ -37,7 +37,7 @@ if (required.every(Boolean)) {
     // err.code can be 'failed-precondition' (multiple tabs) or 'unimplemented' (browser)
     console.warn('Firestore persistence not enabled:', err?.code || err);
   });
-  storage = getStorage(app, `gs://${firebaseConfig.storageBucket}`);
+  storage = getStorage(app);
 } else {
   console.warn('Firebase config missing (REACT_APP_*) — skipping initialization for now.');
   authReady = Promise.resolve(null);
