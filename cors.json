@@ -1,0 +1,8 @@
+[
+  {
+    "origin": ["http://localhost:3000", "https://relacion-89ccb.web.app", "https://relacion-89ccb.firebaseapp.com"],
+    "method": ["GET", "OPTIONS"],
+    "responseHeader": ["Content-Type", "Authorization", "X-Requested-With", "x-firebase-gmpid"],
+    "maxAgeSeconds": 3600
+  }
+]

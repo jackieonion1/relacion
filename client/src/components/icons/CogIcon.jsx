@@ -3,7 +3,21 @@ import React from 'react';
 export default function CogIcon({ className }) {
   return (
     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M19.4,12c0-1.3-0.6-2.5-1.6-3.4l1.4-1.4c0.4-0.4,0.4-1,0-1.4s-1-0.4-1.4,0l-1.4,1.4C15.5,6.6,14.3,6,13,6V4.4c0-0.6-0.4-1-1-1s-1,0.4-1,1V6c-1.3,0-2.5,0.6-3.4,1.6l-1.4-1.4c-0.4-0.4-1-0.4-1.4,0s-0.4,1,0,1.4l1.4,1.4C6.6,9.5,6,10.7,6,12s0.6,2.5,1.6,3.4l-1.4,1.4c-0.4,0.4-0.4,1,0,1.4c0.2,0.2,0.5,0.3,0.7,0.3s0.5-0.1,0.7-0.3l1.4-1.4c0.9,1,2.1,1.6,3.4,1.6v1.6c0,0.6,0.4,1,1,1s1-0.4,1-1V18c1.3,0,2.5-0.6,3.4-1.6l1.4,1.4c0.2,0.2,0.5,0.3,0.7,0.3s0.5-0.1,0.7-0.3c0.4-0.4,0.4-1,0-1.4l-1.4-1.4C18.8,14.5,19.4,13.3,19.4,12z M12,15.5c-1.9,0-3.5-1.6-3.5-3.5s1.6-3.5,3.5-3.5s3.5,1.6,3.5,3.5S13.9,15.5,12,15.5z" />
+      <g strokeLinecap="round" strokeLinejoin="round">
+        {/* Outer ring */}
+        <circle cx="12" cy="12" r="7.5" />
+        {/* Inner hub */}
+        <circle cx="12" cy="12" r="3.25" />
+        {/* Teeth (8 directions) */}
+        <path d="M12 2.25v2.5" />
+        <path d="M12 19.25v2.5" />
+        <path d="M2.25 12h2.5" />
+        <path d="M19.25 12h2.5" />
+        <path d="M5 5l1.77 1.77" />
+        <path d="M17.23 17.23L19 19" />
+        <path d="M19 5l-1.77 1.77" />
+        <path d="M5 19l1.77-1.77" />
+      </g>
     </svg>
   );
 }

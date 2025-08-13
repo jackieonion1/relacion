@@ -1,10 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { listEvents } from '../lib/calendar';
 import Countdown from '../components/Countdown';
 import RandomPhoto from '../components/RandomPhoto';
 
 export default function Dashboard() {
+  const navigate = useNavigate();
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -312,8 +313,20 @@ export default function Dashboard() {
                   eventTypeColor = 'bg-rose-500'; // Anniversary/monthiversary: pink
                 }
                 
+                const handleClick = () => {
+                  if (!d) return;
+                  const y = d.getFullYear();
+                  const m = d.getMonth(); // 0-indexed
+                  const day = d.getDate();
+                  navigate(`/calendar?y=${y}&m=${m}&d=${day}`);
+                };
+
                 return (
-                  <li key={ev.id} className="text-sm flex items-center gap-2">
+                  <li
+                    key={ev.id}
+                    className="text-sm flex items-center gap-2 cursor-pointer hover:bg-gray-50 rounded px-2 -mx-2"
+                    onClick={handleClick}
+                  >
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
                         <span className="font-medium text-gray-800 truncate">{ev.title}</span>

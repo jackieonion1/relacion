@@ -117,3 +117,11 @@ export async function pruneOrig(max = 20) {
     countReq.onerror = () => reject(countReq.error);
   });
 }
+
+export async function deleteThumb(id) {
+  await del(THUMBS, id);
+}
+
+export async function deleteOrig(id) {
+  await del(ORIG, id);
+}

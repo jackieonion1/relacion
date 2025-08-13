@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import { addEvent, listEvents, deleteEvent } from '../lib/calendar';
 import Modal from '../components/Modal';
 import EventTypeSwitcher from '../components/EventTypeSwitcher';
@@ -7,7 +8,7 @@ import MonthlyCalendarView from '../components/MonthlyCalendarView';
 import CollapsibleSection from '../components/CollapsibleSection';
 import HeartRainAnimation from '../components/HeartRainAnimation';
 
-const EventList = ({ events, onDelete }) => {
+const EventList = ({ events, onDelete, onItemClick }) => {
   if (events.length === 0) {
     return <div className="text-gray-500 text-sm px-4 py-2">No hay eventos aquí.</div>;
   }
@@ -45,7 +46,11 @@ const EventList = ({ events, onDelete }) => {
         }
         
         return (
-          <li key={ev.id} className="py-3 flex items-center gap-3">
+          <li
+            key={ev.id}
+            className="py-3 flex items-center gap-3 cursor-pointer hover:bg-gray-50 rounded px-2 -mx-2"
+            onClick={() => onItemClick && onItemClick(ev)}
+          >
             <div className="flex-1 min-w-0">
               <div className="font-medium text-gray-900 truncate flex items-center gap-2">
                 <span className="truncate">{ev.title}</span>
@@ -54,7 +59,12 @@ const EventList = ({ events, onDelete }) => {
               <div className="text-sm text-gray-500 truncate">{when}{ev.location ? ` · ${ev.location}` : ''}</div>
             </div>
             {!ev.isSpecialEvent && (
-              <button onClick={() => onDelete(ev.id)} className="btn-link text-sm">Borrar</button>
+              <button
+                onClick={(e) => { e.stopPropagation(); onDelete(ev.id); }}
+                className="btn-link text-sm"
+              >
+                Borrar
+              </button>
             )}
           </li>
         );
@@ -64,6 +74,7 @@ const EventList = ({ events, onDelete }) => {
 };
 
 export default function CalendarPage() {
+  const location = useLocation();
   const [view, setView] = useState('Lista'); // 'Lista' | 'Calendario'
   const [isModalOpen, setIsModalOpen] = useState(false);
   const pairId = useMemo(() => localStorage.getItem('pairId') || '', []);
@@ -83,6 +94,7 @@ export default function CalendarPage() {
     eventId: '',
     eventTitle: ''
   });
+  const [targetDate, setTargetDate] = useState(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -125,6 +137,19 @@ export default function CalendarPage() {
     })();
     return () => { cancelled = true; };
   }, [pairId, refreshKey]);
+
+  // Handle deep-link: /calendar?y=YYYY&m=MM_0indexed&d=DD
+  useEffect(() => {
+    const params = new URLSearchParams(location.search || '');
+    const y = Number(params.get('y'));
+    const m = Number(params.get('m'));
+    const d = Number(params.get('d'));
+    if (!Number.isNaN(y) && !Number.isNaN(m) && !Number.isNaN(d) && y > 1900 && m >= 0 && m <= 11 && d >= 1 && d <= 31) {
+      setView('Calendario');
+      openDay(d, m, y);
+      setTargetDate(new Date(y, m, d));
+    }
+  }, [location.search]);
 
   const { upcomingEvents, pastEvents } = useMemo(() => {
     const now = new Date();
@@ -182,6 +207,14 @@ export default function CalendarPage() {
     });
   };
 
+  const handleListItemClick = (ev) => {
+    const dt = ev.start?.toDate?.();
+    if (!dt) return;
+    setView('Calendario');
+    setTargetDate(dt);
+    openDay(dt.getDate(), dt.getMonth(), dt.getFullYear());
+  };
+
   const confirmDelete = async () => {
     const { eventId } = deleteConfirmation;
     try {
@@ -210,31 +243,31 @@ export default function CalendarPage() {
     });
   };
 
-  const onDayClick = (day, month, year) => {
+  // Open a given day and trigger special animations when appropriate
+  function openDay(day, month, year) {
     setSelectedDay({ day, month, year });
     setDayEventsPopup(true);
-    
-    // Check for birthdays
+
+    // Birthdays
     const isLucyBirthday = day === 21 && month === 3; // April 21st (0-indexed)
     const isSebasBirthday = day === 4 && month === 10; // November 4th (0-indexed)
-    
-    // Special celebration for day 24 (anniversary day)
+
+    // Anniversary (24th), with fireworks only if November (real anniversary)
     if (day === 24) {
-      // Check if it's the actual anniversary (November 24th)
       const isRealAnniversary = month === 10; // November (0-indexed)
-      
-      if (isRealAnniversary) {
-        setHeartAnimationType('fireworks');
-        setShowHeartRain(true);
-      } else {
-        setHeartAnimationType('rain');
-        setShowHeartRain(true);
-      }
+      setHeartAnimationType(isRealAnniversary ? 'fireworks' : 'rain');
+      setShowHeartRain(true);
     } else if (isLucyBirthday || isSebasBirthday) {
-      // Birthday celebration with party elements
       setHeartAnimationType('birthday');
       setShowHeartRain(true);
+    } else {
+      // Ensure animation is not left running for non-special days
+      setShowHeartRain(false);
     }
+  }
+
+  const onDayClick = (day, month, year) => {
+    openDay(day, month, year);
   };
 
   const closeDayEventsPopup = () => {
@@ -364,12 +397,12 @@ export default function CalendarPage() {
           <div className="divide-y divide-gray-200">
             <div className="card rounded-b-none">
               <CollapsibleSection title="Próximos eventos" defaultOpen>
-                {loading ? <div className="text-gray-500 px-4 py-2">Cargando…</div> : <EventList events={upcomingEvents} onDelete={onDelete} />}
+                {loading ? <div className="text-gray-500 px-4 py-2">Cargando…</div> : <EventList events={upcomingEvents} onDelete={onDelete} onItemClick={handleListItemClick} />}
               </CollapsibleSection>
             </div>
             <div className="card rounded-t-none">
               <CollapsibleSection title="Eventos pasados">
-                <EventList events={pastEvents} onDelete={onDelete} />
+                <EventList events={pastEvents} onDelete={onDelete} onItemClick={handleListItemClick} />
               </CollapsibleSection>
             </div>
           </div>
@@ -378,7 +411,7 @@ export default function CalendarPage() {
 
       {view === 'Calendario' && (
         <div className="pb-20">
-          <MonthlyCalendarView events={items} onDayClick={onDayClick} />
+          <MonthlyCalendarView events={items} onDayClick={onDayClick} targetDate={targetDate} />
         </div>
       )}
 
@@ -518,21 +551,24 @@ export default function CalendarPage() {
             const dayEvents = items.filter(event => {
               const eventDate = event.start?.toDate();
               if (!eventDate) return false;
-              
+
               const eventDay = eventDate.getDate();
               const eventMonth = eventDate.getMonth();
               const eventYear = eventDate.getFullYear();
-              
+
               // Check if event occurs on selected day or spans through it
               let isOnSelectedDay = false;
               if (event.end) {
                 const endDate = event.end.toDate();
                 const selectedDate = new Date(selectedDay.year, selectedDay.month, selectedDay.day);
-                isOnSelectedDay = selectedDate >= eventDate && selectedDate <= endDate;
+                // Compare by day boundaries so the first day is included even if start has a time > 00:00
+                const startDay = new Date(eventDate.getFullYear(), eventDate.getMonth(), eventDate.getDate());
+                const endDay = new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate(), 23, 59, 59, 999);
+                isOnSelectedDay = selectedDate >= startDay && selectedDate <= endDay;
               } else {
                 isOnSelectedDay = eventDay === selectedDay.day && eventMonth === selectedDay.month && eventYear === selectedDay.year;
               }
-              
+
               // If this day has a special message (anniversary, birthday), filter out the corresponding special event
               if (isOnSelectedDay && event.isSpecialEvent) {
                 if ((isAnniversaryDay && (event.specialType === 'anniversary' || event.specialType === 'monthiversary')) ||
@@ -541,7 +577,7 @@ export default function CalendarPage() {
                   return false; // Filter out the special event when there's a special message
                 }
               }
-              
+
               return isOnSelectedDay;
             });
 
