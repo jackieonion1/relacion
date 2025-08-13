@@ -4,6 +4,7 @@ import Dashboard from './pages/Dashboard';
 import Gallery from './pages/Gallery';
 import CalendarPage from './pages/Calendar';
 import MapPage from './pages/Map';
+import Notes from './pages/Notes';
 import NavBar from './components/NavBar';
 import InstallPrompt from './components/InstallPrompt';
 import CogIcon from './components/icons/CogIcon';
@@ -101,6 +102,7 @@ export default function App() {
       case '/': return 'Inicio';
       case '/gallery': return 'Galería';
       case '/calendar': return 'Calendario';
+      case '/notes': return 'Notas';
       case '/map': return 'Mapa';
       default: return '';
     }
@@ -143,6 +145,7 @@ export default function App() {
               <Route path="/" element={<Dashboard />} />
               <Route path="/gallery" element={<Gallery />} />
               <Route path="/calendar" element={<CalendarPage />} />
+              <Route path="/notes" element={<Notes />} />
               <Route path="/map" element={<MapPage />} />
               <Route path="/settings" element={<Settings />} />
               <Route path="*" element={<Navigate to="/" replace />} />

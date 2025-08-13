@@ -24,4 +24,16 @@ body { @apply bg-rose-50/50; }
   .chip { @apply inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-rose-50 text-rose-700 text-xs border border-rose-100; }
   .title-sm { @apply font-semibold text-gray-900; }
   .muted { @apply text-gray-500; }
+
+  /* Rich text editor & note content basic typography */
+  .rte a, .note-content a { @apply text-rose-600 underline; }
+  .rte ul, .note-content ul { @apply list-disc pl-5; }
+  .rte ol, .note-content ol { @apply list-decimal pl-5; }
+  /* In the notes grid cards, keep link styling but disable click */
+  .note-card a { pointer-events: none; cursor: default; }
+  /* Clamp note preview to 6 lines in the grid */
+  .note-snippet { display: -webkit-box; -webkit-line-clamp: 6; line-clamp: 6; -webkit-box-orient: vertical; overflow: hidden; }
+  /* Masonry layout: two columns with variable card heights */
+  .masonry { column-count: 2; column-gap: 12px; }
+  .masonry .card { break-inside: avoid; -webkit-column-break-inside: avoid; margin-bottom: 12px; width: 100%; }
 }
