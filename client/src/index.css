@@ -41,17 +41,36 @@ body { @apply bg-rose-50/50; }
   .rte a, .note-content a { @apply text-rose-600 underline; }
   .rte ul, .note-content ul { @apply list-disc pl-5; }
   .rte ol, .note-content ol { @apply list-decimal pl-5; }
+  /* Ensure lists render bullets/numbers in card previews (inside to avoid clamp clipping) */
+  .note-card ul, .note-snippet ul { @apply list-disc list-inside pl-5; }
+  .note-card ol, .note-snippet ol { @apply list-decimal list-inside pl-5; }
   /* In the notes grid cards, keep link styling but disable click */
   .note-card a { pointer-events: none; cursor: default; }
-  /* Clamp note preview to 6 lines in the grid */
+  /* Break long words/URLs so they don't overflow */
+  .note-card, .note-card *, .note-snippet, .note-snippet * {
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    hyphens: auto;
+    min-width: 0;
+  }
+  /* Ensure titles and all content in notes grid also wrap */
+  .masonry-grid .card, .masonry-grid .card * {
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    hyphens: auto;
+    min-width: 0;
+  }
+  /* Note detail and thread message content wrapping */
+  .note-content, .note-content * {
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    hyphens: auto;
+    min-width: 0;
+  }
+  /* Let previews grow naturally (no gradient/clamp) */
   .note-snippet { 
-    display: -webkit-box; 
-    -webkit-line-clamp: 6; 
-    line-clamp: 6; 
-    -webkit-box-orient: vertical; 
-    overflow: hidden; 
     font-size: 0.875rem; 
-    line-height: 1.25rem;
+    line-height: 1.25rem; 
   }
   /* Masonry layout: two columns with variable card heights */
   .masonry { 
@@ -66,6 +85,25 @@ body { @apply bg-rose-50/50; }
     width: 100%; 
     display: inline-block;
   }
+
+  /* Stacked thread wrapper to avoid iOS column clipping */
+  .masonry .stack-wrapper {
+    break-inside: avoid;
+    -webkit-column-break-inside: avoid;
+    page-break-inside: avoid;
+    display: inline-block;
+    width: 100%;
+    margin-bottom: 12px; /* match card spacing */
+    position: relative;
+    overflow: visible; /* ensure stack shadows are visible */
+  }
+  .masonry .stack-wrapper .card {
+    margin-bottom: 0 !important; /* prevent double spacing inside wrapper */
+  }
+
+  /* New flex-based masonry grid (stable reflow) */
+  .masonry-grid { display: flex; gap: 12px; align-items: flex-start; }
+  .masonry-col { flex: 1 1 0%; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 
   /* Safe-area helpers and FAB placement */
   .navbar-safe { padding-bottom: env(safe-area-inset-bottom); }
