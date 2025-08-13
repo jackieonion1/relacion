@@ -196,6 +196,20 @@ export default function Dashboard() {
     return result;
   }, [events]);
 
+  const nextMeetEvent = useMemo(() => {
+    // Next event explicitly marked as "¿Nos vemos?"
+    const meets = events.filter(ev => ev.seeEachOther === true);
+    return meets.length > 0 ? meets[0] : null;
+  }, [events]);
+
+  const hideConjunto = useMemo(() => {
+    if (!nextEvent || !nextMeetEvent) return false;
+    if (nextEvent.id && nextMeetEvent.id) return nextEvent.id === nextMeetEvent.id;
+    const a = nextEvent.start?.toDate?.();
+    const b = nextMeetEvent.start?.toDate?.();
+    return !!(a && b && a.getTime() === b.getTime());
+  }, [nextEvent, nextMeetEvent]);
+
   return (
     <div className="space-y-4">
       {timeTogether ? (
@@ -223,8 +237,17 @@ export default function Dashboard() {
         </div>
       )}
 
+      {nextMeetEvent && (
+        <div className="card">
+          <div className="text-sm text-gray-600 mb-2">Próxima vez que nos vemos</div>
+          <div className="text-lg font-semibold text-gray-900 mb-2">{nextMeetEvent.title}</div>
+          <Countdown toDate={nextMeetEvent.start.toDate()} />
+        </div>
+      )}
+
+      {!hideConjunto && (
       <div className="card">
-        <div className="text-sm text-gray-600 mb-2">Próximo evento</div>
+        <div className="text-sm text-gray-600 mb-2">Próximo evento conjunto</div>
         {nextEvent ? (
           <>
             <div className="text-lg font-semibold text-gray-900 mb-2">{nextEvent.title}</div>
@@ -268,6 +291,7 @@ export default function Dashboard() {
           </>
         )}
       </div>
+      )}
 
       <div className="card">
         <div className="flex items-center justify-between mb-2">

@@ -35,7 +35,7 @@ export async function listEvents(pairId, { futureOnly = true, max = 50 } = {}) {
   return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
 }
 
-export async function addEvent(pairId, { title, date, time, endDate, location = '', eventType = 'conjunto' }, identity = 'yo') {
+export async function addEvent(pairId, { title, date, time, endDate, location = '', eventType = 'conjunto', seeEachOther = false }, identity = 'yo') {
   if (!pairId || !db) throw new Error('missing-context');
   await waitAuth();
   const f = await fb();
@@ -60,6 +60,7 @@ export async function addEvent(pairId, { title, date, time, endDate, location = 
     createdBy: auth.currentUser.uid,
     identity,
     eventType: eventType || 'conjunto',
+    seeEachOther: !!seeEachOther,
   };
 
   // Add end date if provided

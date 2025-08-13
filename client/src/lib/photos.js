@@ -91,12 +91,12 @@ export async function listPhotos(pairId, max = 100) {
         if (blob) {
           thumbUrl = URL.createObjectURL(blob);
         } else {
-          // No cached blob: show remote URL immediately to avoid CORS fetch issues,
-          // and backfill Firestore if needed. Background caching can be added later.
+          // No cached blob: resolve a correct remote URL, then try to fetch to blob immediately.
           try {
             const { ref, getDownloadURL, collection, doc, setDoc } = fblib;
             let displayUrl = data?.thumbUrl || '';
-            const invalid = displayUrl && (/\.firebasestorage\.app\//.test(displayUrl) || displayUrl.indexOf('alt=media') === -1);
+            // Accept .firebasestorage.app as correct; treat legacy .appspot.com or missing alt=media as invalid
+            const invalid = displayUrl && (/\.appspot\.com\//.test(displayUrl) || displayUrl.indexOf('alt=media') === -1);
             if (!displayUrl || invalid) {
               const tRef = ref(storage, `pairs/${pairId}/photos/${id}/thumb.jpg`);
               displayUrl = await getDownloadURL(tRef);
@@ -105,7 +105,20 @@ export async function listPhotos(pairId, max = 100) {
                 await setDoc(dRef, { thumbUrl: displayUrl }, { merge: true });
               } catch {}
             }
-            thumbUrl = displayUrl;
+            // Try to fetch the remote URL into a Blob so we can use a blob: URL (more reliable on iOS)
+            try {
+              const resp = await fetch(displayUrl, { mode: 'cors', cache: 'force-cache' });
+              if (resp.ok) {
+                const b = await resp.blob();
+                await putThumb(id, b);
+                thumbUrl = URL.createObjectURL(b);
+              } else {
+                thumbUrl = displayUrl;
+              }
+            } catch {
+              // Fallback to remote URL if CORS blocks fetch
+              thumbUrl = displayUrl;
+            }
           } catch {}
         }
         items.push({ id, thumbUrl, createdAt: data?.createdAt?.toMillis?.() || Date.now() });
@@ -191,7 +204,8 @@ export async function getOriginalUrl(pairId, id) {
       const dsnap = await getDoc(dRef);
       url = dsnap?.exists?.() && dsnap.data()?.origUrl ? dsnap.data().origUrl : '';
     } catch {}
-    const invalid = url && (/\.firebasestorage\.app\//.test(url) || url.indexOf('alt=media') === -1);
+    // Accept .firebasestorage.app; treat legacy .appspot.com or missing alt=media as invalid
+    const invalid = url && (/\.appspot\.com\//.test(url) || url.indexOf('alt=media') === -1);
     if (!url || invalid) {
       const oRef = ref(storage, `pairs/${pairId}/photos/${id}/orig.jpg`);
       url = await getDownloadURL(oRef);
@@ -229,8 +243,9 @@ export async function uploadPhoto(pairId, file, identity = 'yo') {
       const base = `pairs/${pairId}/photos/${id}`;
       const tRef = ref(storage, `${base}/thumb.jpg`);
       const oRef = ref(storage, `${base}/orig.jpg`);
-      await uploadBytes(tRef, thumbBlob, { contentType: 'image/jpeg' });
-      await uploadBytes(oRef, origBlob, { contentType: 'image/jpeg' });
+      const cacheMeta = { contentType: 'image/jpeg', cacheControl: 'public, max-age=31536000, immutable' };
+      await uploadBytes(tRef, thumbBlob, cacheMeta);
+      await uploadBytes(oRef, origBlob, cacheMeta);
       const [thumbUrlRemote, origUrlRemote] = await Promise.all([
         getDownloadURL(tRef),
         getDownloadURL(oRef),

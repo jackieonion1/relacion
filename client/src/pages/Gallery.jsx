@@ -16,7 +16,7 @@ export default function Gallery() {
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const urlsRef = useRef([]);
-  const [viewer, setViewer] = useState({ open: false, id: null, url: '', loading: false });
+  const [viewer, setViewer] = useState({ open: false, id: null, url: '', fallbackUrl: '', loading: false });
   const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
@@ -68,21 +68,66 @@ export default function Gallery() {
   }
 
   async function openViewer(id) {
-    setViewer({ open: true, id, url: '', loading: true });
-    const blob = await getOriginal(pairId, id);
+    setViewer({ open: true, id, url: '', fallbackUrl: '', loading: true });
+    const isIOSPWA = typeof navigator !== 'undefined' && 'standalone' in navigator && navigator.standalone;
     let url = '';
-    if (blob) {
-      url = URL.createObjectURL(blob);
+    let fallbackUrl = '';
+    if (isIOSPWA) {
+      // iOS PWA: Prefer blob from IndexedDB (mitiga bug al renderizar respuestas opacas desde SW tras navegación)
+      try {
+        const blob = await getOriginal(pairId, id);
+        if (blob && (blob.size === undefined || blob.size > 32)) {
+          url = URL.createObjectURL(blob);
+        }
+      } catch {}
+      if (!url) {
+        // Fallback: remote URL (SW la tendrá cacheada tras primera vista)
+        fallbackUrl = await getOriginalUrl(pairId, id);
+        url = fallbackUrl;
+        fallbackUrl = '';
+        // Además intenta obtener Blob en segundo plano y promoverlo
+        getOriginal(pairId, id)
+          .then((blob) => {
+            if (blob && (blob.size === undefined || blob.size > 32)) {
+              const blobUrl = URL.createObjectURL(blob);
+              setViewer((v) => (v.open && v.id === id ? { ...v, url: blobUrl, fallbackUrl: '' } : v));
+            }
+          })
+          .catch(() => {});
+      } else {
+        // Prepara fallback remoto por si blob falla al pintar (actualiza estado cuando llegue)
+        getOriginalUrl(pairId, id)
+          .then((remote) => {
+            if (remote) {
+              setViewer((v) => (v.open && v.id === id ? { ...v, fallbackUrl: remote } : v));
+            }
+          })
+          .catch(() => {});
+      }
     } else {
-      // Fallback to remote URL (works online without CORS for <img>)
-      url = await getOriginalUrl(pairId, id);
+      // Otros navegadores: prefer blob; remoto como fallback
+      try {
+        const blob = await getOriginal(pairId, id);
+        if (blob) url = URL.createObjectURL(blob);
+      } catch {}
+      if (!url) url = await getOriginalUrl(pairId, id);
+      if (url && url.startsWith('blob:')) {
+        getOriginalUrl(pairId, id)
+          .then((remote) => {
+            if (remote) {
+              setViewer((v) => (v.open && v.id === id ? { ...v, fallbackUrl: remote } : v));
+            }
+          })
+          .catch(() => {});
+      }
     }
-    setViewer({ open: true, id, url, loading: false });
+    setViewer({ open: true, id, url, fallbackUrl, loading: false });
   }
 
   function closeViewer() {
     if (viewer.url && viewer.url.startsWith('blob:')) URL.revokeObjectURL(viewer.url);
-    setViewer({ open: false, id: null, url: '', loading: false });
+    if (viewer.fallbackUrl && viewer.fallbackUrl.startsWith('blob:')) URL.revokeObjectURL(viewer.fallbackUrl);
+    setViewer({ open: false, id: null, url: '', fallbackUrl: '', loading: false });
     // Navigate to clear the URL parameter, preventing the viewer from re-opening
     navigate('/gallery', { replace: true });
   }
@@ -142,7 +187,31 @@ export default function Gallery() {
             {viewer.loading ? (
               <div className="text-center text-gray-600">Cargando…</div>
             ) : viewer.url ? (
-              <img src={viewer.url} alt="" className="w-full h-auto max-h-[60vh] object-contain rounded-xl" />
+              <img 
+                src={viewer.url} 
+                alt="" 
+                className="w-full h-auto max-h-[60vh] object-contain rounded-xl" 
+                onError={() => {
+                  if (viewer.fallbackUrl && viewer.fallbackUrl !== viewer.url) {
+                    setViewer((v) => ({ ...v, url: v.fallbackUrl }));
+                    return;
+                  }
+                  // Si no tenemos fallback aún, intenta la fuente alternativa bajo demanda
+                  const isBlob = viewer.url && viewer.url.startsWith('blob:');
+                  if (viewer.id) {
+                    if (isBlob) {
+                      getOriginalUrl(pairId, viewer.id)
+                        .then((remote) => { if (remote) setViewer((v) => ({ ...v, url: remote, fallbackUrl: '' })); })
+                        .catch(() => {});
+                    } else {
+                      // Si falla la URL remota, intenta desde IndexedDB
+                      getOriginal(pairId, viewer.id)
+                        .then((blob) => { if (blob) setViewer((v) => ({ ...v, url: URL.createObjectURL(blob) })); })
+                        .catch(() => {});
+                    }
+                  }
+                }}
+              />
             ) : (
               <div className="text-center text-gray-500">No disponible offline</div>
             )}

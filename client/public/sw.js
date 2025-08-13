@@ -26,12 +26,11 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   const { request } = event;
   const url = new URL(request.url);
+  const isSameOrigin = url.origin === self.location.origin;
+  const isFirebaseStorage = /(^https?:\/\/)?([a-z0-9.-]*\.)?(firebasestorage\.googleapis\.com|firebasestorage\.app)$/.test(url.host);
 
-  // Only handle same-origin requests
-  if (url.origin !== self.location.origin) return;
-
-  // Navigation requests -> serve index.html offline fallback
-  if (request.mode === 'navigate') {
+  // Same-origin navigation -> serve index.html offline fallback
+  if (isSameOrigin && request.mode === 'navigate') {
     event.respondWith((async () => {
       try {
         const network = await fetch(request);
@@ -45,8 +44,8 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Static assets (script/style/worker) -> stale-while-revalidate
-  if (['script', 'style', 'worker'].includes(request.destination)) {
+  // Same-origin static assets (script/style/worker) -> stale-while-revalidate
+  if (isSameOrigin && ['script', 'style', 'worker'].includes(request.destination)) {
     event.respondWith((async () => {
       const cache = await caches.open(RUNTIME_CACHE);
       const cached = await cache.match(request);
@@ -59,14 +58,15 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Images -> cache-first
-  if (request.destination === 'image') {
+  // Images (same-origin or Firebase Storage) -> cache-first
+  if (request.destination === 'image' && (isSameOrigin || isFirebaseStorage)) {
     event.respondWith((async () => {
       const cache = await caches.open(RUNTIME_CACHE);
       const cached = await cache.match(request);
       if (cached) return cached;
       try {
         const resp = await fetch(request);
+        // Cache opaque/cors responses as-is; subsequent loads will use cache
         cache.put(request, resp.clone());
         return resp;
       } catch (e) {
