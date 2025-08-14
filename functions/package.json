@@ -1,0 +1,20 @@
+{
+  "name": "relacion-functions",
+  "description": "Cloud Functions for sending Web Push notifications",
+  "engines": {
+    "node": "18"
+  },
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "lint": "echo 'no lint'",
+    "build": "echo 'no build'",
+    "serve": "firebase emulators:start --only functions",
+    "deploy": "firebase deploy --only functions"
+  },
+  "dependencies": {
+    "firebase-admin": "^12.6.0",
+    "firebase-functions": "^4.7.0",
+    "web-push": "^3.6.6"
+  }
+}

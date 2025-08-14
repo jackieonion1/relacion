@@ -8,6 +8,7 @@ import Notes from './pages/Notes';
 import NavBar from './components/NavBar';
 import InstallPrompt from './components/InstallPrompt';
 import CogIcon from './components/icons/CogIcon';
+import { subscribeToPush, getPushSubscription, unsubscribeFromPush, getPushDiag } from './lib/push';
 
 const IDENTITY_KEY = 'identity'; // 'yo' | 'ella'
 const PAIR_KEY = 'pairId';
@@ -173,6 +174,97 @@ function Settings() {
     ? `${window.location.origin}/?pair=${encodeURIComponent(pair)}`
     : '';
 
+  // Notifications (step 1): UI and permission only
+  const [notifPerm, setNotifPerm] = useState(() => {
+    try { return (typeof window !== 'undefined' && 'Notification' in window) ? Notification.permission : 'unsupported'; } catch { return 'unsupported'; }
+  });
+  const [supports, setSupports] = useState({ notif: false, sw: false });
+  const [subscribed, setSubscribed] = useState(false);
+  const [pushDiag, setPushDiag] = useState(() => getPushDiag());
+  useEffect(() => {
+    try {
+      setSupports({ notif: 'Notification' in window, sw: 'serviceWorker' in navigator });
+      if ('Notification' in window) setNotifPerm(Notification.permission);
+    } catch {}
+  }, []);
+  useEffect(() => {
+    (async () => {
+      try {
+        const sub = await getPushSubscription();
+        setSubscribed(!!sub);
+      } catch {}
+    })();
+  }, []);
+  useEffect(() => {
+    // Refresh diagnostics when permission/sub state changes
+    try { setPushDiag(getPushDiag()); } catch {}
+  }, [notifPerm, subscribed]);
+  useEffect(() => {
+    if (!('serviceWorker' in navigator)) return;
+    function onMessage(e) {
+      try {
+        if (e?.data?.type === 'pushsubscriptionchange') {
+          if (Notification.permission === 'granted' && pair) {
+            const vapid = process.env.REACT_APP_VAPID_PUBLIC_KEY || '';
+            const identity = localStorage.getItem(IDENTITY_KEY) || 'yo';
+            if (vapid) {
+              subscribeToPush(pair, identity, vapid).then(() => setSubscribed(true)).catch(() => {});
+            }
+          }
+        }
+      } catch {}
+    }
+    navigator.serviceWorker.addEventListener('message', onMessage);
+    return () => navigator.serviceWorker.removeEventListener('message', onMessage);
+  }, [pair]);
+  async function requestNotifications() {
+    try {
+      if (!('Notification' in window)) return;
+      const res = await Notification.requestPermission();
+      setNotifPerm(res);
+    } catch (e) {
+      console.warn('Notification permission error', e);
+    }
+  }
+
+  async function onSubscribe() {
+    try {
+      const vapid = process.env.REACT_APP_VAPID_PUBLIC_KEY || '';
+      if (!vapid) { alert('Falta REACT_APP_VAPID_PUBLIC_KEY'); return; }
+      if (!pair) { alert('Configura el código de pareja primero'); return; }
+      const identity = localStorage.getItem(IDENTITY_KEY) || 'yo';
+      await subscribeToPush(pair, identity, vapid);
+      setSubscribed(true);
+      try { setPushDiag(getPushDiag()); } catch {}
+    } catch (e) {
+      console.warn('subscribe error', e);
+      alert('No se pudo activar: ' + (e?.message || 'Error'));
+      try { setPushDiag(getPushDiag()); } catch {}
+    }
+  }
+
+  async function onUnsubscribe() {
+    try {
+      const identity = localStorage.getItem(IDENTITY_KEY) || 'yo';
+      await unsubscribeFromPush(pair, identity);
+      setSubscribed(false);
+    } catch (e) {
+      console.warn('unsubscribe error', e);
+    }
+  }
+
+  async function onTestPush() {
+    try {
+      const { getFunctions, httpsCallable } = await import('firebase/functions');
+      const fn = httpsCallable(getFunctions(undefined, 'europe-southwest1'), 'sendTestPush');
+      await fn({ pairId: pair, title: 'Prueba', body: 'Esto es una notificación de prueba', url: '/notes' });
+      alert('Notificación de prueba enviada');
+    } catch (e) {
+      console.warn('test push error', e);
+      alert('Error enviando prueba: ' + (e?.message || 'Error'));
+    }
+  }
+
   return (
     <div className="space-y-4">
       <h2 className="text-lg font-semibold text-rose-600">Ajustes</h2>
@@ -191,6 +283,35 @@ function Settings() {
         )}
         <p className="text-xs text-gray-500 mt-2">Comparte este enlace por WhatsApp. Al abrirlo, se configura automáticamente.</p>
       </div>
+      <div className="card">
+        <div className="flex items-center justify-between">
+          <div>
+            <div className="text-sm text-gray-600">Notificaciones</div>
+            <div className="text-gray-900 font-medium">
+              {supports.notif ? (notifPerm === 'granted' ? (subscribed ? 'Suscrito' : 'Permiso concedido') : notifPerm === 'denied' ? 'Bloqueadas' : 'No activadas') : 'No soportadas'}
+            </div>
+            <p className="text-xs text-gray-500 mt-1">Requiere instalar la PWA y HTTPS.</p>
+          </div>
+          <div className="flex gap-2">
+            {notifPerm !== 'granted' ? (
+              <button onClick={requestNotifications} disabled={!supports.notif} className="btn-primary disabled:opacity-60">Activar</button>
+            ) : subscribed ? (
+              <>
+                <button onClick={onTestPush} className="btn-primary">Probar</button>
+                <button onClick={onUnsubscribe} className="btn-ghost">Desactivar</button>
+              </>
+            ) : (
+              <button onClick={onSubscribe} className="btn-primary">Suscribirme</button>
+            )}
+          </div>
+        </div>
+      </div>
+      {pushDiag && (
+        <div className="card">
+          <div className="text-sm text-gray-600 mb-1">Diagnóstico de notificaciones</div>
+          <div className="text-xs text-gray-500 break-all font-mono">{pushDiag}</div>
+        </div>
+      )}
       <IdentityReset />
     </div>
   );
