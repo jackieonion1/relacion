@@ -1,7 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { listPhotos, uploadPhoto, getOriginal, getOriginalUrl, deletePhoto } from '../lib/photos';
 import Modal from '../components/Modal';
+import TrashIcon from '../components/icons/TrashIcon';
 
 export default function Gallery() {
   const location = useLocation();
@@ -16,8 +18,12 @@ export default function Gallery() {
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const urlsRef = useRef([]);
+  const uploadInputRef = useRef(null);
+  const imgRef = useRef(null);
+  const pinchRef = useRef({ active: false, startDist: 0, originX: 0, originY: 0 });
   const [viewer, setViewer] = useState({ open: false, id: null, url: '', fallbackUrl: '', loading: false });
   const [deleting, setDeleting] = useState(false);
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -65,6 +71,58 @@ export default function Gallery() {
     } finally {
       setUploading(false);
     }
+  }
+
+  // Pinch-to-zoom handlers (temporary zoom like Instagram)
+  function getDistance(touches) {
+    const [a, b] = touches;
+    const dx = a.clientX - b.clientX;
+    const dy = a.clientY - b.clientY;
+    return Math.hypot(dx, dy);
+  }
+
+  function getMidpoint(touches) {
+    const [a, b] = touches;
+    return { x: (a.clientX + b.clientX) / 2, y: (a.clientY + b.clientY) / 2 };
+  }
+
+  function onPinchStart(e) {
+    if (e.touches && e.touches.length === 2 && imgRef.current) {
+      e.preventDefault();
+      const img = imgRef.current;
+      const rect = img.getBoundingClientRect();
+      const mid = getMidpoint(e.touches);
+      const originX = mid.x - rect.left;
+      const originY = mid.y - rect.top;
+      pinchRef.current = { active: true, startDist: getDistance(e.touches), originX, originY };
+      img.style.transition = 'none';
+      img.style.transformOrigin = `${originX}px ${originY}px`;
+    }
+  }
+
+  function onPinchMove(e) {
+    const st = pinchRef.current;
+    if (e.touches && e.touches.length === 2 && st.active && imgRef.current) {
+      e.preventDefault();
+      const scale = Math.max(1, Math.min(2.5, getDistance(e.touches) / st.startDist));
+      imgRef.current.style.transform = `scale(${scale})`;
+    }
+  }
+
+  function onPinchEnd(e) {
+    const st = pinchRef.current;
+    if (st.active && imgRef.current) {
+      const img = imgRef.current;
+      img.style.transition = 'transform 160ms ease-out';
+      img.style.transform = 'scale(1)';
+      // Clean up transition shortly after
+      setTimeout(() => {
+        if (imgRef.current) {
+          imgRef.current.style.transition = '';
+        }
+      }, 200);
+    }
+    pinchRef.current = { active: false, startDist: 0, originX: 0, originY: 0 };
   }
 
   async function openViewer(id) {
@@ -150,18 +208,45 @@ export default function Gallery() {
   }
 
   return (
-    <div className="space-y-4">
-      <div className="card">
-        <div className="flex items-center justify-between mb-2">
-          <h3 className="font-semibold">Galería</h3>
-          <button onClick={() => window.location.reload()} className="btn-link text-sm">Actualizar</button>
-        </div>
-        <label className="btn-primary cursor-pointer gap-2">
-          <input type="file" accept="image/*" multiple onChange={onSelect} className="hidden" />
-          <span>Subir fotos</span>
-        </label>
-        {uploading && <div className="text-xs text-gray-500 mt-2">Subiendo…</div>}
+    <div className="space-y-4 pb-20">
+      <div className="flex items-center justify-between">
+        <h2 className="text-lg font-semibold text-rose-600">Galería</h2>
+        <button
+          onClick={() => window.location.reload()}
+          aria-label="Actualizar"
+          title="Actualizar"
+          className="p-2 rounded-lg hover:bg-rose-50 text-rose-600"
+        >
+          <span className="text-xl leading-none">↻</span>
+        </button>
       </div>
+
+      <input
+        ref={uploadInputRef}
+        type="file"
+        accept="image/*"
+        multiple
+        onChange={onSelect}
+        className="hidden"
+      />
+
+      {createPortal(
+        <button
+          className="fab btn-primary shadow-lg rounded-full px-5 py-3 font-semibold"
+          onClick={() => uploadInputRef.current && uploadInputRef.current.click()}
+          aria-label="Subir fotos"
+          title="Subir fotos"
+        >
+          Subir fotos
+        </button>,
+        document.body
+      )}
+
+      {uploading && (
+        <div className="fixed bottom-40 right-5 z-40 text-xs text-gray-700 bg-white/80 px-2 py-1 rounded-md shadow">
+          Subiendo…
+        </div>
+      )}
 
       {loading ? (
         <div className="text-center text-gray-500">Cargando…</div>
@@ -181,17 +266,33 @@ export default function Gallery() {
         </div>
       )}
 
-      <Modal isOpen={viewer.open} onClose={closeViewer}>
-        <div className="p-6">
-          <div className="max-w-screen-md w-full">
-            {viewer.loading ? (
-              <div className="text-center text-gray-600">Cargando…</div>
-            ) : viewer.url ? (
-              <img 
-                src={viewer.url} 
-                alt="" 
-                className="w-full h-auto max-h-[60vh] object-contain rounded-xl" 
-                onError={() => {
+      <Modal isOpen={viewer.open} onClose={closeViewer} bare>
+        <div className="w-full h-full relative">
+          {viewer.loading ? (
+            <div className="absolute inset-0 flex items-center justify-center text-gray-200">Cargando…</div>
+          ) : viewer.url ? (
+            <>
+              {/* Bounded container with larger side margins and centered content */}
+              <div
+                className="absolute inset-0 px-8 sm:px-12 md:px-16 lg:px-24"
+                style={{
+                  paddingTop: 'calc(env(safe-area-inset-top, 0px) + 80px)',
+                  paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 80px)'
+                }}
+              >
+                <div className="w-full h-full flex items-center justify-center">
+                  <div className="relative inline-block" onClick={(e) => e.stopPropagation()}>
+                    <img 
+                      src={viewer.url} 
+                      alt="" 
+                      className="max-w-full max-h-full w-auto h-auto object-contain select-none" 
+                      ref={imgRef}
+                      onTouchStart={onPinchStart}
+                      onTouchMove={onPinchMove}
+                      onTouchEnd={onPinchEnd}
+                      onTouchCancel={onPinchEnd}
+                      style={{ touchAction: 'none', willChange: 'transform', WebkitUserSelect: 'none', userSelect: 'none', WebkitTouchCallout: 'none' }}
+                      onError={() => {
                   if (viewer.fallbackUrl && viewer.fallbackUrl !== viewer.url) {
                     setViewer((v) => ({ ...v, url: v.fallbackUrl }));
                     return;
@@ -210,21 +311,55 @@ export default function Gallery() {
                         .catch(() => {});
                     }
                   }
-                }}
-              />
-            ) : (
-              <div className="text-center text-gray-500">No disponible offline</div>
-            )}
-            <div className="flex items-center justify-between mt-4">
-              <button
-                onClick={onDeleteCurrent}
-                disabled={deleting}
-                className="px-4 py-2 rounded-lg bg-rose-600 text-white hover:bg-rose-700 disabled:opacity-50"
-              >
-                {deleting ? 'Borrando…' : 'Borrar'}
-              </button>
-              <button onClick={closeViewer} className="btn-primary">Cerrar</button>
-            </div>
+                      }}
+                    />
+                    {/* Overlay controls aligned to image bounds, placed just above (outside) */}
+                    <button
+                      onClick={() => setConfirmDeleteOpen(true)}
+                      disabled={deleting}
+                      aria-label="Borrar"
+                      title="Borrar"
+                      className="absolute -top-8 sm:-top-6 left-0 text-white disabled:opacity-50 drop-shadow"
+                    >
+                      <TrashIcon className="w-7 h-7" />
+                    </button>
+                    <button
+                      onClick={closeViewer}
+                      aria-label="Cerrar"
+                      title="Cerrar"
+                      className="absolute -top-8 sm:-top-6 right-0 text-white drop-shadow"
+                    >
+                      <span className="text-3xl leading-none">×</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </>
+          ) : (
+            <div className="absolute inset-0 flex items-center justify-center text-gray-200">No disponible offline</div>
+          )}
+        </div>
+      </Modal>
+      {/* Confirm delete modal */}
+      <Modal isOpen={confirmDeleteOpen} onClose={() => setConfirmDeleteOpen(false)}>
+        <div className="bg-white rounded-xl p-5 max-w-sm w-[90vw] text-gray-800 shadow-xl">
+          <h3 className="text-lg font-semibold mb-2">¿Borrar esta foto?</h3>
+          <p className="text-sm text-gray-600 mb-5">Esta acción no se puede deshacer.</p>
+          <div className="flex justify-end gap-3">
+            <button
+              className="px-4 py-2 rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200"
+              onClick={() => setConfirmDeleteOpen(false)}
+              disabled={deleting}
+            >
+              Cancelar
+            </button>
+            <button
+              className="px-4 py-2 rounded-lg bg-rose-600 text-white hover:bg-rose-700 disabled:opacity-50"
+              onClick={() => { setConfirmDeleteOpen(false); onDeleteCurrent(); }}
+              disabled={deleting}
+            >
+              Borrar
+            </button>
           </div>
         </div>
       </Modal>

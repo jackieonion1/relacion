@@ -5,6 +5,7 @@ import Gallery from './pages/Gallery';
 import CalendarPage from './pages/Calendar';
 import MapPage from './pages/Map';
 import Notes from './pages/Notes';
+import Decisions from './pages/Decisions';
 import NavBar from './components/NavBar';
 import InstallPrompt from './components/InstallPrompt';
 import CogIcon from './components/icons/CogIcon';
@@ -105,6 +106,7 @@ export default function App() {
       case '/calendar': return 'Calendario';
       case '/notes': return 'Notas';
       case '/map': return 'Mapa';
+      case '/decisions': return 'Decisiones';
       default: return '';
     }
   }, [location.pathname]);
@@ -127,7 +129,13 @@ export default function App() {
         <div className="app-shell">
           <div className="app-scroll">
             <div className="min-h-screen bg-rose-50/50 text-gray-900 flex flex-col">
-              <header className="sticky top-0 z-10 backdrop-blur bg-white/70 border-b border-rose-100 transition-all duration-300">
+              <header
+                className="fixed top-0 inset-x-0 z-20 backdrop-blur border-b border-rose-100 transition-all duration-300"
+                style={{
+                  background: 'linear-gradient(to bottom, rgba(255,255,255,1) 0%, rgba(255,255,255,0.7) 100%)',
+                  paddingTop: 'env(safe-area-inset-top, 0px)'
+                }}
+              >
                 <div className="max-w-screen-md mx-auto px-4 h-14 grid grid-cols-3 items-center">
                   <span className="font-semibold text-rose-600 transition-all duration-200">🍪🫒</span>
                   <span className="text-sm text-gray-500 transition-all duration-200 text-center">{title}</span>
@@ -136,6 +144,8 @@ export default function App() {
                   </Link>
                 </div>
               </header>
+              {/* Spacer to offset fixed header height (safe-area top + 56px) */}
+              <div style={{ height: 'calc(env(safe-area-inset-top, 0px) + 56px)' }} />
 
               <InstallPrompt />
 
@@ -150,6 +160,7 @@ export default function App() {
                   <Route path="/calendar" element={<CalendarPage />} />
                   <Route path="/notes" element={<Notes />} />
                   <Route path="/map" element={<MapPage />} />
+                  <Route path="/decisions" element={<Decisions />} />
                   <Route path="/settings" element={<Settings />} />
                   <Route path="*" element={<Navigate to="/" replace />} />
                 </Routes>

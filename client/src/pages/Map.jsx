@@ -188,6 +188,7 @@ export default function MapPage() {
 
   return (
     <div className="space-y-4 relative pb-20">
+      <h2 className="text-lg font-semibold text-rose-600">Mapa</h2>
       <div className="card">
         <div className="text-sm text-gray-600 mb-3">Estado actual</div>
         <MapViewSwitcher 

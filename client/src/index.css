@@ -2,13 +2,18 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Fix iOS overscroll background color */
+/* Fix iOS overscroll background color: match app rose tint */
 html, body {
-  background-color: #ffffff !important;
+  background-color: rgba(255, 241, 242, 0.5) !important; /* tailwind rose-50/50 */
 }
 
 body {
   overscroll-behavior: none;
+}
+
+/* Ensure bounce shows rosy tint even when container overscrolls */
+.app-shell, .app-scroll {
+  background-color: rgba(255, 241, 242, 0.5);
 }
 
 :root { 

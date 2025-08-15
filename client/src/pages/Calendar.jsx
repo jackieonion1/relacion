@@ -406,6 +406,7 @@ export default function CalendarPage() {
 
   return (
     <div className="space-y-4">
+      <h2 className="text-lg font-semibold text-rose-600">Calendario</h2>
       <ViewSwitcher 
         views={['Lista', 'Calendario']}
         activeView={view}

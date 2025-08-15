@@ -219,6 +219,7 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-4">
+      <h2 className="text-lg font-semibold text-rose-600">Inicio</h2>
       {timeTogether ? (
         <div className="card">
           <div className="text-sm text-gray-600 mb-2">Llevamos juntos</div>
