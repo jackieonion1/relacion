@@ -5,8 +5,9 @@ import HomeIcon from './icons/HomeIcon';
 import CameraIcon from './icons/CameraIcon';
 import CalendarIcon from './icons/CalendarIcon';
 import MapIcon from './icons/MapIcon';
+import CoinIcon from './icons/CoinIcon';
 import NotesIcon from './icons/NotesIcon';
-import DiceIcon from './icons/DiceIcon';
+import RouletteIcon from './icons/RouletteIcon';
 
 // Inline icon: circle with a plus, matching stroke style of other icons
 function PlusCircleIcon({ className }) {
@@ -29,7 +30,7 @@ export default function NavBar() {
   const loc = useLocation();
   const navigate = useNavigate();
   const [openMore, setOpenMore] = React.useState(false);
-  const othersActive = openMore || loc.pathname === '/map' || loc.pathname === '/decisions';
+  const othersActive = openMore || loc.pathname === '/map' || loc.pathname === '/roulette' || loc.pathname === '/coin';
   const othersRef = React.useRef(null);
   const [anchorX, setAnchorX] = React.useState(0);
   
@@ -82,19 +83,35 @@ export default function NavBar() {
                 </button>
               </div>
 
-              {/* Decisiones */}
+              {/* Ruleta */}
               <div className="relative w-0 h-12 flex items-center justify-center overflow-visible">
                 <span className="absolute right-full mr-8 top-1/2 -translate-y-1/2 text-xs font-medium text-white whitespace-nowrap select-none z-10">
-                  Decisiones
+                  Ruleta
                 </span>
                 <button
                   type="button"
                   className="w-12 h-12 shrink-0 rounded-full bg-rose-500 text-white shadow-xl hover:bg-rose-600 active:scale-95 transition-transform duration-200 transform-gpu flex items-center justify-center"
-                  onClick={() => { navigate('/decisions'); setOpenMore(false); }}
-                  aria-label="Decisiones"
-                  title="Decisiones"
+                  onClick={() => { navigate('/roulette'); setOpenMore(false); }}
+                  aria-label="Ruleta"
+                  title="Ruleta"
                 >
-                  <DiceIcon className="w-6 h-6" />
+                  <RouletteIcon className="w-6 h-6" />
+                </button>
+              </div>
+
+              {/* Moneda */}
+              <div className="relative w-0 h-12 flex items-center justify-center overflow-visible">
+                <span className="absolute right-full mr-8 top-1/2 -translate-y-1/2 text-xs font-medium text-white whitespace-nowrap select-none z-10">
+                  Moneda
+                </span>
+                <button
+                  type="button"
+                  className="w-12 h-12 shrink-0 rounded-full bg-rose-500 text-white shadow-xl hover:bg-rose-600 active:scale-95 transition-transform duration-200 transform-gpu flex items-center justify-center"
+                  onClick={() => { navigate('/coin'); setOpenMore(false); }}
+                  aria-label="Moneda"
+                  title="Moneda"
+                >
+                  <CoinIcon className="w-6 h-6" />
                 </button>
               </div>
             </div>

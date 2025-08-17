@@ -117,6 +117,11 @@ body { @apply bg-rose-50/50; }
   /* Content bottom padding accounting for navbar (h-16 ~ 4rem) + extra + safe area */
   .pb-safe-content { padding-bottom: 170px; }
 
+  /* Disable scrolling for pages that opt-in (Roulette) */
+  .app-scroll.no-scroll {
+    overflow: hidden !important;
+  }
+
 
 
   /* Spacer div to push content up from the bottom navbar */
@@ -138,7 +143,7 @@ body { @apply bg-rose-50/50; }
   html, body { overflow: hidden; }
 
   /* App wrapper fixed to viewport; inner container will scroll */
-  .app-shell { position: fixed; inset: 0; width: 100%; height: 100vh; overflow: hidden; }
+  .app-shell { position: fixed; inset: 0; width: 100%; height: 100dvh; overflow: hidden; }
 
   /* Firefox */
   * { scrollbar-width: none; }
@@ -161,7 +166,7 @@ body { @apply bg-rose-50/50; }
 /* Extra guard for iOS Safari */
 @supports (-webkit-touch-callout: none) {
   html, body { overflow: hidden; }
-  .app-shell { position: fixed; inset: 0; width: 100%; height: 100vh; overflow: hidden; }
+  .app-shell { position: fixed; inset: 0; width: 100%; height: 100dvh; overflow: hidden; }
   .app-scroll {
     /* Hide scrollbar on mobile while keeping functionality */
     scrollbar-width: none; /* Firefox */
