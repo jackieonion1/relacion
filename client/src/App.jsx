@@ -5,7 +5,8 @@ import Gallery from './pages/Gallery';
 import CalendarPage from './pages/Calendar';
 import MapPage from './pages/Map';
 import Notes from './pages/Notes';
-import Decisions from './pages/Decisions';
+import Roulette from './pages/Roulette';
+import Coin from './pages/Coin';
 import NavBar from './components/NavBar';
 import InstallPrompt from './components/InstallPrompt';
 import CogIcon from './components/icons/CogIcon';
@@ -106,10 +107,16 @@ export default function App() {
       case '/calendar': return 'Calendario';
       case '/notes': return 'Notas';
       case '/map': return 'Mapa';
-      case '/decisions': return 'Decisiones';
+      case '/roulette': return 'Ruleta';
+      case '/coin': return 'Moneda';
       default: return '';
     }
   }, [location.pathname]);
+
+  // Update document title with emojis preference
+  useEffect(() => {
+    try { document.title = `${title ? `${title} – ` : ''}🍪🫒`; } catch {}
+  }, [title]);
 
   // Handle page transitions (skip for dashboard to prevent flash)
   useEffect(() => {
@@ -123,12 +130,14 @@ export default function App() {
     return () => clearTimeout(timer);
   }, [location.pathname]);
 
+  const isRoulette = location.pathname === '/roulette';
+
   return (
     <PairGate>
       <IdentityGate>
         <div className="app-shell">
-          <div className="app-scroll">
-            <div className="min-h-screen bg-rose-50/50 text-gray-900 flex flex-col">
+          <div className={`app-scroll ${isRoulette ? 'no-scroll' : ''}`}>
+            <div className="min-h-[100dvh] bg-rose-50/50 text-gray-900 flex flex-col">
               <header
                 className="fixed top-0 inset-x-0 z-20 backdrop-blur border-b border-rose-100 transition-all duration-300"
                 style={{
@@ -149,7 +158,7 @@ export default function App() {
 
               <InstallPrompt />
 
-              <main className={`flex-1 max-w-screen-md mx-auto w-full px-4 pb-safe-content pt-4 transition-all duration-300 ease-out ${
+              <main className={`flex-1 max-w-screen-md mx-auto w-full px-4 ${isRoulette ? 'pb-2' : 'pb-safe-content'} pt-4 transition-all duration-300 ease-out ${
                 isTransitioning 
                   ? 'opacity-0 transform translate-y-1 scale-[0.98]'
                   : 'opacity-100'
@@ -160,7 +169,8 @@ export default function App() {
                   <Route path="/calendar" element={<CalendarPage />} />
                   <Route path="/notes" element={<Notes />} />
                   <Route path="/map" element={<MapPage />} />
-                  <Route path="/decisions" element={<Decisions />} />
+                  <Route path="/roulette" element={<Roulette />} />
+                  <Route path="/coin" element={<Coin />} />
                   <Route path="/settings" element={<Settings />} />
                   <Route path="*" element={<Navigate to="/" replace />} />
                 </Routes>

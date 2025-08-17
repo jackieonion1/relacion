@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { createPortal } from 'react-dom';
 
-export default function HeartRainAnimation({ isActive, type = 'rain' }) {
+export default function HeartRainAnimation({ isActive, type = 'rain', intensity = 1, effectOpacity = 1, zIndex = 10050 }) {
   const [hearts, setHearts] = useState([]);
   const intervalRef = useRef(null);
   const heartIdRef = useRef(0);
@@ -18,18 +18,20 @@ export default function HeartRainAnimation({ isActive, type = 'rain' }) {
 
     const addHearts = () => {
       if (type === 'fireworks') {
-        // Multiple random fireworks explosions
-        const explosionCount = Math.floor(Math.random() * 3) + 2; // 2-4 explosions
+        // Multiple random fireworks explosions (scaled by intensity)
+        const baseExplosions = Math.floor(Math.random() * 3) + 2; // 2-4
+        const explosionCount = Math.max(1, Math.round(baseExplosions * Math.max(0.2, Math.min(1, intensity))));
         
         for (let explosion = 0; explosion < explosionCount; explosion++) {
           const centerX = Math.random() * 80 + 10; // Random center (10-90%)
           const centerY = Math.random() * 60 + 20; // Random center (20-80%)
-          const heartsPerExplosion = 15;
+          const heartsPerExplosion = Math.max(6, Math.round(15 * (0.4 + 0.6 * Math.max(0.2, Math.min(1, intensity)))));
           
           setTimeout(() => {
             const newHearts = Array.from({ length: heartsPerExplosion }, (_, i) => {
               const angle = (i / heartsPerExplosion) * 2 * Math.PI;
-              const distance = 100 + Math.random() * 150;
+              const distanceScale = 0.7 + 0.3 * Math.max(0.2, Math.min(1, intensity));
+              const distance = (100 + Math.random() * 150) * distanceScale;
               
               return {
                 id: `firework-${heartIdRef.current++}`,
@@ -134,7 +136,7 @@ export default function HeartRainAnimation({ isActive, type = 'rain' }) {
           animation: heartFireworks 3s ease-out forwards;
         }
       `}</style>
-      <div className="fixed inset-0 pointer-events-none overflow-hidden" style={{ zIndex: 10050 }}>
+      <div className="fixed inset-0 pointer-events-none overflow-hidden" style={{ zIndex }}>
         {hearts.map((heart) => {
           if (heart.animationType === 'fireworks') {
             // Calculate explosion direction from random center
@@ -152,6 +154,7 @@ export default function HeartRainAnimation({ isActive, type = 'rain' }) {
                   animationDelay: `${heart.delay}ms`,
                   '--dx': `${dx}px`,
                   '--dy': `${dy}px`,
+                  filter: `opacity(${Math.max(0.1, Math.min(1, effectOpacity))})`,
                 }}
               >
                 {heart.emoji}
