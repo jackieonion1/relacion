@@ -1,7 +1,17 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 
-export default function Modal({ isOpen, onClose, children, bare = false }) {
+export default function Modal({ isOpen, onClose, children, bare = false, backdropClosing = false }) {
+  const [backdropVisible, setBackdropVisible] = useState(false);
+  useEffect(() => {
+    if (isOpen) {
+      const t = requestAnimationFrame(() => setBackdropVisible(true));
+      return () => cancelAnimationFrame(t);
+    } else {
+      setBackdropVisible(false);
+    }
+  }, [isOpen]);
+
   if (!isOpen) return null;
 
   const modalContent = (
@@ -18,7 +28,7 @@ export default function Modal({ isOpen, onClose, children, bare = false }) {
         maxHeight: bare ? '100dvh' : 'calc(100vh + 20px)',
         margin: 0,
         padding: bare ? 0 : '26px 26px 26px 26px', // Remove padding for bare mode
-        backgroundColor: 'rgba(0, 0, 0, 0.6)',
+        backgroundColor: backdropClosing ? 'rgba(0, 0, 0, 0)' : (backdropVisible ? 'rgba(0, 0, 0, 0.6)' : 'rgba(0, 0, 0, 0)'),
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
@@ -26,7 +36,8 @@ export default function Modal({ isOpen, onClose, children, bare = false }) {
         boxSizing: 'border-box',
         overflow: 'hidden',
         WebkitTransform: 'translate3d(0,0,0)', // Force hardware acceleration
-        transform: 'translate3d(0,0,0)'
+        transform: 'translate3d(0,0,0)',
+        transition: 'background-color 260ms ease-out'
       }}
       onClick={onClose}
     >

@@ -137,6 +137,33 @@ body { @apply bg-rose-50/50; }
   }
 }
 
+/* Slide up animation utility used by modals/bottom sheets */
+@keyframes slide-up-fast {
+  from { transform: translateY(16px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+@layer utilities {
+  .animate-slide-up-fast { animation: slide-up-fast 180ms ease-out both; }
+}
+
+/* Bottom sheet slide-in (from full bottom) */
+@keyframes bottom-sheet-in {
+  from { transform: translateY(100%); opacity: 1; }
+  to { transform: translateY(0); opacity: 1; }
+}
+@layer utilities {
+  .animate-bottom-sheet-in { animation: bottom-sheet-in 260ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+}
+
+/* Bottom sheet slide-out (to full bottom) */
+@keyframes bottom-sheet-out {
+  from { transform: translateY(0); opacity: 1; }
+  to { transform: translateY(100%); opacity: 1; }
+}
+@layer utilities {
+  .animate-bottom-sheet-out { animation: bottom-sheet-out 260ms cubic-bezier(0.4, 0, 0.2, 1) both; }
+}
+
 /* Hide scrollbars on mobile (touch devices) */
 @media (hover: none) and (pointer: coarse) {
   /* Hide viewport scrollbar by preventing body scroll */
