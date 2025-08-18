@@ -7,6 +7,7 @@ import MapPage from './pages/Map';
 import Notes from './pages/Notes';
 import Roulette from './pages/Roulette';
 import Coin from './pages/Coin';
+import Music from './pages/Music';
 import NavBar from './components/NavBar';
 import InstallPrompt from './components/InstallPrompt';
 import CogIcon from './components/icons/CogIcon';
@@ -109,6 +110,7 @@ export default function App() {
       case '/map': return 'Mapa';
       case '/roulette': return 'Ruleta';
       case '/coin': return 'Moneda';
+      case '/music': return 'Música';
       default: return '';
     }
   }, [location.pathname]);
@@ -171,6 +173,7 @@ export default function App() {
                   <Route path="/map" element={<MapPage />} />
                   <Route path="/roulette" element={<Roulette />} />
                   <Route path="/coin" element={<Coin />} />
+                  <Route path="/music" element={<Music />} />
                   <Route path="/settings" element={<Settings />} />
                   <Route path="*" element={<Navigate to="/" replace />} />
                 </Routes>

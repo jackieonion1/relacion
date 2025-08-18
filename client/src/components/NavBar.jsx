@@ -8,6 +8,7 @@ import MapIcon from './icons/MapIcon';
 import CoinIcon from './icons/CoinIcon';
 import NotesIcon from './icons/NotesIcon';
 import RouletteIcon from './icons/RouletteIcon';
+import MusicIcon from './icons/MusicIcon';
 
 // Inline icon: circle with a plus, matching stroke style of other icons
 function PlusCircleIcon({ className }) {
@@ -30,7 +31,7 @@ export default function NavBar() {
   const loc = useLocation();
   const navigate = useNavigate();
   const [openMore, setOpenMore] = React.useState(false);
-  const othersActive = openMore || loc.pathname === '/map' || loc.pathname === '/roulette' || loc.pathname === '/coin';
+  const othersActive = openMore || loc.pathname === '/map' || loc.pathname === '/roulette' || loc.pathname === '/coin' || loc.pathname === '/music';
   const othersRef = React.useRef(null);
   const [anchorX, setAnchorX] = React.useState(0);
   
@@ -112,6 +113,22 @@ export default function NavBar() {
                   title="Moneda"
                 >
                   <CoinIcon className="w-6 h-6" />
+                </button>
+              </div>
+
+              {/* Música */}
+              <div className="relative w-0 h-12 flex items-center justify-center overflow-visible">
+                <span className="absolute right-full mr-8 top-1/2 -translate-y-1/2 text-xs font-medium text-white whitespace-nowrap select-none z-10">
+                  Música
+                </span>
+                <button
+                  type="button"
+                  className="w-12 h-12 shrink-0 rounded-full bg-rose-500 text-white shadow-xl hover:bg-rose-600 active:scale-95 transition-transform duration-200 transform-gpu flex items-center justify-center"
+                  onClick={() => { navigate('/music'); setOpenMore(false); }}
+                  aria-label="Música"
+                  title="Música"
+                >
+                  <MusicIcon className="w-6 h-6" />
                 </button>
               </div>
             </div>
