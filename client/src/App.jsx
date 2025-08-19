@@ -173,10 +173,13 @@ export default function App() {
                   <Route path="/map" element={<MapPage />} />
                   <Route path="/roulette" element={<Roulette />} />
                   <Route path="/coin" element={<Coin />} />
-                  <Route path="/music" element={<Music />} />
+                  {/* Placeholder element; actual UI is rendered by globally mounted <Music /> */}
+                  <Route path="/music" element={<div />} />
                   <Route path="/settings" element={<Settings />} />
                   <Route path="*" element={<Navigate to="/" replace />} />
                 </Routes>
+                {/* Keep Music mounted always; it will render its page UI only on /music but keeps audio/mini-player global */}
+                <Music />
               </main>
             </div>
           </div>
