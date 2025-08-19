@@ -25,13 +25,36 @@ export default function Music() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [expanded, setExpanded] = useState(false);
+  const [viewMode, setViewMode] = useState('lyrics'); // 'lyrics' | 'viz'
   const [closingSheet, setClosingSheet] = useState(false);
+  const vizCanvasRef = useRef(null);
+  const audioCtxRef = useRef(null);
+  const analyserRef = useRef(null);
+  const mediaSourceRef = useRef(null);
+  const vizRAFRef = useRef(0);
+  const vizGainRef = useRef(null);
+  const [vizStyle, setVizStyle] = useState(0); // 0..2
 
   function fmtDuration(secs) {
     const s = Math.max(0, Math.floor(secs || 0));
     const m = Math.floor(s / 60);
     const r = s % 60;
     return `${m}:${r.toString().padStart(2, '0')}`;
+  }
+  function getTokensForCue(c) {
+    if (!c) return [];
+    if (c.tokens && c.tokens.length) return c.tokens;
+    // Fallback: evenly distribute words across cue duration
+    const dur = Math.max(0.2, (c.end || (c.start + 2)) - c.start);
+    const parts = (c.text || '').split(/(\s+)/); // keep spaces
+    const words = parts.filter((p) => p.length > 0);
+    const step = dur / Math.max(1, words.length);
+    let t = c.start;
+    return words.map((w) => {
+      const tok = { start: t, end: t + step, text: w };
+      t += step;
+      return tok;
+    });
   }
 
   // Bottom sheet open/close with enter/exit animation
@@ -196,6 +219,153 @@ export default function Music() {
     if (isPlaying) raf = requestAnimationFrame(step);
     return () => { if (raf) cancelAnimationFrame(raf); };
   }, [isPlaying]);
+
+  // Setup analyser for visualizer (connect once per audio element)
+  useEffect(() => {
+    const el = audioRef.current;
+    if (!el) return;
+    let mounted = true;
+    const ensureAudioCtx = () => {
+      if (!audioCtxRef.current) {
+        const Ctx = window.AudioContext || window.webkitAudioContext;
+        if (!Ctx) return;
+        audioCtxRef.current = new Ctx();
+      }
+      return audioCtxRef.current;
+    };
+    const onPlay = () => {
+      const ctx = ensureAudioCtx();
+      if (ctx && ctx.state === 'suspended') ctx.resume().catch(() => {});
+      if (ctx && !mediaSourceRef.current) {
+        try {
+          mediaSourceRef.current = ctx.createMediaElementSource(el);
+          analyserRef.current = ctx.createAnalyser();
+          analyserRef.current.fftSize = 1024;
+          analyserRef.current.smoothingTimeConstant = 0.85;
+          vizGainRef.current = ctx.createGain();
+          vizGainRef.current.gain.value = 1.0; // route audio through graph so it is audible
+          mediaSourceRef.current.connect(analyserRef.current);
+          analyserRef.current.connect(vizGainRef.current);
+          vizGainRef.current.connect(ctx.destination);
+        } catch {}
+      }
+    };
+    el.addEventListener('play', onPlay);
+    return () => {
+      mounted = false;
+      el.removeEventListener('play', onPlay);
+    };
+  }, []);
+
+  // Visualizer draw loop
+  useEffect(() => {
+    if (!expanded || viewMode !== 'viz') {
+      if (vizRAFRef.current) cancelAnimationFrame(vizRAFRef.current);
+      vizRAFRef.current = 0;
+      return;
+    }
+    const canvas = vizCanvasRef.current;
+    const ctx2d = canvas ? canvas.getContext('2d') : null;
+    if (!ctx2d) return;
+    const analyser = analyserRef.current;
+    const data = analyser ? new Uint8Array(analyser.fftSize) : null;
+    const draw = () => {
+      const w = canvas.clientWidth || 300;
+      const h = canvas.clientHeight || 300;
+      if (canvas.width !== w || canvas.height !== h) {
+        canvas.width = w;
+        canvas.height = h;
+      }
+      // Measure audio level
+      let level = 0.05;
+      if (analyser && data) {
+        analyser.getByteTimeDomainData(data);
+        let sum = 0;
+        for (let i = 0; i < data.length; i++) {
+          const v = (data[i] - 128) / 128;
+          sum += v * v;
+        }
+        const rms = Math.sqrt(sum / data.length);
+        level = Math.min(0.6, 0.05 + rms * 2.0);
+      }
+      const t = performance.now() / 1000;
+      ctx2d.clearRect(0, 0, w, h);
+      switch (vizStyle % 3) {
+        // 0) Original pulsing blob (layered radial gradients)
+        case 0: {
+          ctx2d.save();
+          ctx2d.translate(w / 2, h / 2);
+          const R = Math.min(w, h) * (0.35 + level * 0.3);
+          for (let k = 0; k < 5; k++) {
+            const angle = t * (0.1 + k * 0.03) + k;
+            const r = R * (0.8 + 0.15 * Math.sin(angle * 3 + k));
+            const grad = ctx2d.createRadialGradient(0, 0, r * 0.2, 0, 0, r);
+            grad.addColorStop(0, 'rgba(244, 63, 94, 0.07)');
+            grad.addColorStop(1, 'rgba(244, 63, 94, 0.00)');
+            ctx2d.rotate(0.15 + level * 0.2);
+            ctx2d.fillStyle = grad;
+            ctx2d.beginPath();
+            ctx2d.arc(0, 0, r, 0, Math.PI * 2);
+            ctx2d.fill();
+          }
+          ctx2d.restore();
+          break;
+        }
+        // 1) Spiral arcs (semi-circles rotating)
+        case 1: {
+          ctx2d.save();
+          ctx2d.translate(w / 2, h / 2);
+          const R = Math.min(w, h) * (0.28 + 0.24 * level);
+          for (let k = 0; k < 12; k++) {
+            const a0 = t * (0.75 + k * 0.09) + k;
+            const a1 = a0 + Math.PI * (0.6 + 0.25 * Math.sin(t * 1.1 + k));
+            const r = R * (0.72 + 0.32 * Math.sin(t * 1.35 + k));
+            ctx2d.strokeStyle = `rgba(244, 63, 94, ${0.08 + level * 0.16})`;
+            ctx2d.lineWidth = 3;
+            ctx2d.beginPath();
+            ctx2d.arc(0, 0, r, a0, a1);
+            ctx2d.stroke();
+          }
+          ctx2d.restore();
+          break;
+        }
+        // 2) Radial waveform
+        case 2: {
+          ctx2d.save();
+          ctx2d.translate(w / 2, h / 2);
+          const baseR = Math.min(w, h) * 0.28;
+          const scale = baseR * (0.15 + 0.35 * level);
+          ctx2d.fillStyle = 'rgba(244, 63, 94, 0.08)';
+          ctx2d.beginPath();
+          const N = data ? data.length : 512;
+          for (let i = 0; i < N; i++) {
+            const ang = (i / N) * Math.PI * 2 + t * 0.2;
+            const v = data ? (data[i] - 128) / 128 : Math.sin(i * 0.1 + t);
+            const r = baseR + v * scale;
+            const x = Math.cos(ang) * r;
+            const y = Math.sin(ang) * r;
+            if (i === 0) ctx2d.moveTo(x, y); else ctx2d.lineTo(x, y);
+          }
+          ctx2d.closePath();
+          ctx2d.fill();
+          ctx2d.restore();
+          break;
+        }
+        default:
+          break;
+      }
+      vizRAFRef.current = requestAnimationFrame(draw);
+    };
+    vizRAFRef.current = requestAnimationFrame(draw);
+    return () => { if (vizRAFRef.current) cancelAnimationFrame(vizRAFRef.current); };
+  }, [expanded, viewMode, vizStyle]);
+
+  // Pick a random visualizer style on entering visualizer mode
+  useEffect(() => {
+    if (expanded && viewMode === 'viz') {
+      setVizStyle(Math.floor(Math.random() * 3));
+    }
+  }, [expanded, viewMode]);
 
   async function playItem(it) {
     try {
@@ -594,42 +764,104 @@ export default function Music() {
             <div className="font-semibold text-gray-900 truncate text-center flex-1">{player.name}</div>
             <span className="w-6" />
           </div>
+          {/* View switcher */}
+          <div className="px-4 pt-3">
+            <div className="flex items-center justify-between">
+              <div className="inline-flex rounded-lg border border-rose-200 overflow-hidden">
+                <button
+                  className={`px-3 py-1.5 text-sm ${viewMode === 'lyrics' ? 'bg-rose-100 text-rose-700' : 'bg-white text-gray-700'}`}
+                  onClick={() => setViewMode('lyrics')}
+                >
+                  Letra
+                </button>
+                <button
+                  className={`px-3 py-1.5 text-sm ${viewMode === 'viz' ? 'bg-rose-100 text-rose-700' : 'bg-white text-gray-700'}`}
+                  onClick={() => setViewMode('viz')}
+                >
+                  Visualizador
+                </button>
+              </div>
+              {viewMode === 'viz' && (
+                <button
+                  className="ml-3 px-3 py-1.5 text-sm bg-white text-gray-700 border border-rose-200 rounded-lg hover:bg-rose-50"
+                  onClick={() => setVizStyle((s) => (s + 1) % 3)}
+                  aria-label="Cambiar efecto"
+                  title="Cambiar efecto"
+                >
+                  🎲 Cambiar
+                </button>
+              )}
+            </div>
+          </div>
+
           <div className="p-4 flex-1 overflow-auto" style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 5rem)' }}>
-            {subs.cues && subs.cues.length > 0 ? (
-              <div className="space-y-1">
-                {subs.cues.map((c, i) => {
-                  const isActive = i === activeCueIndex;
-                  return (
-                    <div
-                      key={`${c.start}-${i}`}
-                      ref={(el) => (cueRefs.current[i] = el)}
-                      onClick={() => seekTo(c.start)}
-                      className={`text-sm cursor-pointer select-none transition-colors ${isActive ? 'bg-rose-50 text-rose-800 rounded px-2 py-1' : 'text-gray-800 hover:text-gray-900'}`}
-                    >
-                      {c.tokens && c.tokens.length > 0 ? (
-                        c.tokens.map((t, j) => {
-                          const tokActive = currentTime + 0.01 >= t.start && currentTime < t.end + 0.01;
-                          return (
-                            <span
-                              key={`t-${i}-${j}-${t.start}`}
-                              onClick={(e) => { e.stopPropagation(); seekTo(t.start); }}
-                              className={`${tokActive ? 'text-rose-600 font-semibold' : ''}`}
-                            >
-                              {t.text}
-                            </span>
-                          );
-                        })
-                      ) : (
-                        c.text
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
+            {viewMode === 'lyrics' ? (
+              subs.cues && subs.cues.length > 0 ? (
+                <div className="space-y-1">
+                  {subs.cues.map((c, i) => {
+                    const isActive = i === activeCueIndex;
+                    return (
+                      <div
+                        key={`${c.start}-${i}`}
+                        ref={(el) => (cueRefs.current[i] = el)}
+                        onClick={() => seekTo(c.start)}
+                        className={`text-sm cursor-pointer select-none transition-colors ${isActive ? 'bg-rose-50 text-rose-800 rounded px-2 py-1' : 'text-gray-800 hover:text-gray-900'}`}
+                      >
+                        {c.tokens && c.tokens.length > 0 ? (
+                          c.tokens.map((t, j) => {
+                            const tokActive = currentTime + 0.01 >= t.start && currentTime < t.end + 0.01;
+                            return (
+                              <span
+                                key={`t-${i}-${j}-${t.start}`}
+                                onClick={(e) => { e.stopPropagation(); seekTo(t.start); }}
+                                className={`${tokActive ? 'text-rose-600 font-semibold' : ''}`}
+                              >
+                                {t.text}
+                              </span>
+                            );
+                          })
+                        ) : (
+                          c.text
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="text-sm text-gray-500">
+                  Sin subtítulos todavía. Usa “Subir subtítulos” en el menú de cada canción para cargar un archivo .lrc/.srt/.vtt.
+                </div>
+              )
             ) : (
-              <div className="text-sm text-gray-500">
-                Sin subtítulos todavía. Usa “Subir subtítulos” en el menú de cada canción para cargar un archivo .lrc/.srt/.vtt.
-              </div>
+              // Visualizer view
+              subs.cues && subs.cues.length > 0 ? (
+                <div className="relative w-full h-full flex items-center justify-center">
+                  <canvas ref={vizCanvasRef} className="absolute inset-0 w-full h-full" style={{ filter: 'blur(2px)' }} />
+                  {(() => {
+                    const c = subs.cues[activeCueIndex] || null;
+                    const tokens = getTokensForCue(c);
+                    const visible = tokens.filter((t) => t.start <= currentTime);
+                    return (
+                      <div className="relative z-10 text-center px-4">
+                        <div className="text-3xl sm:text-4xl md:text-5xl font-semibold tracking-wide text-gray-900">
+                          {visible.length > 0 ? visible.map((t, j) => {
+                            const tokActive = currentTime + 0.01 >= t.start && currentTime < t.end + 0.01;
+                            return (
+                              <span key={`vz-${j}-${t.start}`} className={tokActive ? 'text-rose-600' : ''}>
+                                {t.text}
+                              </span>
+                            );
+                          }) : null}
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
+              ) : (
+                <div className="text-sm text-gray-500">
+                  Sin subtítulos todavía. Usa “Subir subtítulos” en el menú de cada canción para cargar un archivo .lrc/.srt/.vtt.
+                </div>
+              )
             )}
           </div>
           <div className="p-4 border-t border-rose-100 bg-white" style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 20px)' }}>
