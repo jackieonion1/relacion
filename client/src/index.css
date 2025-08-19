@@ -164,6 +164,42 @@ body { @apply bg-rose-50/50; }
   .animate-bottom-sheet-out { animation: bottom-sheet-out 260ms cubic-bezier(0.4, 0, 0.2, 1) both; }
 }
 
+/* Subtle but noticeable two-color gradient motion for weather cards */
+@keyframes gradient-subtle {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+@layer utilities {
+  .animate-gradient-subtle {
+    animation: gradient-subtle 16s ease-in-out infinite;
+    background-size: 350% 350%;
+    will-change: background-position;
+  }
+}
+
+/* Twinkling starry sky for night weather cards */
+@keyframes star-twinkle {
+  0%, 100% { opacity: 0.28; }
+  50% { opacity: 0.46; }
+}
+@keyframes star-drift {
+  0% { transform: translate3d(0, 0, 0); }
+  100% { transform: translate3d(-2px, -1px, 0); }
+}
+@layer utilities {
+  /* Layered dot fields at different densities/sizes to look like real stars */
+  .weather-stars {
+    background:
+      radial-gradient(circle, rgba(255,255,255,0.95) 0.8px, rgba(255,255,255,0) 1.1px) 0 0 / 4px 4px,
+      radial-gradient(circle, rgba(255,255,255,0.8) 0.7px, rgba(255,255,255,0) 1px) 1.5px 1.5px / 3px 3px,
+      radial-gradient(circle, rgba(255,255,255,0.9) 1px, rgba(255,255,255,0) 1.4px) 0 0 / 7px 7px,
+      radial-gradient(circle, rgba(255,255,255,0.7) 0.6px, rgba(255,255,255,0) 1px) 3px 2px / 2px 2px;
+    opacity: 0.36;
+    animation: star-twinkle 4.2s ease-in-out infinite alternate, star-drift 60s linear infinite;
+  }
+}
+
 /* Hide scrollbars on mobile (touch devices) */
 @media (hover: none) and (pointer: coarse) {
   /* Hide viewport scrollbar by preventing body scroll */
@@ -219,3 +255,80 @@ body { @apply bg-rose-50/50; }
     flex-shrink: 0;
   }
 }
+
+/* Clean wavy progress range */
+.progress-range {
+  /* percent filled (0%..100%) and colors overridable from inline style */
+  --pct: 0%;
+  --prg: rgb(225, 29, 72); /* rose-600 */
+  --trk: rgba(225, 29, 72, 0.18);
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 6px;
+  border-radius: 9999px;
+  background: transparent;
+  cursor: pointer;
+}
+.progress-range:focus { outline: none; }
+
+/* WebKit */
+.progress-range::-webkit-slider-runnable-track {
+  height: 6px;
+  border-radius: 9999px;
+  background:
+    /* filled portion */
+    linear-gradient(to right, var(--prg) 0 var(--pct), rgba(0,0,0,0) var(--pct) 100%),
+    /* base track */
+    linear-gradient(var(--trk), var(--trk));
+}
+.progress-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 4px;          /* minimal bar */
+  height: 18px;        /* slim thumb */
+  margin-top: -6px;    /* centers on 6px track ( (6-18)/2 = -6 ) */
+  border-radius: 2px;
+  background: var(--prg);
+  border: none;
+  box-shadow: none;
+}
+.progress-range:active::-webkit-slider-thumb { transform: scale(0.98); }
+
+/* Firefox */
+.progress-range::-moz-range-track {
+  height: 6px;
+  border-radius: 9999px;
+  background: var(--trk);
+}
+.progress-range::-moz-range-progress {
+  height: 6px;
+  border-radius: 9999px;
+  background: var(--prg);
+}
+.progress-range::-moz-range-thumb {
+  width: 4px;
+  height: 18px;
+  border-radius: 2px;
+  background: var(--prg);
+  border: none;
+  box-shadow: none;
+}
+
+/* Edge/IE (legacy) */
+.progress-range::-ms-track {
+  height: 6px;
+  border-color: transparent;
+  color: transparent;
+  background: transparent;
+}
+.progress-range::-ms-fill-lower {
+  border-radius: 9999px;
+  background: var(--prg);
+}
+.progress-range::-ms-fill-upper {
+  border-radius: 9999px;
+  background: var(--trk);
+}
+
+/* (wave/ghost styles removed) */

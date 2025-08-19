@@ -1,10 +1,14 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { createPortal } from 'react-dom';
 import Modal from '../components/Modal';
 import { listMusic, uploadMusic, deleteMusic, renameMusic, getOriginal, getSubtitles, uploadSubtitles } from '../lib/music';
 import TrashIcon from '../components/icons/TrashIcon';
 
 export default function Music() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const isMusicRoute = location.pathname === '/music';
   const pairId = useMemo(() => localStorage.getItem('pairId') || '', []);
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -20,6 +24,7 @@ export default function Music() {
   // Player state
   const audioRef = useRef(null);
   const lastRafSetRef = useRef(0);
+  const isScrubbingRef = useRef(false);
   const [player, setPlayer] = useState({ id: '', name: '', duration: 0 });
   const [audioUrl, setAudioUrl] = useState('');
   const [isPlaying, setIsPlaying] = useState(false);
@@ -33,6 +38,7 @@ export default function Music() {
   const mediaSourceRef = useRef(null);
   const vizRAFRef = useRef(0);
   const vizGainRef = useRef(null);
+  const lastPosSyncRef = useRef(0);
   const [vizStyle, setVizStyle] = useState(0); // 0..2
 
   function fmtDuration(secs) {
@@ -40,6 +46,33 @@ export default function Music() {
     const m = Math.floor(s / 60);
     const r = s % 60;
     return `${m}:${r.toString().padStart(2, '0')}`;
+  }
+
+  function onSeekPointerDown() {
+    isScrubbingRef.current = true;
+  }
+
+  function onSeekRelease(e) {
+    const el = audioRef.current; if (!el) { isScrubbingRef.current = false; return; }
+    const dur = isFinite(el.duration) ? el.duration : (player.duration || 0);
+    const target = e && e.target;
+    const raw = parseFloat((target && target.value) || `${currentTime || 0}`) || 0;
+    const atSliderEnd = target && typeof target.max !== 'undefined' && parseFloat(target.value) >= parseFloat(target.max);
+    // Stop scrubbing, then seek. Only snap to exact end if released at the slider's max.
+    isScrubbingRef.current = false;
+    if (dur > 0 && atSliderEnd) {
+      seekTo(dur); // release exactly at end -> allow natural 'ended' and auto-next
+    } else {
+      seekTo(raw); // otherwise, stay where user released
+    }
+  }
+
+  function onSeekCancel(e) {
+    // Cancel should never trigger end-snap; just stop scrubbing and keep current raw value
+    const target = e && e.target;
+    const raw = parseFloat((target && target.value) || `${currentTime || 0}`) || 0;
+    isScrubbingRef.current = false;
+    seekTo(raw);
   }
   function getTokensForCue(c) {
     if (!c) return [];
@@ -181,15 +214,32 @@ export default function Music() {
     return () => { if (audioUrl) { try { URL.revokeObjectURL(audioUrl); } catch {} } };
   }, [audioUrl]);
 
-  // Attach timeupdate and ended listeners
+  // Attach timeupdate, ended (auto-next) and loadedmetadata listeners
   useEffect(() => {
     const el = audioRef.current;
     if (!el) return;
     const onTime = () => setCurrentTime(el.currentTime || 0);
-    const onEnd = () => setIsPlaying(false);
+    const onEnd = () => {
+      // If user scrubbed to the end, do NOT auto-advance
+      if (isScrubbingRef.current) {
+        setIsPlaying(false);
+        return;
+      }
+      // Auto-advance to next track when one finishes naturally
+      playNext(1);
+    };
     const onMeta = () => {
       const d = Math.floor(el.duration || 0);
       if (d > 0) setPlayer(p => (p.duration && p.duration > 0 ? p : { ...p, duration: d }));
+      if ('mediaSession' in navigator) {
+        try {
+          navigator.mediaSession.setPositionState({
+            duration: isFinite(el.duration) ? el.duration : (d || 0),
+            playbackRate: el.playbackRate || 1,
+            position: el.currentTime || 0,
+          });
+        } catch {}
+      }
     };
     el.addEventListener('timeupdate', onTime);
     el.addEventListener('ended', onEnd);
@@ -199,7 +249,7 @@ export default function Music() {
       el.removeEventListener('ended', onEnd);
       el.removeEventListener('loadedmetadata', onMeta);
     };
-  }, []);
+  }, [player.id, items]);
 
   // High-frequency clock for smoother word-level highlighting while playing
   useEffect(() => {
@@ -212,6 +262,20 @@ export default function Music() {
         if (Math.abs(now - lastRafSetRef.current) >= 0.03) {
           lastRafSetRef.current = now;
           setCurrentTime(now);
+        }
+        // Sync Media Session position state ~4x/sec
+        if ('mediaSession' in navigator) {
+          const tnow = performance.now();
+          if (tnow - lastPosSyncRef.current >= 250) {
+            lastPosSyncRef.current = tnow;
+            try {
+              navigator.mediaSession.setPositionState({
+                duration: isFinite(el.duration) ? el.duration : (player.duration || 0),
+                playbackRate: el.playbackRate || 1,
+                position: now,
+              });
+            } catch {}
+          }
         }
       }
       if (isPlaying) raf = requestAnimationFrame(step);
@@ -256,6 +320,17 @@ export default function Music() {
       el.removeEventListener('play', onPlay);
     };
   }, []);
+
+  // When leaving /music, close any open UI (menus, modals, uploading banner, bottom sheet)
+  useEffect(() => {
+    if (!isMusicRoute) {
+      setMenu(null);
+      setRenaming(null);
+      setDeleteConfirmation({ isOpen: false, id: '', name: '' });
+      setUploading(false);
+      if (expanded || closingSheet) { setExpanded(false); setClosingSheet(false); }
+    }
+  }, [isMusicRoute]);
 
   // Visualizer draw loop
   useEffect(() => {
@@ -358,14 +433,14 @@ export default function Music() {
     };
     vizRAFRef.current = requestAnimationFrame(draw);
     return () => { if (vizRAFRef.current) cancelAnimationFrame(vizRAFRef.current); };
-  }, [expanded, viewMode, vizStyle]);
+  }, [expanded, viewMode, vizStyle, player.id]);
 
-  // Pick a random visualizer style on entering visualizer mode
+  // Pick a random visualizer style on entering visualizer mode or track change
   useEffect(() => {
     if (expanded && viewMode === 'viz') {
       setVizStyle(Math.floor(Math.random() * 3));
     }
-  }, [expanded, viewMode]);
+  }, [expanded, viewMode, player.id]);
 
   async function playItem(it) {
     try {
@@ -405,7 +480,25 @@ export default function Music() {
 
   function seekTo(v) {
     const el = audioRef.current; if (!el) return;
-    try { el.currentTime = v; setCurrentTime(v); } catch {}
+    try {
+      const dur = isFinite(el.duration) ? el.duration : (player.duration || 0);
+      let t = v;
+      // While scrubbing, avoid hitting exact end to prevent 'ended' auto-next
+      if (isScrubbingRef.current && dur > 0 && t >= dur) {
+        t = Math.max(0, dur - 0.2);
+      }
+      el.currentTime = t;
+      setCurrentTime(t);
+    } catch {}
+    if ('mediaSession' in navigator) {
+      try {
+        navigator.mediaSession.setPositionState({
+          duration: isFinite(el.duration) ? el.duration : (player.duration || 0),
+          playbackRate: el.playbackRate || 1,
+          position: (audioRef.current && audioRef.current.currentTime) || 0,
+        });
+      } catch {}
+    }
   }
 
   function playNext(delta) {
@@ -416,6 +509,79 @@ export default function Music() {
     const it = items[nextIdx];
     if (it) playItem(it);
   }
+
+  // Media Session action handlers (iOS/Android lock screen controls)
+  useEffect(() => {
+    if (!('mediaSession' in navigator)) return;
+    const ms = navigator.mediaSession;
+    try { ms.setActionHandler('play', async () => {
+      const el = audioRef.current; if (!el) return;
+      try { await el.play(); setIsPlaying(true); } catch {}
+    }); } catch {}
+    try { ms.setActionHandler('pause', () => {
+      const el = audioRef.current; if (!el) return;
+      try { el.pause(); setIsPlaying(false); } catch {}
+    }); } catch {}
+    try { ms.setActionHandler('seekto', (details) => {
+      const el = audioRef.current; if (!el) return;
+      const t = (details && typeof details.seekTime === 'number') ? details.seekTime : 0;
+      if (details && details.fastSeek && typeof el.fastSeek === 'function') {
+        try { el.fastSeek(t); } catch { try { el.currentTime = t; } catch {} }
+      } else {
+        try { el.currentTime = t; } catch {}
+      }
+      setCurrentTime(el.currentTime || 0);
+    }); } catch {}
+    try { ms.setActionHandler('seekbackward', (details) => {
+      const el = audioRef.current; if (!el) return;
+      const off = (details && details.seekOffset) || 10;
+      try { el.currentTime = Math.max(0, (el.currentTime || 0) - off); } catch {}
+      setCurrentTime(el.currentTime || 0);
+    }); } catch {}
+    try { ms.setActionHandler('seekforward', (details) => {
+      const el = audioRef.current; if (!el) return;
+      const off = (details && details.seekOffset) || 10;
+      const dur = isFinite(el.duration) ? el.duration : (player.duration || 0);
+      try { el.currentTime = Math.min(dur || 0, (el.currentTime || 0) + off); } catch {}
+      setCurrentTime(el.currentTime || 0);
+    }); } catch {}
+    try { ms.setActionHandler('previoustrack', () => { playNext(-1); }); } catch {}
+    try { ms.setActionHandler('nexttrack', () => { playNext(1); }); } catch {}
+  }, [player.id, items.length]);
+
+  // Media Session metadata on track change
+  useEffect(() => {
+    if (!('mediaSession' in navigator) || !player.id) return;
+    try {
+      navigator.mediaSession.metadata = new window.MediaMetadata({
+        title: player.name || 'Reproduciendo',
+        artist: 'Nosotros',
+        album: 'Relación',
+        artwork: [
+          { src: '/icon.svg', sizes: 'any', type: 'image/svg+xml' },
+        ],
+      });
+    } catch {}
+  }, [player.id, player.name]);
+
+  // Media Session playback state
+  useEffect(() => {
+    if (!('mediaSession' in navigator)) return;
+    try { navigator.mediaSession.playbackState = isPlaying ? 'playing' : 'paused'; } catch {}
+  }, [isPlaying]);
+
+  // Keep position state in sync when paused or when duration changes
+  useEffect(() => {
+    const el = audioRef.current;
+    if (!el || !('mediaSession' in navigator)) return;
+    try {
+      navigator.mediaSession.setPositionState({
+        duration: isFinite(el.duration) ? el.duration : (player.duration || 0),
+        playbackRate: el.playbackRate || 1,
+        position: currentTime || 0,
+      });
+    } catch {}
+  }, [currentTime, player.duration]);
 
   async function onSelect(e) {
     const list = Array.from(e.target.files || []);
@@ -548,28 +714,32 @@ export default function Music() {
 
   return (
     <div className="space-y-4 pb-20">
-      <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold text-rose-600">Música</h2>
-        <button
-          onClick={() => window.location.reload()}
-          aria-label="Actualizar"
-          title="Actualizar"
-          className="p-2 rounded-lg hover:bg-rose-50 text-rose-600"
-        >
-          <span className="text-xl leading-none">↻</span>
-        </button>
-      </div>
+      {isMusicRoute && (
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-semibold text-rose-600">Música</h2>
+          <button
+            onClick={() => window.location.reload()}
+            aria-label="Actualizar"
+            title="Actualizar"
+            className="p-2 rounded-lg hover:bg-rose-50 text-rose-600"
+          >
+            <span className="text-xl leading-none">↻</span>
+          </button>
+        </div>
+      )}
 
-      <input
-        ref={uploadInputRef}
-        type="file"
-        accept="audio/*"
-        multiple
-        onChange={onSelect}
-        className="hidden"
-      />
+      {isMusicRoute && (
+        <input
+          ref={uploadInputRef}
+          type="file"
+          accept="audio/*"
+          multiple
+          onChange={onSelect}
+          className="hidden"
+        />
+      )}
 
-      {createPortal(
+      {isMusicRoute && createPortal(
         <button
           className="fab btn-primary shadow-lg rounded-full px-5 py-3 font-semibold"
           style={player.id ? { bottom: 'calc(8rem + env(safe-area-inset-bottom) + 0.5rem)' } : undefined}
@@ -583,101 +753,105 @@ export default function Music() {
       )}
 
       {/* Hidden input for subtitles upload */}
-      <input
-        ref={subsInputRef}
-        type="file"
-        accept=".lrc,.srt,.vtt,.txt,text/plain"
-        onChange={onSelectSubs}
-        className="hidden"
-      />
+      {isMusicRoute && (
+        <input
+          ref={subsInputRef}
+          type="file"
+          accept=".lrc,.srt,.vtt,.txt,text/plain"
+          onChange={onSelectSubs}
+          className="hidden"
+        />
+      )}
 
-      {uploading && (
+      {isMusicRoute && uploading && (
         <div className="fixed bottom-40 right-5 z-40 text-xs text-gray-700 bg-white/80 px-2 py-1 rounded-md shadow">
           Subiendo…
         </div>
       )}
 
-      {loading ? (
-        <div className="text-center text-gray-500">Cargando…</div>
-      ) : items.length === 0 ? (
-        <div className="text-center text-gray-500">No hay canciones aún.</div>
-      ) : (
-        <ul className="divide-y divide-rose-100 rounded-xl overflow-hidden border border-rose-100 bg-white">
-          {items.map((it) => (
-            <li key={it.id} className="px-4 py-3 flex items-center justify-between relative cursor-pointer" onClick={() => { if (menu) return; playItem(it); }}>
-              <div className="min-w-0 pr-3">
-                <div className="text-sm font-medium text-gray-900 truncate">{it.name || it.id}</div>
-                <div className="text-xs text-gray-500">
-                  {fmtDuration(it.duration)}
-                  <span className="mx-1">•</span>
-                  {new Date(it.createdAt || Date.now()).toLocaleString()}
+      {isMusicRoute && (
+        loading ? (
+          <div className="text-center text-gray-500">Cargando…</div>
+        ) : items.length === 0 ? (
+          <div className="text-center text-gray-500">No hay canciones aún.</div>
+        ) : (
+          <ul className="divide-y divide-rose-100 rounded-xl overflow-hidden border border-rose-100 bg-white">
+            {items.map((it) => (
+              <li key={it.id} className="px-4 py-3 flex items-center justify-between relative cursor-pointer" onClick={() => { if (menu) return; playItem(it); }}>
+                <div className="min-w-0 pr-3">
+                  <div className="text-sm font-medium text-gray-900 truncate">{it.name || it.id}</div>
+                  <div className="text-xs text-gray-500">
+                    {fmtDuration(it.duration)}
+                    <span className="mx-1">•</span>
+                    {new Date(it.createdAt || Date.now()).toLocaleString()}
+                  </div>
                 </div>
-              </div>
-              <div className="shrink-0">
-                <button
-                  onClick={(e) => { e.stopPropagation(); onOpenMenu(e, it.id); }}
-                  onMouseDown={(e) => e.stopPropagation()}
-                  onTouchStart={(e) => e.stopPropagation()}
-                  className="p-2 rounded-md hover:bg-rose-50"
-                  aria-label="Más opciones"
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
-                    <path d="M12 6.75a1.5 1.5 0 110-3 1.5 1.5 0 010 3zM12 13.5a1.5 1.5 0 110-3 1.5 1.5 0 010 3zM12 20.25a1.5 1.5 0 110-3 1.5 1.5 0 010 3z" />
-                  </svg>
-                </button>
-              </div>
-              {menu?.id === it.id && (
-                <>
-                  {createPortal(
-                    <button className="fixed inset-0 z-[95] cursor-default" onClick={() => setMenu(null)} aria-hidden="true" />, document.body
-                  )}
-                  {createPortal(
-                    (() => {
-                      const rect = menu.rect;
-                      const gap = 8;
-                      const estimatedH = 140; // ~three options
-                      const width = 176;
-                      const preferUp = (window.innerHeight - rect.bottom) < (estimatedH + gap);
-                      const top = preferUp ? Math.max(8, rect.top - estimatedH - gap) : Math.min(window.innerHeight - estimatedH - 8, rect.bottom + gap);
-                      const left = Math.min(window.innerWidth - width - 8, Math.max(8, rect.right - width));
-                      return (
-                        <div
-                          className="z-[100] w-44 bg-white border border-rose-100 rounded-lg shadow-lg overflow-hidden fixed"
-                          style={{ top, left }}
-                        >
-                          <button
-                            onClick={() => onOpenRename(it)}
-                            className="w-full px-3 py-2 text-left text-sm text-gray-700 hover:bg-rose-50"
+                <div className="shrink-0">
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onOpenMenu(e, it.id); }}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    onTouchStart={(e) => e.stopPropagation()}
+                    className="p-2 rounded-md hover:bg-rose-50"
+                    aria-label="Más opciones"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
+                      <path d="M12 6.75a1.5 1.5 0 110-3 1.5 1.5 0 010 3zM12 13.5a1.5 1.5 0 110-3 1.5 1.5 0 010 3zM12 20.25a1.5 1.5 0 110-3 1.5 1.5 0 010 3z" />
+                    </svg>
+                  </button>
+                </div>
+                {menu?.id === it.id && (
+                  <>
+                    {createPortal(
+                      <button className="fixed inset-0 z-[95] cursor-default" onClick={() => setMenu(null)} aria-hidden="true" />, document.body
+                    )}
+                    {createPortal(
+                      (() => {
+                        const rect = menu.rect;
+                        const gap = 8;
+                        const estimatedH = 140; // ~three options
+                        const width = 176;
+                        const preferUp = (window.innerHeight - rect.bottom) < (estimatedH + gap);
+                        const top = preferUp ? Math.max(8, rect.top - estimatedH - gap) : Math.min(window.innerHeight - estimatedH - 8, rect.bottom + gap);
+                        const left = Math.min(window.innerWidth - width - 8, Math.max(8, rect.right - width));
+                        return (
+                          <div
+                            className="z-[100] w-44 bg-white border border-rose-100 rounded-lg shadow-lg overflow-hidden fixed"
+                            style={{ top, left }}
                           >
-                            Cambiar nombre
-                          </button>
-                          <button
-                            onClick={() => onOpenSubtitles(it)}
-                            className="w-full px-3 py-2 text-left text-sm text-gray-700 hover:bg-rose-50"
-                          >
-                            Subir subtítulos
-                          </button>
-                          <button
-                            onClick={() => onDelete(it.id)}
-                            className="w-full flex items-center gap-2 px-3 py-2 text-left text-sm text-rose-700 hover:bg-rose-50"
-                          >
-                            <TrashIcon className="w-4 h-4" />
-                            Borrar
-                          </button>
-                        </div>
-                      );
-                    })(),
-                    document.body
-                  )}
-                </>
-              )}
-            </li>
-          ))}
-        </ul>
+                            <button
+                              onClick={() => onOpenRename(it)}
+                              className="w-full px-3 py-2 text-left text-sm text-gray-700 hover:bg-rose-50"
+                            >
+                              Cambiar nombre
+                            </button>
+                            <button
+                              onClick={() => onOpenSubtitles(it)}
+                              className="w-full px-3 py-2 text-left text-sm text-gray-700 hover:bg-rose-50"
+                            >
+                              Subir subtítulos
+                            </button>
+                            <button
+                              onClick={() => onDelete(it.id)}
+                              className="w-full flex items-center gap-2 px-3 py-2 text-left text-sm text-rose-700 hover:bg-rose-50"
+                            >
+                              <TrashIcon className="w-4 h-4" />
+                              Borrar
+                            </button>
+                          </div>
+                        );
+                      })(),
+                      document.body
+                    )}
+                  </>
+                )}
+              </li>
+            ))}
+          </ul>
+        )
       )}
 
       {/* Rename modal */}
-      {renaming && createPortal(
+      {isMusicRoute && renaming && createPortal(
         <>
           <div className="fixed inset-0 z-[80] bg-black/20" onClick={() => setRenaming(null)} />
           <div className="fixed inset-0 z-[90] flex items-center justify-center p-6">
@@ -703,7 +877,7 @@ export default function Music() {
       )}
 
       {/* Delete confirmation modal (reuse Notes style) */}
-      <Modal isOpen={deleteConfirmation.isOpen} onClose={cancelDelete}>
+      <Modal isOpen={isMusicRoute && deleteConfirmation.isOpen} onClose={cancelDelete}>
         <div className="p-6 text-center">
           <div className="text-4xl mb-4">🗑️</div>
           <h3 className="text-lg font-semibold mb-2">Borrar canción</h3>
@@ -718,8 +892,8 @@ export default function Music() {
         </div>
       </Modal>
 
-      {/* Mini-player fixed above navbar */}
-      {player.id && !expanded && (
+      {/* Mini-player fixed above navbar (only on /music) */}
+      {isMusicRoute && player.id && !expanded && (
         <div
           className="fixed left-0 right-0 z-40"
           style={{ bottom: `calc(4rem + env(safe-area-inset-bottom))` }}
@@ -748,6 +922,21 @@ export default function Music() {
             </button>
           </div>
         </div>
+      )}
+
+      {/* Mini-player in top header when on other tabs */}
+      {!isMusicRoute && player.id && createPortal(
+        <button
+          onClick={() => navigate('/music')}
+          className="fixed z-30 top-[calc(env(safe-area-inset-top)+8px)] right-16 px-3 py-1.5 rounded-full border border-rose-100 bg-white/90 backdrop-blur text-xs text-gray-800 shadow hover:bg-white"
+          style={{ maxWidth: '48vw' }}
+          aria-label="Ir a Música"
+          title="Ir a Música"
+        >
+          <span className="font-medium text-rose-600 mr-2">♪</span>
+          <span className="truncate align-middle">{player.name}</span>
+        </button>,
+        document.body
       )}
 
       {/* Fullscreen player (bottom sheet) */}
@@ -874,12 +1063,22 @@ export default function Music() {
                 step={0.1}
                 value={Math.min(player.duration || 0, currentTime)}
                 onChange={(e) => seekTo(parseFloat(e.target.value))}
-                className="flex-1 accent-rose-600"
+                onInput={(e) => seekTo(parseFloat(e.target.value))}
+                onPointerDown={onSeekPointerDown}
+                onPointerUp={onSeekRelease}
+                onPointerCancel={onSeekCancel}
+                onMouseDown={onSeekPointerDown}
+                onMouseUp={onSeekRelease}
+                onTouchStart={onSeekPointerDown}
+                onTouchEnd={onSeekRelease}
+                onTouchCancel={onSeekCancel}
+                className="flex-1 progress-range"
+                style={{ ['--pct']: `${Math.max(0, Math.min(100, (player.duration ? (currentTime / player.duration) : 0) * 100))}%` }}
               />
               <span>{fmtDuration(player.duration)}</span>
             </div>
             <div className="flex items-center justify-center gap-6">
-              <button className="btn-ghost" onClick={() => playNext(-1)} aria-label="Anterior">
+              <button className="btn-ghost rounded-full w-10 h-10 flex items-center justify-center" onClick={() => playNext(-1)} aria-label="Anterior">
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-6 h-6"><path d="M16.5 5.25h2.25v13.5H16.5zM3 12l12 6.75V5.25L3 12z"/></svg>
               </button>
               <button className="btn-primary rounded-full w-12 h-12" onClick={togglePlay} aria-label={isPlaying ? 'Pausar' : 'Reproducir'}>
@@ -889,8 +1088,12 @@ export default function Music() {
                   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-6 h-6"><path d="M6.75 4.5v15l12-7.5-12-7.5z"/></svg>
                 )}
               </button>
-              <button className="btn-ghost" onClick={() => playNext(1)} aria-label="Siguiente">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-6 h-6"><path d="M7.5 5.25h2.25v13.5H7.5zM21 12 9 5.25v13.5L21 12z"/></svg>
+              <button className="btn-ghost rounded-full w-10 h-10 flex items-center justify-center" onClick={() => playNext(1)} aria-label="Siguiente">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-6 h-6">
+                  <g transform="translate(24,0) scale(-1,1)">
+                    <path d="M16.5 5.25h2.25v13.5H16.5zM3 12l12 6.75V5.25L3 12z"/>
+                  </g>
+                </svg>
               </button>
             </div>
           </div>
@@ -903,8 +1106,9 @@ export default function Music() {
         document.body
       )}
 
-      {/* Spacer so list doesn't go under mini-player */}
-      <div style={{ height: player.id ? 96 : 0 }} />
+      {/* Only render the main page list UI on /music (handled by guards above) */}
+      {/* Spacer so list doesn't go under mini-player (on /music) */}
+      {isMusicRoute && <div style={{ height: player.id ? 96 : 0 }} />}
     </div>
   );
 }
