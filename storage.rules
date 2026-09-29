@@ -1,0 +1,14 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    // Fotos: pairs/{pairId}/photos/{photoId}/(thumb.jpg|orig.jpg)
+    match /pairs/{pairId}/photos/{photoId}/{fileName} {
+      allow read, write: if request.auth != null;
+    }
+
+    // Música: pairs/{pairId}/music/{musicId}/orig
+    match /pairs/{pairId}/music/{musicId}/{fileName} {
+      allow read, write: if request.auth != null;
+    }
+  }
+}
