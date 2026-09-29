@@ -40,6 +40,54 @@ export default function Music() {
   const vizGainRef = useRef(null);
   const lastPosSyncRef = useRef(0);
   const [vizStyle, setVizStyle] = useState(0); // 0..2
+  const [pageVisible, setPageVisible] = useState(() => {
+    try { return document.visibilityState === 'visible'; } catch { return true; }
+  });
+  const [artworkUrl, setArtworkUrl] = useState('');
+
+  useEffect(() => {
+    const onVis = () => {
+      try { setPageVisible(document.visibilityState === 'visible'); } catch {}
+    };
+    try { document.addEventListener('visibilitychange', onVis); } catch {}
+    return () => { try { document.removeEventListener('visibilitychange', onVis); } catch {} };
+  }, []);
+
+  // Prepare PNG artwork from existing SVG so iOS can style system UI better
+  useEffect(() => {
+    let urlToRevoke = '';
+    (async () => {
+      try {
+        if (artworkUrl) return; // already prepared
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.src = '/icon.svg';
+        await new Promise((res, rej) => {
+          img.onload = res;
+          img.onerror = rej;
+        });
+        const size = 512;
+        const canvas = document.createElement('canvas');
+        canvas.width = size; canvas.height = size;
+        const ctx = canvas.getContext('2d');
+        ctx.clearRect(0, 0, size, size);
+        // Draw a dark background to encourage iOS to choose light (white) control icons
+        ctx.fillStyle = '#0f172a'; // slate-900
+        ctx.fillRect(0, 0, size, size);
+        // Center-fit SVG square on top
+        ctx.drawImage(img, 0, 0, size, size);
+        const blob = await new Promise((res) => canvas.toBlob(res, 'image/png'));
+        if (blob) {
+          const url = URL.createObjectURL(blob);
+          urlToRevoke = url;
+          setArtworkUrl(url);
+        }
+      } catch {}
+    })();
+    return () => {
+      if (urlToRevoke) { try { URL.revokeObjectURL(urlToRevoke); } catch {} }
+    };
+  }, [artworkUrl]);
 
   function fmtDuration(secs) {
     const s = Math.max(0, Math.floor(secs || 0));
@@ -91,7 +139,18 @@ export default function Music() {
   }
 
   // Bottom sheet open/close with enter/exit animation
-  const openSheet = () => { setClosingSheet(false); setExpanded(true); };
+  const openSheet = () => {
+    setClosingSheet(false);
+    setExpanded(true);
+    // Ensure AudioContext resumes on user gesture (needed on iOS)
+    try {
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      if (!Ctx) return;
+      if (!audioCtxRef.current) { try { audioCtxRef.current = new Ctx(); } catch { return; } }
+      const ctx = audioCtxRef.current;
+      if (ctx && ctx.state === 'suspended') { try { ctx.resume(); } catch {} }
+    } catch {}
+  };
   const closeSheet = () => {
     setClosingSheet(true);
     setTimeout(() => { setExpanded(false); setClosingSheet(false); }, 260);
@@ -284,42 +343,62 @@ export default function Music() {
     return () => { if (raf) cancelAnimationFrame(raf); };
   }, [isPlaying]);
 
-  // Setup analyser for visualizer (connect once per audio element)
+  // Setup analyser only when visualizer is open; tear down otherwise
   useEffect(() => {
     const el = audioRef.current;
     if (!el) return;
-    let mounted = true;
-    const ensureAudioCtx = () => {
+    const wantViz = expanded && viewMode === 'viz' && pageVisible;
+    if (wantViz) {
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      if (!Ctx) return;
       if (!audioCtxRef.current) {
-        const Ctx = window.AudioContext || window.webkitAudioContext;
-        if (!Ctx) return;
-        audioCtxRef.current = new Ctx();
+        try { audioCtxRef.current = new Ctx(); } catch { return; }
       }
-      return audioCtxRef.current;
-    };
-    const onPlay = () => {
-      const ctx = ensureAudioCtx();
-      if (ctx && ctx.state === 'suspended') ctx.resume().catch(() => {});
-      if (ctx && !mediaSourceRef.current) {
-        try {
+      const ctx = audioCtxRef.current;
+      if (ctx.state === 'suspended') { try { ctx.resume(); } catch {} }
+      try {
+        // Determine if WebAudio can actually output
+        const running = ctx && ctx.state === 'running';
+        // Only create MediaElementSource when context is running to avoid iOS suppressing native audio
+        if (running && !mediaSourceRef.current) {
           mediaSourceRef.current = ctx.createMediaElementSource(el);
+        }
+        if (!analyserRef.current) {
           analyserRef.current = ctx.createAnalyser();
           analyserRef.current.fftSize = 1024;
           analyserRef.current.smoothingTimeConstant = 0.85;
+        }
+        if (!vizGainRef.current) {
           vizGainRef.current = ctx.createGain();
-          vizGainRef.current.gain.value = 1.0; // route audio through graph so it is audible
-          mediaSourceRef.current.connect(analyserRef.current);
-          analyserRef.current.connect(vizGainRef.current);
-          vizGainRef.current.connect(ctx.destination);
-        } catch {}
-      }
-    };
-    el.addEventListener('play', onPlay);
-    return () => {
-      mounted = false;
-      el.removeEventListener('play', onPlay);
-    };
-  }, []);
+        }
+        // Decide routing based on whether AudioContext is running
+        // If running, route audio through WebAudio (audible via destination).
+        // If not running (iOS background or not yet resumed), keep branch silent and rely on native element audio.
+        vizGainRef.current.gain.value = running ? 1.0 : 0.0;
+        // Avoid duplicate connections
+        try { mediaSourceRef.current && mediaSourceRef.current.disconnect(); } catch {}
+        try { analyserRef.current.disconnect(); } catch {}
+        try { vizGainRef.current.disconnect(); } catch {}
+        if (mediaSourceRef.current) {
+          try { mediaSourceRef.current.connect(analyserRef.current); } catch {}
+        }
+        try { analyserRef.current.connect(vizGainRef.current); } catch {}
+        // Only connect to destination if the context is running (so we actually want WebAudio output)
+        if (running) {
+          try { vizGainRef.current.connect(ctx.destination); } catch {}
+        }
+        // Only mute element when WebAudio is actually producing audio
+        try { el.muted = running; } catch {}
+      } catch {}
+    } else {
+      // Tear down graph so HTMLMediaElement regains direct system playback (iOS background OK)
+      try { el.muted = false; } catch {}
+      try { if (mediaSourceRef.current) mediaSourceRef.current.disconnect(); } catch {}
+      try { if (analyserRef.current) analyserRef.current.disconnect(); } catch {}
+      try { if (vizGainRef.current) vizGainRef.current.disconnect(); } catch {}
+      // Keep nodes/context instantiated to avoid the one-per-element MediaElementSource restriction
+    }
+  }, [expanded, viewMode, player.id, pageVisible]);
 
   // When leaving /music, close any open UI (menus, modals, uploading banner, bottom sheet)
   useEffect(() => {
@@ -466,6 +545,11 @@ export default function Music() {
         if (audioRef.current) {
           audioRef.current.src = url;
           audioRef.current.currentTime = 0;
+          // Ensure AudioContext is running before playing (for viz WebAudio path)
+          try {
+            const ctx = audioCtxRef.current;
+            if (ctx && ctx.state === 'suspended') { try { ctx.resume(); } catch {} }
+          } catch {}
           audioRef.current.play().catch(() => {});
         }
       });
@@ -475,7 +559,14 @@ export default function Music() {
   function togglePlay() {
     const el = audioRef.current; if (!el) return;
     if (isPlaying) { try { el.pause(); } catch {} setIsPlaying(false); }
-    else { try { el.play(); setIsPlaying(true); } catch {} }
+    else {
+      // Resume AudioContext on user gesture to allow WebAudio path
+      try {
+        const ctx = audioCtxRef.current;
+        if (ctx && ctx.state === 'suspended') { try { ctx.resume(); } catch {} }
+      } catch {}
+      try { el.play(); setIsPlaying(true); } catch {}
+    }
   }
 
   function seekTo(v) {
@@ -549,7 +640,7 @@ export default function Music() {
     try { ms.setActionHandler('nexttrack', () => { playNext(1); }); } catch {}
   }, [player.id, items.length]);
 
-  // Media Session metadata on track change
+  // Media Session metadata on track change or artwork ready
   useEffect(() => {
     if (!('mediaSession' in navigator) || !player.id) return;
     try {
@@ -557,12 +648,14 @@ export default function Music() {
         title: player.name || 'Reproduciendo',
         artist: 'Nosotros',
         album: 'Relación',
-        artwork: [
-          { src: '/icon.svg', sizes: 'any', type: 'image/svg+xml' },
+        artwork: artworkUrl ? [
+          { src: artworkUrl, sizes: '512x512', type: 'image/png' }
+        ] : [
+          { src: '/icon.svg', sizes: 'any', type: 'image/svg+xml' }
         ],
       });
     } catch {}
-  }, [player.id, player.name]);
+  }, [player.id, player.name, artworkUrl]);
 
   // Media Session playback state
   useEffect(() => {
@@ -1102,7 +1195,7 @@ export default function Music() {
 
       {/* Hidden audio element */}
       {createPortal(
-        <audio ref={audioRef} preload="auto" />,
+        <audio ref={audioRef} preload="auto" playsInline />,
         document.body
       )}
 
