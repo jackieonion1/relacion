@@ -11,6 +11,7 @@ setGlobalOptions({ region: 'europe-southwest1', maxInstances: 5 });
 // Callable: manual test push
 export const sendTestPush = onCall(async (request) => {
   const auth = request.auth;
+  if (!auth) throw new HttpsError('unauthenticated', 'Autenticación requerida');
   const data = request.data || {};
   const pairId = data.pairId;
   const title = data.title || 'Test push';
