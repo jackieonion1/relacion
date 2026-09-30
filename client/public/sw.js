@@ -1,18 +1,111 @@
-/* simple PWA service worker */
-const CACHE_VERSION = 'v1';
+/* simple PWA service worker (v2) */
+// The browser only updates the worker when this file's bytes change, and a normal deploy does not touch
+// it (the in-app banner compares asset-manifest.json instead). Bump CACHE_VERSION when the caching changes.
+// Keep the URL /sw.js and scope /: the push subscription hangs off this registration.
+// Emergency rollback: public/sw-neutral.js (see relacion-docs/runbook-sw.md).
+const CACHE_VERSION = 'v2';
 const APP_SHELL_CACHE = `app-shell-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `runtime-${CACHE_VERSION}`;
+const MAX_RUNTIME = 6; // a build has 3 servable files (main.js, main.css, one chunk): room for two builds
 
+// --- Pure helpers (tested in src/sw.test.js, which evaluates this file) ---
+
+const contentType = (resp) => (resp.headers.get('content-type') || '').toLowerCase();
+const isHtml = (resp) => contentType(resp).includes('text/html');
+
+// Only hashed build files: /static/js/*.js and /static/css/*.css. Media, maps, etc. are not intercepted
+function isStaticAsset(pathname) {
+  return /^\/static\/(js\/[^/]+\.js|css\/[^/]+\.css)$/.test(pathname);
+}
+
+// Worth caching: a full 200 (not 206, not opaque, not redirected) whose type matches the extension.
+// The Hosting rewrite answers a missing /static/js/x.js with 200 text/html: that must never be stored
+function isGoodAsset(pathname, resp) {
+  if (!resp || resp.status !== 200 || resp.type === 'opaque' || resp.redirected || isHtml(resp)) return false;
+  const type = contentType(resp);
+  if (pathname.endsWith('.js')) return type.includes('javascript');
+  if (pathname.endsWith('.css')) return type.includes('text/css');
+  return false;
+}
+
+function isGoodShell(resp) {
+  return !!resp && resp.status === 200 && !resp.redirected && isHtml(resp);
+}
+
+// The /static entry files that an index.html loads (CRA injects main.js and main.css)
+function shellAssets(html) {
+  const found = String(html || '').match(/\/static\/(?:js|css)\/[^"'\s>?#]+\.(?:js|css)/g) || [];
+  return [...new Set(found)].filter(isStaticAsset);
+}
+
+// main.js and main.css are mandatory: a shell without them is a blank screen offline
+function hasEntryAssets(urls) {
+  return urls.some((u) => /^\/static\/js\/main\.[^/]+\.js$/.test(u))
+    && urls.some((u) => /^\/static\/css\/main\.[^/]+\.css$/.test(u));
+}
+
+// Oldest entries go first, but never the files the cached shell needs
+function runtimeEvictions(paths, keep, max = MAX_RUNTIME) {
+  const keepSet = new Set(keep);
+  const extra = paths.length - max;
+  if (extra <= 0) return [];
+  return paths.filter((p) => !keepSet.has(p)).slice(0, extra);
+}
+
+// --- Cache plumbing ---
+
+async function fetchFresh(url) {
+  return fetch(new Request(url, { cache: 'reload' }));
+}
+
+// Make sure every asset this shell references is in RUNTIME; throws if any cannot be stored
+async function cacheShellAssets(html) {
+  const urls = shellAssets(html);
+  if (!hasEntryAssets(urls)) throw new Error('shell-without-entry-assets');
+  const runtime = await caches.open(RUNTIME_CACHE);
+  await Promise.all(urls.map(async (u) => {
+    if (await runtime.match(u)) return;
+    const resp = await fetchFresh(u);
+    if (!isGoodAsset(u, resp)) throw new Error(`bad-asset ${u} ${resp.status}`);
+    await runtime.put(u, resp);
+  }));
+  return urls;
+}
+
+// Store index.html only once its assets are cached; otherwise keep the previous shell
+async function storeShell(resp) {
+  if (!isGoodShell(resp)) return false;
+  const html = await resp.clone().text();
+  const urls = await cacheShellAssets(html);
+  await (await caches.open(APP_SHELL_CACHE)).put('/index.html', resp);
+  await trimRuntime(urls);
+  return true;
+}
+
+async function trimRuntime(keep) {
+  const runtime = await caches.open(RUNTIME_CACHE);
+  const paths = (await runtime.keys()).map((r) => new URL(r.url).pathname);
+  await Promise.all(runtimeEvictions(paths, keep).map((p) => runtime.delete(p)));
+}
+
+async function cachedShellAssets() {
+  const shell = await (await caches.open(APP_SHELL_CACHE)).match('/index.html');
+  return shell ? shellAssets(await shell.text()) : [];
+}
+
+// No skipWaiting here: the new worker waits until the banner's "Actualizar" (SKIP_WAITING message)
+// or until every window is closed. If anything throws, the install fails and the current worker stays
 self.addEventListener('install', (event) => {
   event.waitUntil((async () => {
-    const cache = await caches.open(APP_SHELL_CACHE);
-    await cache.addAll([
-      '/',
-      '/index.html',
-      '/manifest.json',
-    ].map((p) => new Request(p, { cache: 'reload' })));
-    self.skipWaiting();
+    const index = await fetchFresh('/index.html');
+    if (!isGoodShell(index)) throw new Error(`bad-index ${index.status}`);
+    const stored = await storeShell(index);
+    if (!stored) throw new Error('shell-not-stored');
   })());
+});
+
+self.addEventListener('message', (event) => {
+  if (event && event.data && event.data.type === 'SKIP_WAITING') self.skipWaiting();
 });
 
 // Inform clients to re-subscribe if subscription changes (expiry, invalidation)
@@ -25,6 +118,7 @@ self.addEventListener('pushsubscriptionchange', (event) => {
   })());
 });
 
+// Every other cache goes (app-shell-v1 and runtime-v1 included: that is where v1 could keep HTML as JS)
 self.addEventListener('activate', (event) => {
   event.waitUntil((async () => {
     const keys = await caches.keys();
@@ -64,57 +158,58 @@ self.addEventListener('message', (event) => {
   } catch {}
 });
 
+// Only same-origin GET navigations and hashed /static files. Everything else (Firebase Storage images,
+// audio with Range, manifest, icons, APIs) goes straight to the network as if there were no SW
 self.addEventListener('fetch', (event) => {
   const { request } = event;
+  if (request.method !== 'GET') return;
   const url = new URL(request.url);
-  const isSameOrigin = url.origin === self.location.origin;
-  const isFirebaseStorage = /(^https?:\/\/)?([a-z0-9.-]*\.)?(firebasestorage\.googleapis\.com|firebasestorage\.app)$/.test(url.host);
+  if (url.origin !== self.location.origin) return;
 
-  // Same-origin navigation -> serve index.html offline fallback
-  if (isSameOrigin && request.mode === 'navigate') {
+  // Network first, no timeout. Offline: the last shell whose assets are cached
+  if (request.mode === 'navigate') {
     event.respondWith((async () => {
+      let network;
       try {
-        const network = await fetch(request);
-        return network;
+        network = await fetch(request);
       } catch (e) {
-        const cache = await caches.open(APP_SHELL_CACHE);
-        const cached = await cache.match('/index.html');
-        return cached || Response.error();
+        try {
+          const cached = await (await caches.open(APP_SHELL_CACHE)).match('/index.html');
+          return cached || Response.error();
+        } catch {
+          return Response.error();
+        }
       }
+      if (isGoodShell(network)) {
+        try { event.waitUntil(storeShell(network.clone()).catch(() => {})); } catch {}
+      }
+      return network;
     })());
     return;
   }
 
-  // Same-origin static assets (script/style/worker) -> stale-while-revalidate
-  if (isSameOrigin && ['script', 'style', 'worker'].includes(request.destination)) {
+  // Hashed file names never change content: cache first, network on a miss, store only good assets
+  if (isStaticAsset(url.pathname)) {
     event.respondWith((async () => {
-      const cache = await caches.open(RUNTIME_CACHE);
-      const cached = await cache.match(request);
-      const networkPromise = fetch(request).then((resp) => {
-        cache.put(request, resp.clone());
-        return resp;
-      }).catch(() => undefined);
-      return cached || networkPromise || fetch(request);
-    })());
-    return;
-  }
-
-  // Images (same-origin or Firebase Storage) -> cache-first
-  if (request.destination === 'image' && (isSameOrigin || isFirebaseStorage)) {
-    event.respondWith((async () => {
-      const cache = await caches.open(RUNTIME_CACHE);
-      const cached = await cache.match(request);
-      if (cached) return cached;
       try {
+        const runtime = await caches.open(RUNTIME_CACHE);
+        const cached = await runtime.match(url.pathname);
+        if (cached) return cached;
         const resp = await fetch(request);
-        // Cache opaque/cors responses as-is; subsequent loads will use cache
-        cache.put(request, resp.clone());
+        if (isGoodAsset(url.pathname, resp)) {
+          const copy = resp.clone();
+          try {
+            event.waitUntil((async () => {
+              await runtime.put(url.pathname, copy);
+              await trimRuntime(await cachedShellAssets());
+            })().catch(() => {}));
+          } catch {}
+        }
         return resp;
       } catch (e) {
-        return Response.error();
+        return fetch(request);
       }
     })());
-    return;
   }
 });
 
