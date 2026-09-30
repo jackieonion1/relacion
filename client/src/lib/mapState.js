@@ -1,11 +1,11 @@
-import { db, auth, authReady } from './firebase';
+import { db, auth, whenAuthed } from './firebase';
 
 export async function getMapState() {
   try {
     const pairId = localStorage.getItem('pairId') || '';
     if (!pairId || !db) return 'home';
     
-    if (authReady) await authReady;
+    await whenAuthed();
     if (!auth?.currentUser) return 'home';
     
     const { doc, getDoc } = await import('firebase/firestore');
@@ -31,7 +31,7 @@ export async function setMapState(state) {
     const pairId = localStorage.getItem('pairId') || '';
     if (!pairId || !db) return;
     
-    if (authReady) await authReady;
+    await whenAuthed();
     if (!auth?.currentUser) return;
     
     const { doc, setDoc, serverTimestamp } = await import('firebase/firestore');
@@ -59,7 +59,7 @@ export function subscribeToMapState(callback) {
       const pairId = localStorage.getItem('pairId') || '';
       if (!pairId || !db) return;
       
-      if (authReady) await authReady;
+      await whenAuthed();
       if (!auth?.currentUser) return;
       
       const { doc, onSnapshot } = await import('firebase/firestore');

@@ -2,6 +2,7 @@ import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
 import { getFirestore, enableIndexedDbPersistence } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
+import { createSignIn, createWhenAuthed } from './authGate';
 
 const firebaseConfig = {
   apiKey: process.env.REACT_APP_FIREBASE_API_KEY,
@@ -30,7 +31,15 @@ if (required.every(Boolean)) {
       if (u) { unsub(); resolve(u); }
     });
   });
-  signInAnonymously(auth).catch((e) => console.warn('Anonymous auth failed', e));
+  // Retried after a rejection (backoff, and when the network comes back), never while one is pending
+  const signIn = createSignIn({
+    signIn: () => signInAnonymously(auth),
+    hasUser: () => !!auth.currentUser,
+    isOnline: () => typeof navigator === 'undefined' || navigator.onLine !== false,
+    onError: (e) => console.warn('Anonymous auth failed', e),
+  });
+  signIn();
+  if (typeof window !== 'undefined') window.addEventListener('online', () => { signIn(); });
   db = getFirestore(app);
   // Enable offline persistence where possible
   enableIndexedDbPersistence(db).catch((err) => {
@@ -43,4 +52,7 @@ if (required.every(Boolean)) {
   authReady = Promise.resolve(null);
 }
 
-export { app, auth, db, storage, authReady };
+// The session, or null after `ms` (Infinity = no cap). Shared by every module instead of its own waitAuth
+const whenAuthed = createWhenAuthed(authReady, () => auth?.currentUser);
+
+export { app, auth, db, storage, authReady, whenAuthed };

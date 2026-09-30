@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Modal from './Modal';
-import { db, auth, authReady } from '../lib/firebase';
+import { db, whenAuthed } from '../lib/firebase';
 
 const STORAGE_KEY = (pairId, role) => `pair_${pairId || 'default'}_${role}_location`;
 
@@ -11,16 +11,6 @@ async function fb() {
     _fb = await import('firebase/firestore');
   }
   return _fb;
-}
-
-async function waitAuth(timeout = 1200) {
-  if (!authReady) return;
-  try {
-    await Promise.race([
-      authReady,
-      new Promise((res) => setTimeout(res, timeout)),
-    ]);
-  } catch {}
 }
 
 function kmDistance(lat1, lon1, lat2, lon2) {
@@ -178,7 +168,7 @@ export default function SimpleMap({ onDistanceChange }) {
     // Firestore write for sync (if configured)
     try {
       if (pairId && db) {
-        await waitAuth();
+        await whenAuthed();
         const f = await fb();
         const ref = f.doc(f.collection(db, 'pairs', pairId, 'locations'), role);
         await f.setDoc(ref, { ...payload, updatedAt: f.serverTimestamp() }, { merge: true });

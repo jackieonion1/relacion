@@ -8,6 +8,7 @@ jest.mock('./firebase', () => ({
   db: {},
   storage: {},
   authReady: Promise.resolve(),
+  whenAuthed: () => Promise.resolve({ uid: 'u1' }),
 }));
 jest.mock('./photoCache', () => ({
   getThumb: jest.fn(),

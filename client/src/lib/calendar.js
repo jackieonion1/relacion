@@ -1,4 +1,4 @@
-import { db, auth, authReady } from './firebase';
+import { db, auth, whenAuthed } from './firebase';
 
 let _fb;
 async function fb() {
@@ -9,19 +9,9 @@ async function fb() {
   return _fb;
 }
 
-async function waitAuth(timeout = 1200) {
-  if (!authReady) return;
-  try {
-    await Promise.race([
-      authReady,
-      new Promise((res) => setTimeout(res, timeout)),
-    ]);
-  } catch {}
-}
-
 export async function listEvents(pairId, { futureOnly = true, max = 50 } = {}) {
   if (!pairId || !db) return [];
-  await waitAuth();
+  await whenAuthed();
   const f = await fb();
   const col = f.collection(db, 'pairs', pairId, 'events');
   let q;
@@ -91,7 +81,7 @@ export function eventToFormValues(ev) {
 
 export async function addEvent(pairId, { title, date, time, endDate, location = '', eventType = 'conjunto', seeEachOther = false }, identity = 'yo') {
   if (!pairId || !db) throw new Error('missing-context');
-  await waitAuth();
+  await whenAuthed();
   const f = await fb();
   if (!auth?.currentUser) throw new Error('no-auth');
 
@@ -111,7 +101,7 @@ export async function addEvent(pairId, { title, date, time, endDate, location = 
 
 export async function updateEvent(pairId, id, { title, date, time, endDate, location = '', eventType = 'conjunto', seeEachOther = false }) {
   if (!pairId || !id || !db) throw new Error('missing-context');
-  await waitAuth();
+  await whenAuthed();
   const f = await fb();
   if (!auth?.currentUser) throw new Error('no-auth');
 
@@ -128,7 +118,7 @@ export async function updateEvent(pairId, id, { title, date, time, endDate, loca
 
 export async function deleteEvent(pairId, id) {
   if (!pairId || !id || !db) return;
-  await waitAuth();
+  await whenAuthed();
   const f = await fb();
   if (!auth?.currentUser) throw new Error('no-auth');
   const ref = f.doc(f.collection(db, 'pairs', pairId, 'events'), id);
@@ -137,7 +127,7 @@ export async function deleteEvent(pairId, id) {
 
 export async function listenEvents(pairId, { futureOnly = true, max = 50 } = {}, onChange) {
   if (!pairId || !db) return () => {};
-  await waitAuth();
+  await whenAuthed();
   const f = await fb();
   const col = f.collection(db, 'pairs', pairId, 'events');
   let q;

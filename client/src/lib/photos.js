@@ -1,4 +1,4 @@
-import { auth, db, storage, authReady } from './firebase';
+import { auth, db, storage, whenAuthed } from './firebase';
 import { getThumb, putThumb, getOrig, putOrig, pruneOrig, deleteThumb, deleteOrig } from './photoCache';
 import { splitPage } from './pagination';
 
@@ -52,17 +52,6 @@ function drawContain(img, max) {
   const w = Math.round(img.width * ratio);
   const h = Math.round(img.height * ratio);
   return { w, h };
-}
-
-// Wait for anonymous auth to be ready (avoid first-operation race)
-async function waitAuth(timeout = 1200) {
-  if (!authReady) return;
-  try {
-    await Promise.race([
-      authReady,
-      new Promise((resolve) => setTimeout(resolve, timeout)),
-    ]);
-  } catch {}
 }
 
 async function resizeToBlob(file, maxSize, quality = 0.85) {
@@ -147,7 +136,7 @@ export async function listPhotos(pairId, max = 100) {
   const fblib = await fb();
   if (db && fblib) {
     try {
-      await waitAuth();
+      await whenAuthed();
       const { collection, getDocs, query, orderBy, limit } = fblib;
       const col = collection(db, 'pairs', pairId, 'photos');
       const q = query(col, orderBy('createdAt', 'desc'), limit(max));
@@ -179,7 +168,7 @@ export async function listPhotosPage(pairId, { pageSize = 60, cursor = null } = 
   const fblib = await fb();
   if (db && fblib) {
     try {
-      await waitAuth();
+      await whenAuthed();
       const { collection, getDocs, query, orderBy, limit, startAfter } = fblib;
       const col = collection(db, 'pairs', pairId, 'photos');
       // pageSize + 1 tells us whether there is another page without an empty extra read
@@ -243,7 +232,7 @@ export async function getDailyPhotoId(pairId) {
   if (!(db && fblib)) return '';
   const dayKey = madridDayKey();
   try {
-    await waitAuth();
+    await whenAuthed();
   } catch {}
   try {
     const { collection, doc, getDoc, setDoc, getDocs, query, orderBy, limit } = fblib;
@@ -281,7 +270,7 @@ export async function getPhotoThumbUrl(pairId, id) {
   const fblib = await fb();
   if (!(db && storage && fblib)) return '';
   try {
-    await waitAuth();
+    await whenAuthed();
     const { collection, doc, getDoc, updateDoc, ref, getDownloadURL } = fblib;
     let url = '';
     try {
@@ -310,7 +299,7 @@ export async function getOriginal(pairId, id) {
   const fblib = await fb();
   if (storage && fblib) {
     try {
-      await waitAuth();
+      await whenAuthed();
       const { ref, getDownloadURL, collection, doc, getDoc, updateDoc } = fblib;
       // Prefer URL saved in Firestore (works across users)
       let url = '';
@@ -360,7 +349,7 @@ export async function getOriginalUrl(pairId, id) {
   const fblib = await fb();
   if (!(storage && fblib)) return '';
   try {
-    await waitAuth();
+    await whenAuthed();
     const { ref, getDownloadURL, collection, doc, getDoc, updateDoc } = fblib;
     let url = '';
     try {
@@ -435,7 +424,7 @@ function pushRemote(pairId, id, identity, thumbBlob, origBlob) {
     const fblib = await fb();
     if (!(db && storage && fblib)) throw new Error('no-firebase');
     // authReady never resolves without a session: bounded wait instead of hanging forever
-    await waitAuth(15000);
+    await whenAuthed(15000);
     if (!auth?.currentUser) throw new Error('no-auth');
     if (deletedIds.has(id)) throw new Error('cancelled');
     const { ref, uploadBytes, deleteObject, collection, doc, setDoc, serverTimestamp, getDownloadURL } = fblib;
@@ -539,7 +528,7 @@ export function retryPendingPhotos(pairId) {
     if (isOffline()) { result.offline = true; result.failed = pending.length; return result; }
     const fblib = await fb();
     if (!(db && storage && fblib)) { result.failed = pending.length; return result; }
-    await waitAuth(15000);
+    await whenAuthed(15000);
     const { collection, doc, getDoc } = fblib;
     for (const p of pending) {
       if (deletedIds.has(p.id)) { removePending(pairId, p.id); continue; } // deleted after the snapshot above
@@ -605,7 +594,7 @@ export async function deletePhoto(pairId, id) {
 
   const fblib = await fb();
   try {
-    await waitAuth();
+    await whenAuthed();
   } catch {}
 
   if (db && storage && fblib) {

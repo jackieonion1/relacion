@@ -1,4 +1,4 @@
-import { db, auth, authReady } from './firebase';
+import { db, auth, whenAuthed } from './firebase';
 
 let _f;
 async function f() {
@@ -33,13 +33,6 @@ async function swSubscribeFallback(reg, ask) {
       reject(e);
     }
   });
-}
-
-async function waitAuth(timeout = 1200) {
-  if (!authReady) return;
-  try {
-    await Promise.race([authReady, new Promise((res) => setTimeout(res, timeout))]);
-  } catch {}
 }
 
 function urlBase64ToUint8Array(base64String) {
@@ -118,7 +111,7 @@ export async function subscribeToPush(pairId, identity, vapidPublicKey) {
   }
   if (!vapidPublicKey) throw new Error('missing-vapid');
 
-  await waitAuth();
+  await whenAuthed();
   if (!auth?.currentUser) throw new Error('no-auth');
 
   const reg = await navigator.serviceWorker.ready;
@@ -314,7 +307,7 @@ export async function unsubscribeFromPush(pairId, identity) {
     if (sub) await sub.unsubscribe();
   } catch {}
   try {
-    await waitAuth();
+    await whenAuthed();
     if (!auth?.currentUser || !pairId) return;
     const { collection, doc, deleteDoc } = await f();
     const col = collection(db, 'pairs', pairId, 'pushSubs');

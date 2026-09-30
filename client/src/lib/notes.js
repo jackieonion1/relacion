@@ -1,4 +1,4 @@
-import { db, auth, authReady } from './firebase';
+import { db, auth, whenAuthed } from './firebase';
 
 let _fb;
 async function fb() {
@@ -9,19 +9,9 @@ async function fb() {
   return _fb;
 }
 
-async function waitAuth(timeout = 1200) {
-  if (!authReady) return;
-  try {
-    await Promise.race([
-      authReady,
-      new Promise((res) => setTimeout(res, timeout)),
-    ]);
-  } catch {}
-}
-
 export async function addNote(pairId, { body = '', html = '', plain = '', title = '' }, identity = 'yo', { threadId = '' } = {}) {
   if (!pairId || !db) throw new Error('missing-context');
-  await waitAuth();
+  await whenAuthed();
   const f = await fb();
   if (!auth?.currentUser) throw new Error('no-auth');
   const other = identity === 'yo' ? 'ella' : 'yo';
@@ -47,7 +37,7 @@ export async function addNote(pairId, { body = '', html = '', plain = '', title 
 
 export async function deleteNote(pairId, id) {
   if (!pairId || !id || !db) return;
-  await waitAuth();
+  await whenAuthed();
   const f = await fb();
   if (!auth?.currentUser) throw new Error('no-auth');
   const ref = f.doc(f.collection(db, 'pairs', pairId, 'notes'), id);
@@ -56,7 +46,7 @@ export async function deleteNote(pairId, id) {
 
 export async function listNotes(pairId, { max = 100 } = {}) {
   if (!pairId || !db) return [];
-  await waitAuth();
+  await whenAuthed();
   const f = await fb();
   const col = f.collection(db, 'pairs', pairId, 'notes');
   const q = f.query(col, f.orderBy('createdAt', 'desc'), f.limit(max));
@@ -66,7 +56,7 @@ export async function listNotes(pairId, { max = 100 } = {}) {
 
 export async function listenNotes(pairId, { max = 100 } = {}, onChange) {
   if (!pairId || !db) return () => {};
-  await waitAuth();
+  await whenAuthed();
   const f = await fb();
   const col = f.collection(db, 'pairs', pairId, 'notes');
   const q = f.query(col, f.orderBy('createdAt', 'desc'), f.limit(max));
@@ -78,7 +68,7 @@ export async function listenNotes(pairId, { max = 100 } = {}, onChange) {
 
 export async function markThreadRead(pairId, threadId, identity) {
   if (!pairId || !db || !threadId) return;
-  await waitAuth();
+  await whenAuthed();
   const f = await fb();
   const col = f.collection(db, 'pairs', pairId, 'notes');
   const q = f.query(
@@ -98,7 +88,7 @@ export async function markThreadRead(pairId, threadId, identity) {
 
 export async function markNoteRead(pairId, noteId, identity) {
   if (!pairId || !db || !noteId) return;
-  await waitAuth();
+  await whenAuthed();
   const f = await fb();
   if (!auth?.currentUser) throw new Error('no-auth');
   const col = f.collection(db, 'pairs', pairId, 'notes');
@@ -110,7 +100,7 @@ export async function markNoteRead(pairId, noteId, identity) {
 
 export async function deleteThread(pairId, threadId) {
   if (!pairId || !db || !threadId) return;
-  await waitAuth();
+  await whenAuthed();
   const f = await fb();
   const col = f.collection(db, 'pairs', pairId, 'notes');
   const q = f.query(col, f.where('threadId', '==', threadId));
