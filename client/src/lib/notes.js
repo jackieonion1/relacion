@@ -28,11 +28,15 @@ export async function addNote(pairId, { body = '', html = '', plain = '', title 
   const col = f.collection(db, 'pairs', pairId, 'notes');
   // Single write: a root note is its own thread, so the id is known up front
   const docRef = f.doc(col);
-  await f.setDoc(docRef, {
+  // Resolves once the write is queued (persistence keeps it offline); `committed` settles with the server ack.
+  // Waiting for the ack offline left the modal in "Guardando…" and a second tap duplicated the note
+  const committed = f.setDoc(docRef, {
     ...base,
     threadId: threadId || docRef.id,
     unreadFor: [other],
   });
+  committed.catch(() => {}); // callers that ignore it must not raise an unhandled rejection
+  return { id: docRef.id, committed };
 }
 
 export async function deleteNote(pairId, id) {

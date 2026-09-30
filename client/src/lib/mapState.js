@@ -5,9 +5,10 @@ export async function getMapState() {
     const pairId = localStorage.getItem('pairId') || '';
     if (!pairId || !db) return 'home';
     
+    // Bounded wait: without a session this falls back to the local copy instead of "Cargando…" forever
     await whenAuthed();
-    if (!auth?.currentUser) return 'home';
-    
+    if (!auth?.currentUser) return localStorage.getItem('mapState') || 'home';
+
     const { doc, getDoc } = await import('firebase/firestore');
     const snap = await getDoc(doc(db, 'pairs', pairId, 'mapState', 'current'));
     
@@ -23,19 +24,21 @@ export async function getMapState() {
   }
 }
 
+// Resolves once the write is queued (persistence keeps it offline) and returns { committed }, which settles
+// with the server ack; it also rejects if the write could not even be queued (e.g. no session)
 export async function setMapState(state) {
+  // Save locally first
+  try { localStorage.setItem('mapState', state); } catch {}
+  let committed;
   try {
-    // Save locally first
-    localStorage.setItem('mapState', state);
-    
     const pairId = localStorage.getItem('pairId') || '';
-    if (!pairId || !db) return;
-    
+    if (!pairId || !db) return { committed: Promise.resolve() };
+
     await whenAuthed();
-    if (!auth?.currentUser) return;
-    
+    if (!auth?.currentUser) throw new Error('no-auth');
+
     const { doc, setDoc, serverTimestamp } = await import('firebase/firestore');
-    await setDoc(
+    committed = setDoc(
       doc(db, 'pairs', pairId, 'mapState', 'current'),
       {
         state,
@@ -45,10 +48,10 @@ export async function setMapState(state) {
       { merge: true }
     );
   } catch (e) {
-    console.error('Error setting map state:', e);
-    // Still save locally even if Firestore fails
-    localStorage.setItem('mapState', state);
+    committed = Promise.reject(e);
   }
+  committed.catch((e) => console.error('Error setting map state:', e)); // no unhandled rejection for callers that ignore it
+  return { committed };
 }
 
 // Returns the unsubscribe synchronously; without a session yet it keeps waiting and subscribes when it arrives

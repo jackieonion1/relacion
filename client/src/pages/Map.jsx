@@ -54,9 +54,11 @@ function TravelingAnimation() {
 }
 
 export default function MapPage() {
-  const [currentState, setCurrentState] = useState('home');
+  // The local copy shows at once; Firestore refines it (without a session it may take up to the auth wait)
+  const [currentState, setCurrentState] = useState(() => localStorage.getItem('mapState') || 'home');
   const [showHeartRain, setShowHeartRain] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(() => !localStorage.getItem('mapState'));
+  const [saveError, setSaveError] = useState(''); // write rejected after the modal was closed
   const [confirmationModal, setConfirmationModal] = useState({
     isOpen: false,
     newState: '',
@@ -118,15 +120,20 @@ export default function MapPage() {
   };
 
   // Confirm and apply state change
+  // Closes at once: offline the server ack never arrives (the write stays queued); only a rejection is shown
   const confirmStateChange = async () => {
-    const { newState } = confirmationModal;
+    const { newState, newStateLabel } = confirmationModal;
     setCurrentState(newState);
-    await setMapState(newState);
+    setSaveError('');
     setConfirmationModal({
       isOpen: false,
       newState: '',
       newStateLabel: '',
       newStateEmoji: ''
+    });
+    const { committed } = await setMapState(newState);
+    committed.catch(() => {
+      setSaveError(`No se pudo guardar el estado "${newStateLabel}". La otra persona no lo verá.`);
     });
   };
 
@@ -190,6 +197,12 @@ export default function MapPage() {
   return (
     <div className="space-y-4 relative pb-20">
       <h2 className="text-lg font-semibold text-rose-600">Mapa</h2>
+      {saveError && (
+        <div className="card flex items-center justify-between gap-3 text-sm text-rose-600">
+          <span>{saveError}</span>
+          <button type="button" onClick={() => setSaveError('')} className="btn-link" aria-label="Cerrar aviso">×</button>
+        </div>
+      )}
       <div className="card">
         <div className="text-sm text-gray-600 mb-3">Estado actual</div>
         <MapViewSwitcher 

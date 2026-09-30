@@ -88,6 +88,7 @@ export default function SimpleMap({ onDistanceChange }) {
   // Modal state
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [form, setForm] = useState({ city: '', addr1: '', addr2: '' });
+  const [saveError, setSaveError] = useState(''); // write rejected after the modal was closed
 
   // Firestore listener to sync locations across clients
   useEffect(() => {
@@ -165,10 +166,15 @@ export default function SimpleMap({ onDistanceChange }) {
     const payload = { city: form.city.trim(), addr1: form.addr1.trim(), addr2: form.addr2.trim() };
     // Always keep local cache
     try { localStorage.setItem(STORAGE_KEY(pairId, role), JSON.stringify(payload)); } catch {}
-    // Firestore write for sync (if configured)
+    // Close at once: offline the server ack never arrives (the write stays queued)
+    if (role === 'novio') setNovio(payload); else setNovia(payload);
+    setIsModalOpen(false);
+    setSaveError('');
+    // Firestore write for sync (if configured); only a rejection is shown
     try {
       if (pairId && db) {
-        await whenAuthed();
+        const user = await whenAuthed();
+        if (!user) throw new Error('no-auth');
         const f = await fb();
         const ref = f.doc(f.collection(db, 'pairs', pairId, 'locations'), role);
         await f.setDoc(ref, { ...payload, updatedAt: f.serverTimestamp() }, { merge: true });
@@ -176,9 +182,8 @@ export default function SimpleMap({ onDistanceChange }) {
     } catch (err) {
       // Non-fatal; local cache remains
       console.warn('Failed to write location to Firestore', err);
+      setSaveError('No se pudo guardar la ubicación. La otra persona no la verá.');
     }
-    if (role === 'novio') setNovio(payload); else setNovia(payload);
-    setIsModalOpen(false);
   }
 
   return (
@@ -230,6 +235,13 @@ export default function SimpleMap({ onDistanceChange }) {
           {novia?.addr2 ? <div>{novia.addr2}</div> : null}
         </div>
       </div>
+
+      {saveError && (
+        <div className="mt-2 flex items-center justify-between gap-3 text-xs text-rose-600">
+          <span>{saveError}</span>
+          <button type="button" onClick={() => setSaveError('')} className="btn-link" aria-label="Cerrar aviso">×</button>
+        </div>
+      )}
 
       {/* FAB to update location */}
       {createPortal(
