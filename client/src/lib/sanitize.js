@@ -20,9 +20,19 @@ export function sanitizeHtml(dirty = '') {
   const template = document.createElement('template');
   template.innerHTML = String(dirty);
 
-  const sanitizeNode = (node) => {
+  const sanitizeNode = (original) => {
+    let node = original;
     if (node.nodeType === Node.TEXT_NODE) return; // always allowed
-    const tag = node.nodeName;
+    let tag = node.nodeName;
+    // Chrome/Safari insert <div> on Enter in contentEditable: keep the line break as <p>
+    // instead of flattening it (the children are sanitized below like any other node)
+    if (tag === 'DIV') {
+      const p = document.createElement('p');
+      while (node.firstChild) p.appendChild(node.firstChild);
+      node.replaceWith(p);
+      node = p;
+      tag = 'P';
+    }
     if (!allowedTags.has(tag)) {
       // Replace disallowed element with its text content (flatten)
       const text = document.createTextNode(node.textContent || '');
@@ -57,4 +67,13 @@ export function sanitizeHtml(dirty = '') {
 
   for (const child of Array.from(template.content.childNodes)) sanitizeNode(child);
   return template.innerHTML;
+}
+
+// Plain text of an already sanitized note, keeping one line per block (<p>, <li>, <br>)
+export function htmlToPlain(clean = '') {
+  const template = document.createElement('template');
+  template.innerHTML = String(clean);
+  template.content.querySelectorAll('br').forEach((br) => br.replaceWith('\n'));
+  template.content.querySelectorAll('p, li').forEach((el) => el.append('\n'));
+  return (template.content.textContent || '').replace(/\n{3,}/g, '\n\n').trim();
 }

@@ -1,5 +1,6 @@
 import { auth, db, storage, authReady } from './firebase';
 import { getThumb, putThumb, getOrig, putOrig, pruneOrig, deleteThumb, deleteOrig } from './photoCache';
+import { splitPage } from './pagination';
 
 // Helpers
 function genId() {
@@ -88,13 +89,57 @@ async function fb() {
   if (!_fb) {
     try {
       const { ref, uploadBytes, getDownloadURL, deleteObject } = await import('firebase/storage');
-      const { collection, doc, setDoc, getDoc, getDocs, query, orderBy, limit, serverTimestamp, deleteDoc } = await import('firebase/firestore');
-      _fb = { ref, uploadBytes, getDownloadURL, deleteObject, collection, doc, setDoc, getDoc, getDocs, query, orderBy, limit, serverTimestamp, deleteDoc };
+      const { collection, doc, setDoc, updateDoc, getDoc, getDocs, query, orderBy, limit, startAfter, serverTimestamp, deleteDoc, waitForPendingWrites } = await import('firebase/firestore');
+      _fb = { ref, uploadBytes, getDownloadURL, deleteObject, collection, doc, setDoc, updateDoc, getDoc, getDocs, query, orderBy, limit, startAfter, serverTimestamp, deleteDoc, waitForPendingWrites };
     } catch (e) {
       _fb = null;
     }
   }
   return _fb;
+}
+
+// Thumb for one photo doc: cached blob first, else resolve the remote URL and cache it
+async function resolveThumbUrl(fblib, pairId, docSnap) {
+  const id = docSnap.id;
+  const data = docSnap.data();
+  // try cached thumb first
+  let thumbUrl = '';
+  const blob = await getThumb(id);
+  if (blob) {
+    thumbUrl = URL.createObjectURL(blob);
+  } else {
+    // No cached blob: resolve a correct remote URL, then try to fetch to blob immediately.
+    try {
+      const { ref, getDownloadURL, collection, doc, updateDoc } = fblib;
+      let displayUrl = data?.thumbUrl || '';
+      // Accept .firebasestorage.app as correct; treat legacy .appspot.com or missing alt=media as invalid
+      const invalid = displayUrl && (/\.appspot\.com\//.test(displayUrl) || displayUrl.indexOf('alt=media') === -1);
+      if (!displayUrl || invalid) {
+        const tRef = ref(storage, `pairs/${pairId}/photos/${id}/thumb.jpg`);
+        displayUrl = await getDownloadURL(tRef);
+        try {
+          // updateDoc (not setDoc merge): never re-creates a doc that was deleted
+          const dRef = doc(collection(db, 'pairs', pairId, 'photos'), id);
+          await updateDoc(dRef, { thumbUrl: displayUrl });
+        } catch {}
+      }
+      // Try to fetch the remote URL into a Blob so we can use a blob: URL (more reliable on iOS)
+      try {
+        const resp = await fetch(displayUrl, { mode: 'cors', cache: 'force-cache' });
+        if (resp.ok) {
+          const b = await resp.blob();
+          await putThumb(id, b);
+          thumbUrl = URL.createObjectURL(b);
+        } else {
+          thumbUrl = displayUrl;
+        }
+      } catch {
+        // Fallback to remote URL if CORS blocks fetch
+        thumbUrl = displayUrl;
+      }
+    } catch {}
+  }
+  return thumbUrl;
 }
 
 export async function listPhotos(pairId, max = 100) {
@@ -108,45 +153,8 @@ export async function listPhotos(pairId, max = 100) {
       const q = query(col, orderBy('createdAt', 'desc'), limit(max));
       const snap = await getDocs(q);
       for (const docSnap of snap.docs) {
-        const id = docSnap.id;
-        const data = docSnap.data();
-        // try cached thumb first
-        let thumbUrl = '';
-        const blob = await getThumb(id);
-        if (blob) {
-          thumbUrl = URL.createObjectURL(blob);
-        } else {
-          // No cached blob: resolve a correct remote URL, then try to fetch to blob immediately.
-          try {
-            const { ref, getDownloadURL, collection, doc, setDoc } = fblib;
-            let displayUrl = data?.thumbUrl || '';
-            // Accept .firebasestorage.app as correct; treat legacy .appspot.com or missing alt=media as invalid
-            const invalid = displayUrl && (/\.appspot\.com\//.test(displayUrl) || displayUrl.indexOf('alt=media') === -1);
-            if (!displayUrl || invalid) {
-              const tRef = ref(storage, `pairs/${pairId}/photos/${id}/thumb.jpg`);
-              displayUrl = await getDownloadURL(tRef);
-              try {
-                const dRef = doc(collection(db, 'pairs', pairId, 'photos'), id);
-                await setDoc(dRef, { thumbUrl: displayUrl }, { merge: true });
-              } catch {}
-            }
-            // Try to fetch the remote URL into a Blob so we can use a blob: URL (more reliable on iOS)
-            try {
-              const resp = await fetch(displayUrl, { mode: 'cors', cache: 'force-cache' });
-              if (resp.ok) {
-                const b = await resp.blob();
-                await putThumb(id, b);
-                thumbUrl = URL.createObjectURL(b);
-              } else {
-                thumbUrl = displayUrl;
-              }
-            } catch {
-              // Fallback to remote URL if CORS blocks fetch
-              thumbUrl = displayUrl;
-            }
-          } catch {}
-        }
-        items.push({ id, thumbUrl, createdAt: data?.createdAt?.toMillis?.() || Date.now() });
+        const thumbUrl = await resolveThumbUrl(fblib, pairId, docSnap);
+        items.push({ id: docSnap.id, thumbUrl, createdAt: docSnap.data()?.createdAt?.toMillis?.() || Date.now() });
       }
       return items;
     } catch (e) {
@@ -163,6 +171,43 @@ export async function listPhotos(pairId, max = 100) {
   // Sort desc by createdAt
   items.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
   return items.slice(0, max);
+}
+
+// One page of the gallery, newest first. `cursor` is the last doc of the previous page.
+// Returns { items, cursor, hasMore }; on a failed "load more" it throws so the UI can offer a retry.
+export async function listPhotosPage(pairId, { pageSize = 60, cursor = null } = {}) {
+  const fblib = await fb();
+  if (db && fblib) {
+    try {
+      await waitAuth();
+      const { collection, getDocs, query, orderBy, limit, startAfter } = fblib;
+      const col = collection(db, 'pairs', pairId, 'photos');
+      // pageSize + 1 tells us whether there is another page without an empty extra read
+      const q = cursor
+        ? query(col, orderBy('createdAt', 'desc'), startAfter(cursor), limit(pageSize + 1))
+        : query(col, orderBy('createdAt', 'desc'), limit(pageSize + 1));
+      const snap = await getDocs(q);
+      const { page, hasMore } = splitPage(snap.docs, pageSize);
+      const items = [];
+      for (const docSnap of page) {
+        const thumbUrl = await resolveThumbUrl(fblib, pairId, docSnap);
+        items.push({ id: docSnap.id, thumbUrl, createdAt: docSnap.data()?.createdAt?.toMillis?.() || Date.now() });
+      }
+      return { items, cursor: page.length ? page[page.length - 1] : cursor, hasMore };
+    } catch (e) {
+      if (cursor) throw e;
+      // First page: fall back to local
+    }
+  }
+  // Local-only (no Firebase): everything in one page
+  const items = [];
+  for (const m of readLocalMeta(pairId)) {
+    const b = await getThumb(m.id);
+    const thumbUrl = b ? URL.createObjectURL(b) : '';
+    items.push({ id: m.id, thumbUrl, createdAt: m.createdAt });
+  }
+  items.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  return { items, cursor: null, hasMore: false };
 }
 
 // Europe/Madrid day key (YYYY-MM-DD)
@@ -237,7 +282,7 @@ export async function getPhotoThumbUrl(pairId, id) {
   if (!(db && storage && fblib)) return '';
   try {
     await waitAuth();
-    const { collection, doc, getDoc, setDoc, ref, getDownloadURL } = fblib;
+    const { collection, doc, getDoc, updateDoc, ref, getDownloadURL } = fblib;
     let url = '';
     try {
       const dRef = doc(collection(db, 'pairs', pairId, 'photos'), id);
@@ -250,7 +295,7 @@ export async function getPhotoThumbUrl(pairId, id) {
       url = await getDownloadURL(tRef);
       try {
         const dRef = doc(collection(db, 'pairs', pairId, 'photos'), id);
-        await setDoc(dRef, { thumbUrl: url }, { merge: true });
+        await updateDoc(dRef, { thumbUrl: url });
       } catch {}
     }
     return url || '';
@@ -266,7 +311,7 @@ export async function getOriginal(pairId, id) {
   if (storage && fblib) {
     try {
       await waitAuth();
-      const { ref, getDownloadURL, collection, doc, getDoc, setDoc } = fblib;
+      const { ref, getDownloadURL, collection, doc, getDoc, updateDoc } = fblib;
       // Prefer URL saved in Firestore (works across users)
       let url = '';
       try {
@@ -292,7 +337,7 @@ export async function getOriginal(pairId, id) {
           const freshUrl = await getDownloadURL(oRef);
           try {
             const dRef = doc(collection(db, 'pairs', pairId, 'photos'), id);
-            await setDoc(dRef, { origUrl: freshUrl }, { merge: true });
+            await updateDoc(dRef, { origUrl: freshUrl });
           } catch {}
           const resp2 = await fetch(freshUrl);
           if (resp2.ok) {
@@ -302,7 +347,7 @@ export async function getOriginal(pairId, id) {
       }
       if (fetched) {
         await putOrig(id, fetched);
-        await pruneOrig(20);
+        await pruneOrig(20, getPendingIds(pairId));
         return fetched;
       }
     } catch {}
@@ -316,7 +361,7 @@ export async function getOriginalUrl(pairId, id) {
   if (!(storage && fblib)) return '';
   try {
     await waitAuth();
-    const { ref, getDownloadURL, collection, doc, getDoc, setDoc } = fblib;
+    const { ref, getDownloadURL, collection, doc, getDoc, updateDoc } = fblib;
     let url = '';
     try {
       const dRef = doc(collection(db, 'pairs', pairId, 'photos'), id);
@@ -330,7 +375,7 @@ export async function getOriginalUrl(pairId, id) {
       url = await getDownloadURL(oRef);
       try {
         const dRef = doc(collection(db, 'pairs', pairId, 'photos'), id);
-        await setDoc(dRef, { origUrl: url }, { merge: true });
+        await updateDoc(dRef, { origUrl: url });
       } catch {}
     }
     return url || '';
@@ -339,6 +384,100 @@ export async function getOriginalUrl(pairId, id) {
   }
 }
 
+// Photos cached on this device whose upload is not confirmed yet. The mark is written BEFORE
+// uploading and removed only on success, so a hung/offline upload (or a closed app) doesn't lose it.
+function pendingKey(pairId) { return `photos:pending:${pairId}`; }
+function readPending(pairId) {
+  try {
+    const arr = JSON.parse(localStorage.getItem(pendingKey(pairId)) || '[]');
+    return Array.isArray(arr) ? arr : [];
+  } catch { return []; }
+}
+function writePending(pairId, arr) {
+  try { localStorage.setItem(pendingKey(pairId), JSON.stringify(arr)); } catch {}
+}
+function addPending(pairId, entry) {
+  writePending(pairId, [...readPending(pairId).filter((p) => p.id !== entry.id), entry]);
+}
+function removePending(pairId, id) {
+  writePending(pairId, readPending(pairId).filter((p) => p.id !== id));
+}
+export function getPendingIds(pairId) {
+  return readPending(pairId).map((p) => p.id);
+}
+
+// Pending photos as gallery items (thumb from the local cache), newest first
+export async function listPendingPhotos(pairId) {
+  const items = [];
+  for (const p of readPending(pairId)) {
+    let thumbUrl = '';
+    try {
+      const b = await getThumb(p.id);
+      if (b) thumbUrl = URL.createObjectURL(b);
+    } catch {}
+    items.push({ id: p.id, thumbUrl, createdAt: p.createdAt || 0 });
+  }
+  items.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  return items;
+}
+
+// Upload both files and create the doc. Idempotent (same id = same paths and same doc).
+// One push per photo at a time: a second caller (retry, StrictMode) joins the one in flight.
+// Cancel flag: deletePhoto adds the id to `deletedIds` (in memory, this tab only) and a push that finds it
+// there stops before creating the doc. Not the pending mark: writePending swallows storage errors, so a
+// missing mark can't be told apart from a photo that never got one.
+const inflight = new Map();
+const deletedIds = new Set();
+function pushRemote(pairId, id, identity, thumbBlob, origBlob) {
+  const key = `${pairId}:${id}`;
+  if (inflight.has(key)) return inflight.get(key);
+  const p = (async () => {
+    const fblib = await fb();
+    if (!(db && storage && fblib)) throw new Error('no-firebase');
+    // authReady never resolves without a session: bounded wait instead of hanging forever
+    await waitAuth(15000);
+    if (!auth?.currentUser) throw new Error('no-auth');
+    if (deletedIds.has(id)) throw new Error('cancelled');
+    const { ref, uploadBytes, deleteObject, collection, doc, setDoc, serverTimestamp, getDownloadURL } = fblib;
+    const base = `pairs/${pairId}/photos/${id}`;
+    const tRef = ref(storage, `${base}/thumb.jpg`);
+    const oRef = ref(storage, `${base}/orig.jpg`);
+    const cacheMeta = { contentType: 'image/jpeg', cacheControl: 'public, max-age=31536000, immutable' };
+    let thumbUrlRemote;
+    let origUrlRemote;
+    try {
+      await uploadBytes(tRef, thumbBlob, cacheMeta);
+      await uploadBytes(oRef, origBlob, cacheMeta);
+      [thumbUrlRemote, origUrlRemote] = await Promise.all([
+        getDownloadURL(tRef),
+        getDownloadURL(oRef),
+      ]);
+      if (deletedIds.has(id)) throw new Error('cancelled');
+    } catch (e) {
+      // Deleted while uploading: deletePhoto may already have removed thumb.jpg, so getDownloadURL
+      // can fail before we notice. Either way drop what we uploaded (best effort) and never create the doc
+      if (!deletedIds.has(id)) throw e;
+      await Promise.allSettled([deleteObject(tRef), deleteObject(oRef)]);
+      throw new Error('cancelled');
+    }
+    await setDoc(doc(collection(db, 'pairs', pairId, 'photos'), id), {
+      createdAt: serverTimestamp(),
+      createdBy: auth.currentUser.uid,
+      identity,
+      thumbUrl: thumbUrlRemote,
+      origUrl: origUrlRemote,
+    });
+    removePending(pairId, id);
+  })().finally(() => inflight.delete(key));
+  inflight.set(key, p);
+  return p;
+}
+
+function isOffline() {
+  return typeof navigator !== 'undefined' && navigator.onLine === false;
+}
+
+// Returns { id, thumbUrl, createdAt, pending, error }. `pending` = cached here but not uploaded (yet).
 export async function uploadPhoto(pairId, file, identity = 'yo') {
   const id = genId();
   // make derivatives
@@ -348,78 +487,141 @@ export async function uploadPhoto(pairId, file, identity = 'yo') {
   // cache locally
   await putThumb(id, thumbBlob);
   await putOrig(id, origBlob);
-  await pruneOrig(20);
 
   const now = Date.now();
-  let remoteOk = false;
+  let pending = false;
+  let error = null;
 
   const fblib = await fb();
   if (db && storage && fblib) {
-    try {
-      if (authReady) await authReady;
-      if (!auth?.currentUser) throw new Error('no-auth');
-      const { ref, uploadBytes, collection, doc, setDoc, serverTimestamp, getDownloadURL } = fblib;
-      const base = `pairs/${pairId}/photos/${id}`;
-      const tRef = ref(storage, `${base}/thumb.jpg`);
-      const oRef = ref(storage, `${base}/orig.jpg`);
-      const cacheMeta = { contentType: 'image/jpeg', cacheControl: 'public, max-age=31536000, immutable' };
-      await uploadBytes(tRef, thumbBlob, cacheMeta);
-      await uploadBytes(oRef, origBlob, cacheMeta);
-      const [thumbUrlRemote, origUrlRemote] = await Promise.all([
-        getDownloadURL(tRef),
-        getDownloadURL(oRef),
-      ]);
-      await setDoc(doc(collection(db, 'pairs', pairId, 'photos'), id), {
-        createdAt: serverTimestamp(),
-        createdBy: auth.currentUser.uid,
-        identity,
-        thumbUrl: thumbUrlRemote,
-        origUrl: origUrlRemote,
-      });
-      remoteOk = true;
-    } catch (e) {
-      // ignore, we already cached locally
+    // Write-ahead: mark as pending before touching the network
+    addPending(pairId, { id, identity, createdAt: now });
+    pending = true;
+  }
+  await pruneOrig(20, getPendingIds(pairId));
+
+  if (pending) {
+    if (isOffline()) {
+      // Offline uploads don't fail, they hang: leave it pending, it is retried when the network is back
+      error = new Error('offline');
+    } else {
+      try {
+        await pushRemote(pairId, id, identity, thumbBlob, origBlob);
+        pending = false;
+      } catch (e) {
+        error = e; // stays pending, we already cached locally
+      }
     }
   }
+
+  // Deleted meanwhile (also while the doc write waited for the server, or after a network error): nothing to
+  // show, and it must not come back into the local meta
+  if (deletedIds.has(id)) return { id, cancelled: true };
 
   // local meta
   const meta = readLocalMeta(pairId);
   meta.push({ id, createdAt: now, identity });
   writeLocalMeta(pairId, meta);
 
-  return { id, thumbUrl: URL.createObjectURL(thumbBlob), createdAt: now, remote: remoteOk };
+  return { id, thumbUrl: URL.createObjectURL(thumbBlob), createdAt: now, pending, error };
 }
 
-// Delete photo from Storage, Firestore and local cache/meta
+// Try again every pending photo of this pair. Returns { sent, failed, lost, offline, queued }.
+// `lost` = the local copy is gone (cannot be recovered, the user has to pick it again).
+// `queued` = ids whose write is already in the SDK queue waiting for the server (see confirmQueued).
+let retryRun = null;
+export function retryPendingPhotos(pairId) {
+  if (retryRun) return retryRun;
+  retryRun = (async () => {
+    const result = { sent: 0, failed: 0, lost: 0, offline: false, queued: [] };
+    const pending = readPending(pairId);
+    if (!pending.length) return result;
+    if (isOffline()) { result.offline = true; result.failed = pending.length; return result; }
+    const fblib = await fb();
+    if (!(db && storage && fblib)) { result.failed = pending.length; return result; }
+    await waitAuth(15000);
+    const { collection, doc, getDoc } = fblib;
+    for (const p of pending) {
+      if (deletedIds.has(p.id)) { removePending(pairId, p.id); continue; } // deleted after the snapshot above
+      try {
+        // The write may have gone through and only the mark survived: check before uploading again
+        const snap = await getDoc(doc(collection(db, 'pairs', pairId, 'photos'), p.id));
+        if (snap.exists()) {
+          if (snap.metadata?.hasPendingWrites) { result.queued.push(p.id); continue; } // queued, not acknowledged yet
+          removePending(pairId, p.id);
+          result.sent += 1;
+          continue;
+        }
+        const [thumbBlob, origBlob] = await Promise.all([getThumb(p.id), getOrig(p.id)]);
+        if (!thumbBlob || !origBlob) {
+          removePending(pairId, p.id);
+          result.lost += 1;
+          continue;
+        }
+        await pushRemote(pairId, p.id, p.identity || 'yo', thumbBlob, origBlob);
+        result.sent += 1;
+      } catch (e) {
+        if (e?.message !== 'cancelled') result.failed += 1; // deleted while uploading: nothing to retry
+      }
+    }
+    return result;
+  })().finally(() => { retryRun = null; });
+  return retryRun;
+}
+
+// Waits for the server to acknowledge the queued writes and drops the pending mark of those `ids`.
+// Returns how many were confirmed. Offline it just stays waiting.
+export async function confirmQueued(pairId, ids) {
+  const fblib = await fb();
+  if (!(db && fblib && ids?.length)) return 0;
+  try {
+    await fblib.waitForPendingWrites(db);
+    let n = 0;
+    for (const id of ids) {
+      const snap = await fblib.getDoc(fblib.doc(fblib.collection(db, 'pairs', pairId, 'photos'), id));
+      if (snap.exists() && !snap.metadata?.hasPendingWrites) { removePending(pairId, id); n += 1; }
+    }
+    return n;
+  } catch {
+    return 0;
+  }
+}
+
+// Delete photo from Firestore, Storage and local cache/meta.
+// Local state goes first, before any network await: offline the server calls don't resolve, and a
+// pending mark left behind would make the retry upload the deleted photo again. The tombstone makes an
+// upload in flight stop before creating the doc (see pushRemote).
+// Then doc first: if that fails we throw. A Storage object left without a doc is harmless; a doc
+// without its object would show up broken.
 export async function deletePhoto(pairId, id) {
+  deletedIds.add(id);
+  removePending(pairId, id);
+  try {
+    const meta = readLocalMeta(pairId).filter((m) => m.id !== id);
+    writeLocalMeta(pairId, meta);
+  } catch {}
+  try { await deleteThumb(id); } catch {}
+  try { await deleteOrig(id); } catch {}
+
   const fblib = await fb();
   try {
     await waitAuth();
   } catch {}
 
   if (db && storage && fblib) {
-    try {
-      const { ref, deleteObject, collection, doc, deleteDoc } = fblib;
-      const base = `pairs/${pairId}/photos/${id}`;
-      const tRef = ref(storage, `${base}/thumb.jpg`);
-      const oRef = ref(storage, `${base}/orig.jpg`);
-      await Promise.all([
-        deleteObject(tRef).catch(() => {}),
-        deleteObject(oRef).catch(() => {}),
-      ]);
-      await deleteDoc(doc(collection(db, 'pairs', pairId, 'photos'), id)).catch(() => {});
-    } catch (e) {
-      // proceed to local cleanup even if remote fails
-      console.warn('Remote delete failed or partial:', e);
-    }
+    const { ref, deleteObject, collection, doc, deleteDoc } = fblib;
+    await deleteDoc(doc(collection(db, 'pairs', pairId, 'photos'), id));
+    const base = `pairs/${pairId}/photos/${id}`;
+    const results = await Promise.allSettled([
+      deleteObject(ref(storage, `${base}/thumb.jpg`)),
+      deleteObject(ref(storage, `${base}/orig.jpg`)),
+    ]);
+    // Missing objects are fine (e.g. a photo that never finished uploading); anything else is only logged:
+    // the photo is already gone for the user
+    results.forEach((r) => {
+      if (r.status === 'rejected' && r.reason?.code !== 'storage/object-not-found') {
+        console.warn('Storage delete failed (orphan object left):', r.reason);
+      }
+    });
   }
-
-  // Local cache cleanup
-  try { await deleteThumb(id); } catch {}
-  try { await deleteOrig(id); } catch {}
-  // Local meta cleanup
-  try {
-    const meta = readLocalMeta(pairId).filter((m) => m.id !== id);
-    writeLocalMeta(pairId, meta);
-  } catch {}
 }

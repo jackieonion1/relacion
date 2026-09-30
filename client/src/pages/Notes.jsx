@@ -3,8 +3,8 @@ import { createPortal } from 'react-dom';
 import Modal from '../components/Modal';
 import RichTextEditor from '../components/RichTextEditor';
 import MarkdownRenderer from '../components/MarkdownRenderer';
-import { addNote, deleteNote, listenNotes, updateNote, deleteThread, markThreadRead } from '../lib/notes';
-import { sanitizeHtml } from '../lib/sanitize';
+import { addNote, deleteNote, listenNotes, deleteThread, markThreadRead } from '../lib/notes';
+import { sanitizeHtml, htmlToPlain } from '../lib/sanitize';
 
 export default function Notes() {
   const pairId = useMemo(() => localStorage.getItem('pairId') || '', []);
@@ -16,7 +16,6 @@ export default function Notes() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [deleteConfirmation, setDeleteConfirmation] = useState({ isOpen: false, id: '', preview: '' });
-  const [editingId, setEditingId] = useState('');
   const [selectedNote, setSelectedNote] = useState(null); // note object when viewing/editing existente
   const [isEditing, setIsEditing] = useState(false); // controls modal mode
   const [title, setTitle] = useState('');
@@ -51,17 +50,10 @@ export default function Notes() {
     setError('');
     try {
       const clean = sanitizeHtml(html);
-      const tmp = document.createElement('div');
-      tmp.innerHTML = clean;
-      const plain = (tmp.textContent || '').trim();
+      const plain = htmlToPlain(clean);
       const titleTrim = (title || '').trim();
-      if (editingId) {
-        await updateNote(pairId, editingId, { html: clean, plain, title: titleTrim });
-      } else {
-        await addNote(pairId, { html: clean, plain, title: titleTrim }, identity, { threadId: replyThreadId || '' });
-      }
+      await addNote(pairId, { html: clean, plain, title: titleTrim }, identity, { threadId: replyThreadId || '' });
       setHtml('');
-      setEditingId('');
       setSelectedNote(null);
       setIsEditing(false);
       setTitle('');
@@ -101,7 +93,6 @@ export default function Notes() {
         setIsEditing(false);
         setHtml('');
         setTitle('');
-        setEditingId('');
       }
       setDeleteConfirmation({ isOpen: false, id: '', preview: '' });
     } catch (e) {
@@ -118,7 +109,6 @@ export default function Notes() {
     setIsThreadView(true);
     setSelectedThreadId(thread.threadId);
     setSelectedNote(null);
-    setEditingId('');
     setHtml('');
     setTitle('');
     setIsEditing(false);
@@ -128,7 +118,6 @@ export default function Notes() {
 
   function replyToThread(threadId) {
     setSelectedNote(null);
-    setEditingId('');
     setHtml('');
     setIsEditing(true);
     setError('');
@@ -149,7 +138,6 @@ export default function Notes() {
 
   function startNewNote() {
     setSelectedNote(null);
-    setEditingId('');
     setHtml('');
     setIsEditing(true);
     setError('');
@@ -368,7 +356,7 @@ export default function Notes() {
       )}
 
       {/* Modal Nueva Nota */}
-      <Modal isOpen={isModalOpen} onClose={() => { try { if (isThreadView && selectedThreadId) { markThreadRead(pairId, selectedThreadId, identity); } else if (selectedNote) { const tid = selectedNote.threadId || selectedNote.id || ''; if (tid) markThreadRead(pairId, tid, identity); } } catch {}; setIsModalOpen(false); setEditingId(''); setHtml(''); setError(''); setSelectedNote(null); setIsEditing(false); setTitle(''); setReplyThreadId(''); setIsThreadView(false); setSelectedThreadId(''); setIsMessageModalOpen(false); }}>
+      <Modal isOpen={isModalOpen} onClose={() => { try { if (isThreadView && selectedThreadId) { markThreadRead(pairId, selectedThreadId, identity); } else if (selectedNote) { const tid = selectedNote.threadId || selectedNote.id || ''; if (tid) markThreadRead(pairId, tid, identity); } } catch {}; setIsModalOpen(false); setHtml(''); setError(''); setSelectedNote(null); setIsEditing(false); setTitle(''); setReplyThreadId(''); setIsThreadView(false); setSelectedThreadId(''); setIsMessageModalOpen(false); }}>
         <div className="p-6 flex flex-col gap-4" style={{ maxHeight: '75vh' }}>
           {/* Thread view */}
           {!isEditing && isThreadView && (
@@ -424,7 +412,6 @@ export default function Notes() {
                     type="button"
                     onClick={() => {
                       try { markThreadRead(pairId, selectedThreadId, identity); } catch {}
-                      setEditingId('');
                       setIsEditing(true);
                       setReplyThreadId(selectedThreadId);
                       setHtml('');
@@ -482,7 +469,6 @@ export default function Notes() {
                     type="button"
                     onClick={() => {
                       try { markThreadRead(pairId, (selectedNote?.threadId || selectedNote?.id || ''), identity); } catch {}
-                      setEditingId('');
                       setIsEditing(true);
                       setReplyThreadId(selectedNote?.threadId || selectedNote?.id || '');
                       setHtml('');
@@ -509,7 +495,7 @@ export default function Notes() {
               {error && <p className="text-xs text-rose-600">{error}</p>}
               <div className="flex justify-end gap-2">
                 <button type="button" onClick={() => { if (selectedNote) { setIsEditing(false); } else { setIsModalOpen(false); } }} className="btn-ghost">Cancelar</button>
-                <button disabled={saving} className="btn-primary disabled:opacity-60">{saving ? 'Guardando…' : (editingId ? 'Actualizar' : 'Guardar')}</button>
+                <button disabled={saving} className="btn-primary disabled:opacity-60">{saving ? 'Guardando…' : 'Guardar'}</button>
               </div>
             </form>
           )}
@@ -517,7 +503,7 @@ export default function Notes() {
       </Modal>
 
       {/* Overlay modal for single message detail */}
-      <Modal isOpen={isMessageModalOpen} onClose={() => { setIsMessageModalOpen(false); setSelectedNote(null); setIsEditing(false); setHtml(''); setTitle(''); setEditingId(''); }}>
+      <Modal isOpen={isMessageModalOpen} onClose={() => { setIsMessageModalOpen(false); setSelectedNote(null); setIsEditing(false); setHtml(''); setTitle(''); }}>
         <div className="p-6 space-y-4">
           {/* Single note view (detalle) */}
           {!isEditing && selectedNote && (
@@ -533,7 +519,7 @@ export default function Notes() {
                 )}
               </div>
               <div className="flex justify-end">
-                <button type="button" onClick={() => { setIsMessageModalOpen(false); setSelectedNote(null); setEditingId(''); }} className="btn-ghost">Cerrar</button>
+                <button type="button" onClick={() => { setIsMessageModalOpen(false); setSelectedNote(null); }} className="btn-ghost">Cerrar</button>
               </div>
             </>
           )}
@@ -552,7 +538,7 @@ export default function Notes() {
               {error && <p className="text-xs text-rose-600">{error}</p>}
               <div className="flex justify-end gap-2">
                 <button type="button" onClick={() => { setIsEditing(false); }} className="btn-ghost">Cancelar</button>
-                <button disabled={saving} className="btn-primary disabled:opacity-60">{saving ? 'Guardando…' : (editingId ? 'Actualizar' : 'Guardar')}</button>
+                <button disabled={saving} className="btn-primary disabled:opacity-60">{saving ? 'Guardando…' : 'Guardar'}</button>
               </div>
             </form>
           )}

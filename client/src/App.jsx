@@ -11,7 +11,9 @@ import Music from './pages/Music';
 import NavBar from './components/NavBar';
 import InstallPrompt from './components/InstallPrompt';
 import CogIcon from './components/icons/CogIcon';
+import Modal from './components/Modal';
 import { subscribeToPush, getPushSubscription, unsubscribeFromPush, getPushDiag } from './lib/push';
+import { normalizePairCode, isValidPairCode } from './lib/pairCode';
 
 const IDENTITY_KEY = 'identity'; // 'yo' | 'ella'
 const PAIR_KEY = 'pairId';
@@ -44,8 +46,8 @@ function PairGate({ children }) {
 
   function onSubmit(e) {
     e.preventDefault();
-    const v = (e.currentTarget.pair?.value || '').trim().toUpperCase();
-    if (!/^[A-Z0-9]{4,12}$/.test(v)) return;
+    const v = normalizePairCode(e.currentTarget.pair?.value);
+    if (!isValidPairCode(v)) return;
     setPairId(v);
     e.currentTarget.reset();
   }
@@ -191,11 +193,22 @@ export default function App() {
 }
 
 function Settings() {
-  const [pair, setPair] = useState(() => localStorage.getItem(PAIR_KEY) || '');
+  // `pair` es el código guardado; lo que se escribe en el input vive aparte hasta confirmar uno válido
+  const [pair] = useState(() => localStorage.getItem(PAIR_KEY) || '');
+  const [pairInput, setPairInput] = useState(pair);
+  const [pairConfirm, setPairConfirm] = useState(''); // '' | 'save' | 'clear'
+  const newPair = normalizePairCode(pairInput);
+  const canSavePair = isValidPairCode(newPair) && newPair !== pair;
 
-  useEffect(() => {
-    if (pair) localStorage.setItem(PAIR_KEY, pair);
-  }, [pair]);
+  // Las páginas leen el código de localStorage al montarse y la puerta (PairGate) lo guarda en su
+  // estado: tras guardar o borrar se recarga para que todo arranque con el código nuevo
+  function applyPair(code) {
+    try {
+      if (code) localStorage.setItem(PAIR_KEY, code);
+      else localStorage.removeItem(PAIR_KEY);
+    } catch {}
+    window.location.reload();
+  }
 
   const shareLink = typeof window !== 'undefined' && pair
     ? `${window.location.origin}/?pair=${encodeURIComponent(pair)}`
@@ -297,11 +310,15 @@ function Settings() {
       <h2 className="text-lg font-semibold text-rose-600">Ajustes</h2>
       <div className="card">
         <label className="block text-sm text-gray-600 mb-1">Código de pareja</label>
-        <div className="flex gap-2">
-          <input value={pair} onChange={(e) => setPair(e.target.value.toUpperCase())} placeholder="AB12CD" maxLength={12}
-                 className="input flex-1 uppercase tracking-widest" />
-          <button onClick={() => { setPair(''); localStorage.removeItem(PAIR_KEY); }} className="btn-ghost">Borrar</button>
-        </div>
+        <form onSubmit={(e) => { e.preventDefault(); if (canSavePair) setPairConfirm('save'); }} className="flex gap-2">
+          <input value={pairInput} onChange={(e) => setPairInput(e.target.value.toUpperCase())} placeholder="AB12CD" maxLength={12}
+                 className="input flex-1 min-w-0 uppercase tracking-widest" />
+          <button disabled={!canSavePair} className="btn-primary disabled:opacity-60">Guardar</button>
+          <button type="button" disabled={!pair} onClick={() => setPairConfirm('clear')} className="btn-ghost disabled:opacity-60">Borrar</button>
+        </form>
+        {pairInput && !isValidPairCode(pairInput) && (
+          <p className="text-xs text-rose-600 mt-1">Entre 4 y 12 letras o números.</p>
+        )}
         {shareLink && (
           <div className="flex items-center gap-2 mt-2">
             <input readOnly value={shareLink} className="input flex-1 text-xs" />
@@ -340,6 +357,29 @@ function Settings() {
         </div>
       )}
       <IdentityReset />
+      <Modal isOpen={!!pairConfirm} onClose={() => setPairConfirm('')}>
+        <div className="p-6 text-center">
+          <h3 className="text-lg font-semibold mb-2">
+            {pairConfirm === 'clear' ? 'Borrar el código de pareja' : 'Cambiar el código de pareja'}
+          </h3>
+          <p className="text-gray-600 mb-6">
+            {pairConfirm === 'clear'
+              ? `Se borrará ${pair} de este dispositivo y la app te pedirá un código otra vez.`
+              : `Pasarás de ${pair} a ${newPair} y verás los datos de ese código. Para volver, escribe ${pair}.`}
+          </p>
+          <div className="flex gap-3 justify-center">
+            <button onClick={() => setPairConfirm('')} className="px-4 py-2 text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors">
+              Cancelar
+            </button>
+            <button
+              onClick={() => applyPair(pairConfirm === 'clear' ? '' : newPair)}
+              className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+            >
+              {pairConfirm === 'clear' ? 'Borrar' : 'Cambiar'}
+            </button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }

@@ -29,10 +29,13 @@ export async function listEvents(pairId, { futureOnly = true, max = 50 } = {}) {
     const now = f.Timestamp.fromDate(new Date());
     q = f.query(col, f.where('start', '>=', now), f.orderBy('start', 'asc'), f.limit(max));
   } else {
-    q = f.query(col, f.orderBy('start', 'asc'), f.limit(max));
+    // Newest first so the limit cuts the oldest events, not the upcoming ones
+    q = f.query(col, f.orderBy('start', 'desc'), f.limit(max));
   }
   const snap = await f.getDocs(q);
-  return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  // Keep returning ascending order (as futureOnly does)
+  return futureOnly ? list : list.reverse();
 }
 
 export async function addEvent(pairId, { title, date, time, endDate, location = '', eventType = 'conjunto', seeEachOther = false }, identity = 'yo') {
@@ -75,7 +78,10 @@ export async function addEvent(pairId, { title, date, time, endDate, location = 
   }
   
   const col = f.collection(db, 'pairs', pairId, 'events');
-  await f.addDoc(col, payload);
+  // Resolves once the write is queued (persistence keeps it offline); `committed` settles with the server ack
+  const committed = f.addDoc(col, payload);
+  committed.catch(() => {}); // callers that ignore it must not raise an unhandled rejection
+  return { committed };
 }
 
 export async function deleteEvent(pairId, id) {
