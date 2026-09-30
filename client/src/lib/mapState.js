@@ -34,7 +34,7 @@ export async function setMapState(state) {
     const pairId = localStorage.getItem('pairId') || '';
     if (!pairId || !db) return { committed: Promise.resolve() };
 
-    await whenAuthed();
+    await whenAuthed(Infinity); // background write: a slow sign-in must not drop it
     if (!auth?.currentUser) throw new Error('no-auth');
 
     const { doc, setDoc, serverTimestamp } = await import('firebase/firestore');

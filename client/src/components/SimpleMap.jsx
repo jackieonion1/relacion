@@ -173,7 +173,7 @@ export default function SimpleMap({ onDistanceChange }) {
     // Firestore write for sync (if configured); only a rejection is shown
     try {
       if (pairId && db) {
-        const user = await whenAuthed();
+        const user = await whenAuthed(Infinity); // modal already closed: wait out a slow sign-in instead of dropping the write
         if (!user) throw new Error('no-auth');
         const f = await fb();
         const ref = f.doc(f.collection(db, 'pairs', pairId, 'locations'), role);
