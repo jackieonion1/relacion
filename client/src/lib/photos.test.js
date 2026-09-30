@@ -259,6 +259,45 @@ describe('uploadPhoto', () => {
     expect(result).toEqual({ id, cancelled: true });
     expect(metaIds()).not.toContain(id);
   });
+
+  describe('red «conectada» pero inútil', () => {
+    // El tope de 45 s pasa a 0 ms; el resto de temporizadores (imagen, flush) siguen reales
+    beforeEach(() => {
+      const realSetTimeout = global.setTimeout;
+      jest.spyOn(global, 'setTimeout').mockImplementation((fn, ms, ...args) => realSetTimeout(fn, ms === 45000 ? 0 : ms, ...args));
+    });
+
+    test('a los 45 s deja de esperar sin cancelar: pendiente, con `done` y la marca intacta', async () => {
+      let finish;
+      uploadBytes.mockImplementation(() => new Promise((r) => { finish = r; }));
+
+      const result = await uploadPhoto(PAIR, new Blob(['f']));
+
+      expect(result).toMatchObject({ pending: true, error: expect.objectContaining({ message: 'slow' }) });
+      expect(result.done).toBeInstanceOf(Promise);
+      expect(pendingIds()).toContain(result.id);
+      expect(metaIds()).toContain(result.id);
+      // la subida sigue: al terminar crea el doc y quita la marca
+      finish(); await flush(); finish(); await flush();
+      await result.done;
+      expect(setDoc).toHaveBeenCalledTimes(1);
+      expect(pendingIds()).not.toContain(result.id);
+    });
+
+    test('el reintento salta la foto que sigue subiendo en lugar de quedarse esperándola', async () => {
+      // Solo la subida nueva se cuelga; la de P1 (pendiente de antes) va bien
+      uploadBytes.mockImplementationOnce(() => new Promise(() => {})).mockResolvedValue();
+      getDoc.mockResolvedValue({ exists: () => false });
+      getThumb.mockResolvedValue(new Blob(['t']));
+      getOrig.mockResolvedValue(new Blob(['o']));
+
+      const { id } = await uploadPhoto(PAIR, new Blob(['f']));
+      const r = await retryPendingPhotos(PAIR); // P1 se reintenta; `id` sigue en vuelo
+
+      expect(uploadBytes.mock.calls.filter(([ref]) => ref.path.includes(id))).toHaveLength(1);
+      expect(r).toMatchObject({ sent: 1, failed: 0 });
+    });
+  });
 });
 
 describe('listPhotosPage', () => {

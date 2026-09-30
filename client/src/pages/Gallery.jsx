@@ -33,7 +33,6 @@ export default function Gallery() {
   const [hasMore, setHasMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [loadMoreError, setLoadMoreError] = useState(false);
-  const [reloadKey, setReloadKey] = useState(0);
   // Fotos guardadas en este móvil que aún no se han subido, y avisos de subida
   const [pendingIds, setPendingIds] = useState([]);
   const [retrying, setRetrying] = useState(false);
@@ -110,7 +109,7 @@ export default function Gallery() {
       urlsRef.current = [];
       if (viewer.url && viewer.url.startsWith('blob:')) URL.revokeObjectURL(viewer.url);
     };
-  }, [pairId, reloadKey]);
+  }, [pairId]);
 
   // Abre ?photo=id sin exigir que esté en la lista cargada (puede estar en una página aún sin cargar)
   useEffect(() => {
@@ -143,8 +142,9 @@ export default function Gallery() {
     if (!pairId || getPendingIds(pairId).length === 0) return;
     setRetrying(true);
     try {
+      // Sin recargar: las pendientes ya están en la cuadrícula con su miniatura local; solo cambia su insignia
+      // (el finally refresca pendingIds). Recargar devolvía a la página 1 tras cada reintento
       const r = await retryPendingPhotos(pairId);
-      if (r.sent > 0) setReloadKey((k) => k + 1);
       // Ya en la cola del SDK: cuando el servidor lo confirme, quita la marca y la tarjeta «sin subir»
       if (r.queued.length > 0) {
         confirmQueued(pairId, r.queued).then((n) => { if (n > 0) setPendingIds(getPendingIds(pairId)); });
@@ -187,7 +187,11 @@ export default function Gallery() {
           if (added.thumbUrl) urlsRef.current.push(added.thumbUrl);
           // Una recarga durante la subida ya puede haber traído esta foto como pendiente: sin duplicar
           setItems((prev) => [{ id: added.id, thumbUrl: added.thumbUrl, createdAt: added.createdAt }, ...prev.filter((it) => it.id !== added.id)]);
-          if (added.pending) {
+          if (added.done) {
+            // Lenta (>45 s): sigue subiendo en segundo plano y el lote continúa; al acabar se quita la insignia
+            addNotice(`"${f.name}" va lenta: sigue subiendo en segundo plano. Está guardada en este móvil.`);
+            added.done.catch(() => {}).finally(() => setPendingIds(getPendingIds(pairId)));
+          } else if (added.pending) {
             const why = added.error?.message === 'offline' ? 'sin conexión' : 'error al subir';
             addNotice(`"${f.name}" no se ha subido (${why}). Está guardada en este móvil; se reintentará sola o pulsa Reintentar.`);
           }

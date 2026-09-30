@@ -47,6 +47,8 @@ if (required.every(Boolean)) {
     console.warn('Firestore persistence not enabled:', err?.code || err);
   });
   storage = getStorage(app);
+  // An upload that keeps failing gives up after 2 min instead of the SDK's 10 (uploadPhoto stops waiting at 45 s)
+  storage.maxUploadRetryTime = 2 * 60 * 1000;
 } else {
   console.warn('Firebase config missing (REACT_APP_*) — skipping initialization for now.');
   authReady = Promise.resolve(null);

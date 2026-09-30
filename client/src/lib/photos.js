@@ -480,7 +480,9 @@ function isOffline() {
   return typeof navigator !== 'undefined' && navigator.onLine === false;
 }
 
-// Returns { id, thumbUrl, createdAt, pending, error }. `pending` = cached here but not uploaded (yet).
+// Returns { id, thumbUrl, createdAt, pending, error, done? }. `pending` = cached here but not uploaded (yet).
+// error 'slow' = still uploading after UPLOAD_WAIT_MS; `done` settles when that upload ends.
+const UPLOAD_WAIT_MS = 45 * 1000;
 export async function uploadPhoto(pairId, file, identity = 'yo') {
   const id = genId();
   // make derivatives
@@ -494,6 +496,7 @@ export async function uploadPhoto(pairId, file, identity = 'yo') {
   const now = Date.now();
   let pending = false;
   let error = null;
+  let done = null;
 
   const fblib = await fb();
   if (db && storage && fblib) {
@@ -508,11 +511,22 @@ export async function uploadPhoto(pairId, file, identity = 'yo') {
       // Offline uploads don't fail, they hang: leave it pending, it is retried when the network is back
       error = new Error('offline');
     } else {
+      // "Online" but useless network: the SDK keeps retrying for minutes. Stop waiting at 45 s without
+      // cancelling: the push goes on (joined via `inflight`), the photo stays pending and `done` settles with it
+      const push = pushRemote(pairId, id, identity, thumbBlob, origBlob);
+      let timer;
+      const slow = new Promise((resolve) => { timer = setTimeout(() => resolve('slow'), UPLOAD_WAIT_MS); });
       try {
-        await pushRemote(pairId, id, identity, thumbBlob, origBlob);
-        pending = false;
+        if (await Promise.race([push.then(() => 'sent'), slow]) === 'sent') pending = false;
+        else {
+          error = new Error('slow');
+          done = push;
+          push.catch(() => {}); // the caller may ignore `done`
+        }
       } catch (e) {
         error = e; // stays pending, we already cached locally
+      } finally {
+        clearTimeout(timer);
       }
     }
   }
@@ -526,7 +540,7 @@ export async function uploadPhoto(pairId, file, identity = 'yo') {
   meta.push({ id, createdAt: now, identity });
   writeLocalMeta(pairId, meta);
 
-  return { id, thumbUrl: URL.createObjectURL(thumbBlob), createdAt: now, pending, error };
+  return { id, thumbUrl: URL.createObjectURL(thumbBlob), createdAt: now, pending, error, ...(done ? { done } : {}) };
 }
 
 // Try again every pending photo of this pair. Returns { sent, failed, lost, offline, queued }.
@@ -546,6 +560,8 @@ export function retryPendingPhotos(pairId) {
     const { collection, doc, getDoc } = fblib;
     for (const p of pending) {
       if (deletedIds.has(p.id)) { removePending(pairId, p.id); continue; } // deleted after the snapshot above
+      // Still uploading (uploadPhoto stopped waiting at 45 s): joining it would hold this retry for minutes
+      if (inflight.has(`${pairId}:${p.id}`)) continue;
       try {
         // The write may have gone through and only the mark survived: check before uploading again
         const snap = await getDoc(doc(collection(db, 'pairs', pairId, 'photos'), p.id));
