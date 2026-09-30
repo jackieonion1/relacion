@@ -2,7 +2,7 @@ import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
 import { getFirestore, enableIndexedDbPersistence } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
-import { createSignIn, createWhenAuthed } from './authGate';
+import { createSignIn, createWhenAuthed, listenAfterAuth } from './authGate';
 
 const firebaseConfig = {
   apiKey: process.env.REACT_APP_FIREBASE_API_KEY,
@@ -54,5 +54,7 @@ if (required.every(Boolean)) {
 
 // The session, or null after `ms` (Infinity = no cap). Shared by every module instead of its own waitAuth
 const whenAuthed = createWhenAuthed(authReady, () => auth?.currentUser);
+// listenWhenAuthed(start, onError): sync unsubscribe for a listener that needs the session (see authGate)
+const listenWhenAuthed = (start, onError) => listenAfterAuth(whenAuthed, start, onError);
 
-export { app, auth, db, storage, authReady, whenAuthed };
+export { app, auth, db, storage, authReady, whenAuthed, listenWhenAuthed };

@@ -1,4 +1,4 @@
-import { db, auth, whenAuthed } from './firebase';
+import { db, auth, whenAuthed, listenWhenAuthed } from './firebase';
 
 let _fb;
 async function fb() {
@@ -54,16 +54,18 @@ export async function listNotes(pairId, { max = 100 } = {}) {
   return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
 }
 
-export async function listenNotes(pairId, { max = 100 } = {}, onChange) {
+// Returns the unsubscribe synchronously; waits for the session inside (see listenWhenAuthed)
+export function listenNotes(pairId, { max = 100 } = {}, onChange, onError) {
   if (!pairId || !db) return () => {};
-  await whenAuthed();
-  const f = await fb();
-  const col = f.collection(db, 'pairs', pairId, 'notes');
-  const q = f.query(col, f.orderBy('createdAt', 'desc'), f.limit(max));
-  return f.onSnapshot(q, (snap) => {
-    const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-    onChange(list);
-  });
+  return listenWhenAuthed(async () => {
+    const f = await fb();
+    const col = f.collection(db, 'pairs', pairId, 'notes');
+    const q = f.query(col, f.orderBy('createdAt', 'desc'), f.limit(max));
+    return f.onSnapshot(q, (snap) => {
+      const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      onChange(list);
+    }, onError);
+  }, onError);
 }
 
 export async function markThreadRead(pairId, threadId, identity) {

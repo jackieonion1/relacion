@@ -1,4 +1,4 @@
-import { db, auth, whenAuthed } from './firebase';
+import { db, auth, whenAuthed, listenWhenAuthed } from './firebase';
 
 let _fb;
 async function fb() {
@@ -125,20 +125,22 @@ export async function deleteEvent(pairId, id) {
   await f.deleteDoc(ref);
 }
 
-export async function listenEvents(pairId, { futureOnly = true, max = 50 } = {}, onChange) {
+// Returns the unsubscribe synchronously; waits for the session inside (see listenWhenAuthed)
+export function listenEvents(pairId, { futureOnly = true, max = 50 } = {}, onChange, onError) {
   if (!pairId || !db) return () => {};
-  await whenAuthed();
-  const f = await fb();
-  const col = f.collection(db, 'pairs', pairId, 'events');
-  let q;
-  if (futureOnly) {
-    const now = f.Timestamp.fromDate(new Date());
-    q = f.query(col, f.where('start', '>=', now), f.orderBy('start', 'asc'), f.limit(max));
-  } else {
-    q = f.query(col, f.orderBy('start', 'asc'), f.limit(max));
-  }
-  return f.onSnapshot(q, (snap) => {
-    const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-    onChange(list);
-  });
+  return listenWhenAuthed(async () => {
+    const f = await fb();
+    const col = f.collection(db, 'pairs', pairId, 'events');
+    let q;
+    if (futureOnly) {
+      const now = f.Timestamp.fromDate(new Date());
+      q = f.query(col, f.where('start', '>=', now), f.orderBy('start', 'asc'), f.limit(max));
+    } else {
+      q = f.query(col, f.orderBy('start', 'asc'), f.limit(max));
+    }
+    return f.onSnapshot(q, (snap) => {
+      const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      onChange(list);
+    }, onError);
+  }, onError);
 }

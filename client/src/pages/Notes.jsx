@@ -11,6 +11,8 @@ export default function Notes() {
   const identity = useMemo(() => localStorage.getItem('identity') || 'yo', []);
   const [notes, setNotes] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
+  const [listenKey, setListenKey] = useState(0); // bump to subscribe again after an error
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [html, setHtml] = useState('');
   const [saving, setSaving] = useState(false);
@@ -26,19 +28,17 @@ export default function Notes() {
   const [isMessageModalOpen, setIsMessageModalOpen] = useState(false);
 
   useEffect(() => {
-    let unsub = () => {};
-    (async () => {
-      try {
-        unsub = await listenNotes(pairId, { max: 200 }, (list) => {
-          setNotes(list);
-          setLoading(false);
-        });
-      } catch (e) {
-        setLoading(false);
-      }
-    })();
+    // Sync unsubscribe; without a session yet it reports an error but still subscribes when the session arrives
+    const unsub = listenNotes(pairId, { max: 200 }, (list) => {
+      setNotes(list);
+      setLoadError(false);
+      setLoading(false);
+    }, () => {
+      setLoadError(true);
+      setLoading(false);
+    });
     return () => { try { unsub(); } catch {} };
-  }, [pairId]);
+  }, [pairId, listenKey]);
 
   async function onSave(e) {
     e.preventDefault();
@@ -200,11 +200,18 @@ export default function Notes() {
     <div className="space-y-4">
       <h2 className="text-lg font-semibold text-rose-600">Notas</h2>
 
+      {loadError && (
+        <div className="card flex items-center justify-between gap-3 text-sm text-rose-600">
+          <span>No se pudo cargar.</span>
+          <button type="button" onClick={() => { setLoadError(false); setListenKey((k) => k + 1); }} className="btn-link">Reintentar</button>
+        </div>
+      )}
+
       {/* Grid 2 x n */}
       {loading ? (
         <div className="card text-gray-500 text-sm">Cargando…</div>
       ) : notes.length === 0 ? (
-        <div className="card text-gray-500 text-sm">Aún no hay notas.</div>
+        !loadError && <div className="card text-gray-500 text-sm">Aún no hay notas.</div>
       ) : (
         <div className="masonry-grid pb-20">
           <div className="masonry-col">

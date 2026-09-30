@@ -1,4 +1,4 @@
-import { db, auth, whenAuthed } from './firebase';
+import { db, auth, whenAuthed, listenWhenAuthed } from './firebase';
 
 export async function getMapState() {
   try {
@@ -51,36 +51,25 @@ export async function setMapState(state) {
   }
 }
 
+// Returns the unsubscribe synchronously; without a session yet it keeps waiting and subscribes when it arrives
 export function subscribeToMapState(callback) {
-  let unsubscribe = () => {};
-  
-  (async () => {
-    try {
-      const pairId = localStorage.getItem('pairId') || '';
-      if (!pairId || !db) return;
-      
-      await whenAuthed();
-      if (!auth?.currentUser) return;
-      
-      const { doc, onSnapshot } = await import('firebase/firestore');
-      unsubscribe = onSnapshot(
-        doc(db, 'pairs', pairId, 'mapState', 'current'),
-        (snap) => {
-          if (snap.exists()) {
-            const data = snap.data();
-            const state = data.state || 'home';
-            localStorage.setItem('mapState', state);
-            callback(state);
-          }
-        },
-        (error) => {
-          console.error('Error listening to map state:', error);
+  const pairId = localStorage.getItem('pairId') || '';
+  if (!pairId || !db) return () => {};
+  return listenWhenAuthed(async () => {
+    const { doc, onSnapshot } = await import('firebase/firestore');
+    return onSnapshot(
+      doc(db, 'pairs', pairId, 'mapState', 'current'),
+      (snap) => {
+        if (snap.exists()) {
+          const data = snap.data();
+          const state = data.state || 'home';
+          localStorage.setItem('mapState', state);
+          callback(state);
         }
-      );
-    } catch (e) {
-      console.error('Error subscribing to map state:', e);
-    }
-  })();
-  
-  return () => unsubscribe();
+      },
+      (error) => {
+        console.error('Error listening to map state:', error);
+      }
+    );
+  }, (e) => console.warn('Map state listener:', e?.code || e?.message || e));
 }

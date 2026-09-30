@@ -73,27 +73,28 @@ export default function MapPage() {
 
   // Load initial state from Firestore and subscribe to changes
   useEffect(() => {
-    let unsubscribe = () => {};
-    
+    let cancelled = false;
+    // Subscribe first: the unsubscribe is sync, so leaving the page before getMapState resolves still cancels it
+    const unsubscribe = subscribeToMapState((newState) => {
+      if (!cancelled) setCurrentState(newState);
+    });
+
     (async () => {
       try {
         // Get initial state
         const initialState = await getMapState();
+        if (cancelled) return;
         setCurrentState(initialState);
         setIsLoading(false);
-        
-        // Subscribe to real-time updates
-        unsubscribe = subscribeToMapState((newState) => {
-          setCurrentState(newState);
-        });
       } catch (e) {
         console.error('Error loading map state:', e);
+        if (cancelled) return;
         setCurrentState(localStorage.getItem('mapState') || 'home');
         setIsLoading(false);
       }
     })();
-    
-    return () => unsubscribe();
+
+    return () => { cancelled = true; unsubscribe(); };
   }, []);
 
   // Handle state changes and animations

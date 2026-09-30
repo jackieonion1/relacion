@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Modal from './Modal';
-import { db, whenAuthed } from '../lib/firebase';
+import { db, whenAuthed, listenWhenAuthed } from '../lib/firebase';
 
 const STORAGE_KEY = (pairId, role) => `pair_${pairId || 'default'}_${role}_location`;
 
@@ -92,11 +92,12 @@ export default function SimpleMap({ onDistanceChange }) {
   // Firestore listener to sync locations across clients
   useEffect(() => {
     if (!pairId || !db) return;
-    let unsubscribe = null;
-    (async () => {
+    // Sync unsubscribe: a cleanup before the session/import arrives still cancels it. On error the local cache stays
+    const onError = (err) => console.warn('Locations listener:', err?.code || err?.message || err);
+    return listenWhenAuthed(async () => {
       const f = await fb();
       const col = f.collection(db, 'pairs', pairId, 'locations');
-      unsubscribe = f.onSnapshot(col, (snap) => {
+      return f.onSnapshot(col, (snap) => {
         let n = {}, v = {};
         snap.forEach((doc) => {
           if (doc.id === 'novio') n = doc.data();
@@ -107,9 +108,8 @@ export default function SimpleMap({ onDistanceChange }) {
         // Keep a local cache as fallback
         try { localStorage.setItem(STORAGE_KEY(pairId, 'novio'), JSON.stringify(n || {})); } catch {}
         try { localStorage.setItem(STORAGE_KEY(pairId, 'novia'), JSON.stringify(v || {})); } catch {}
-      });
-    })();
-    return () => { if (unsubscribe) unsubscribe(); };
+      }, onError);
+    }, onError);
   }, [pairId]);
 
   // Recompute distance when cities change

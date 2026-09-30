@@ -42,3 +42,31 @@ export function createWhenAuthed(ready, getUser) {
     return Promise.race([settled, timeout]).finally(() => clearTimeout(t));
   };
 }
+
+// Starts a listener once there is a session and returns its unsubscribe synchronously, so a cleanup that runs
+// before the session (or the lazy import) arrives still cancels it. `start` resolves to the real unsubscribe.
+// No session after the usual wait: reports 'no-auth' but keeps waiting, and subscribes when it arrives.
+export function listenAfterAuth(whenAuthed, start, onError) {
+  let cancelled = false;
+  let unsub = null;
+  (async () => {
+    try {
+      let user = await whenAuthed();
+      if (cancelled) return;
+      if (!user) {
+        if (onError) onError(new Error('no-auth'));
+        user = await whenAuthed(Infinity);
+        if (cancelled || !user) return;
+      }
+      const u = await start();
+      if (cancelled) { if (u) u(); return; }
+      unsub = u;
+    } catch (e) {
+      if (!cancelled && onError) onError(e);
+    }
+  })();
+  return () => {
+    cancelled = true;
+    if (unsub) { unsub(); unsub = null; }
+  };
+}
