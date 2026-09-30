@@ -36,6 +36,7 @@ export default function UpdateBanner() {
       if (!alive || !r) return;
       reg = r;
       if (r.waiting && navigator.serviceWorker.controller) found();
+      watchInstalling(); // ya instalándose al montar: updatefound no volverá a saltar
       r.addEventListener('updatefound', watchInstalling);
     });
 

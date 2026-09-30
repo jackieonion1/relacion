@@ -118,6 +118,19 @@ describe('repairApp', () => {
     expect(reload).toHaveBeenCalledTimes(1);
   });
 
+  test('con un SW nuevo esperando lo activa antes de borrar las cachés', async () => {
+    const reload = jest.fn();
+    const order = [];
+    const waiting = { postMessage: jest.fn() };
+    const { listeners } = fakeSw({ waiting });
+    waiting.postMessage.mockImplementation(() => { order.push('skip'); listeners.controllerchange(); });
+    global.fetch = jest.fn(async () => htmlRes());
+    global.caches = { keys: jest.fn(async () => ['app-shell-v2']), delete: jest.fn(async () => { order.push('delete'); return true; }) };
+    await repairApp(reload);
+    expect(order).toEqual(['skip', 'delete']);
+    expect(reload).toHaveBeenCalledTimes(1);
+  });
+
   test('sin red no borra nada ni recarga', async () => {
     const reload = jest.fn();
     fakeSw();

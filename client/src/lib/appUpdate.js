@@ -54,19 +54,22 @@ const delay = (ms) => new Promise((r) => setTimeout(r, ms));
 // Solo desde el botón «Actualizar»: si hay un SW nuevo esperando, se activa y después se recarga.
 // Nunca se recarga por un controllerchange que no venga de aquí (cortaría la música)
 export async function applyUpdate(reload = reloadPage) {
-  const reg = await getRegistration();
-  const waiting = reg && reg.waiting;
-  if (waiting) {
-    await new Promise((resolve) => {
-      const done = () => { clearTimeout(timer); resolve(); };
-      const timer = setTimeout(done, 3000);
-      try {
-        navigator.serviceWorker.addEventListener('controllerchange', done, { once: true });
-        waiting.postMessage({ type: 'SKIP_WAITING' });
-      } catch { done(); }
-    });
-  }
+  await activateWaiting(await getRegistration());
   reload();
+}
+
+// Activa el SW nuevo que espera (si lo hay) y vuelve cuando toma el control, o a los 3 s
+async function activateWaiting(reg) {
+  const waiting = reg && reg.waiting;
+  if (!waiting) return;
+  await new Promise((resolve) => {
+    const done = () => { clearTimeout(timer); resolve(); };
+    const timer = setTimeout(done, 3000);
+    try {
+      navigator.serviceWorker.addEventListener('controllerchange', done, { once: true });
+      waiting.postMessage({ type: 'SKIP_WAITING' });
+    } catch { done(); }
+  });
 }
 
 // Borra las cachés del SW y recarga. No hace unregister (se perdería la suscripción push) ni toca
@@ -75,11 +78,15 @@ export async function applyUpdate(reload = reloadPage) {
 export async function repairApp(reload = reloadPage) {
   const res = await fetch('/index.html', { cache: 'no-store' });
   if (!res.ok || !(res.headers.get('content-type') || '').includes('text/html')) throw new Error('offline');
+  const reg = await getRegistration();
+  // Un SW nuevo que espera se activa ANTES de borrar: si no, se activaría luego sin shell (sus cachés
+  // también se borran y activate no las rehace) y el primer arranque sin red daría error. La recarga
+  // con red de abajo le hace guardar el shell de nuevo
+  await activateWaiting(reg);
   if (typeof caches !== 'undefined') {
     const keys = await caches.keys();
     await Promise.all(keys.map((k) => caches.delete(k)));
   }
-  const reg = await getRegistration();
   if (reg && typeof reg.update === 'function') {
     await Promise.race([reg.update().catch(() => {}), delay(5000)]);
   }
