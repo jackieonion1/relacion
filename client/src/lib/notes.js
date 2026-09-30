@@ -36,34 +36,13 @@ export async function addNote(pairId, { body = '', html = '', plain = '', title 
     identity,
   };
   const col = f.collection(db, 'pairs', pairId, 'notes');
-  // Create the note first
-  const docRef = await f.addDoc(col, {
+  // Single write: a root note is its own thread, so the id is known up front
+  const docRef = f.doc(col);
+  await f.setDoc(docRef, {
     ...base,
-    threadId: threadId || null, // may be set in a second step
+    threadId: threadId || docRef.id,
     unreadFor: [other],
   });
-  // If it's a root note, set its own threadId
-  if (!threadId) {
-    try {
-      await f.updateDoc(docRef, { threadId: docRef.id });
-    } catch {}
-  }
-}
-
-export async function updateNote(pairId, id, { body = '', html = '', plain = '', title = '' }) {
-  if (!pairId || !db || !id) throw new Error('missing-context');
-  await waitAuth();
-  const f = await fb();
-  if (!auth?.currentUser) throw new Error('no-auth');
-  const ref = f.doc(f.collection(db, 'pairs', pairId, 'notes'), id);
-  const payload = {
-    ...(body ? { body: String(body || '').trim() } : {}),
-    ...(html ? { html: String(html || '') } : {}),
-    ...(plain ? { plain: String(plain || '') } : {}),
-    ...(title !== undefined ? (String(title).trim() ? { title: String(title).trim() } : { title: f.deleteField ? f.deleteField() : undefined }) : {}),
-    updatedAt: f.serverTimestamp(),
-  };
-  await f.updateDoc(ref, payload);
 }
 
 export async function deleteNote(pairId, id) {
