@@ -45,39 +45,67 @@ export default function Gallery() {
     setNotices((prev) => [...prev, { key: `${Date.now()}-${Math.random()}`, text }]);
   }
 
+  // La cuadrícula se pinta con huecos y cada miniatura llega después (onThumb). thumbsRef guarda las de la
+  // carga vigente por id, para las que llegan antes de que su página esté en `items`
+  const thumbsRef = useRef(new Map());
+  function makeOnThumb(gen) {
+    return (id, url) => {
+      // De una carga que ya no es la vigente (recarga o desmontaje): se revoca al momento, sin dejar blobs vivos
+      if (gen !== genRef.current) {
+        if (url.startsWith('blob:')) URL.revokeObjectURL(url);
+        return;
+      }
+      if (url.startsWith('blob:')) urlsRef.current.push(url);
+      thumbsRef.current.set(id, url);
+      setItems((prev) => prev.map((it) => (it.id === id && !it.thumbUrl ? { ...it, thumbUrl: url } : it)));
+    };
+  }
+  const withThumbs = (list) => list.map((it) => (it.thumbUrl ? it : { ...it, thumbUrl: thumbsRef.current.get(it.id) || '' }));
+
   useEffect(() => {
     let cancelled = false;
     async function load() {
       setLoading(true);
       const gen = ++genRef.current;
+      // Blobs de la carga anterior: se revocan cuando la nueva lista la sustituye (si esta falla, se quedan)
+      const stale = urlsRef.current;
+      urlsRef.current = [];
+      thumbsRef.current = new Map();
+      let replaced = false;
       try {
         const [page, pendingItems] = await Promise.all([
-          listPhotosPage(pairId, { pageSize: PAGE_SIZE }),
+          listPhotosPage(pairId, { pageSize: PAGE_SIZE, onThumb: makeOnThumb(gen) }),
           listPendingPhotos(pairId),
         ]);
         if (cancelled) return;
-        urlsRef.current.forEach((u) => { if (u && u.startsWith('blob:')) URL.revokeObjectURL(u); });
-        urlsRef.current = [];
-        // Pendientes que no aparecen aún en Firestore van delante; si ya están, se descarta su copia
+        // Pendientes que no aparecen aún en Firestore van delante; si ya están, su miniatura local rellena el hueco
         const remoteIds = new Set(page.items.map((it) => it.id));
         const extra = [];
         pendingItems.forEach((it) => {
-          if (remoteIds.has(it.id)) { if (it.thumbUrl) URL.revokeObjectURL(it.thumbUrl); } else extra.push(it);
+          if (!remoteIds.has(it.id)) extra.push(it);
+          else if (it.thumbUrl && !thumbsRef.current.has(it.id)) thumbsRef.current.set(it.id, it.thumbUrl);
+          else if (it.thumbUrl) URL.revokeObjectURL(it.thumbUrl);
         });
-        const list = [...extra, ...page.items];
-        list.forEach((it) => { if (it.thumbUrl && it.thumbUrl.startsWith('blob:')) urlsRef.current.push(it.thumbUrl); });
+        const list = withThumbs([...extra, ...page.items]);
+        list.forEach((it) => {
+          if (it.thumbUrl && it.thumbUrl.startsWith('blob:') && !urlsRef.current.includes(it.thumbUrl)) urlsRef.current.push(it.thumbUrl);
+        });
         cursorRef.current = page.cursor;
         setHasMore(page.hasMore);
         setLoadMoreError(false);
         setPendingIds(getPendingIds(pairId));
         setItems(list);
+        replaced = true;
       } finally {
+        if (replaced || cancelled) stale.forEach((u) => { if (u && u.startsWith('blob:')) URL.revokeObjectURL(u); });
+        else urlsRef.current.push(...stale);
         if (!cancelled && gen === genRef.current) setLoading(false);
       }
     }
     if (pairId) load();
     return () => {
       cancelled = true;
+      genRef.current += 1; // las miniaturas que aún lleguen de esta carga se revocan al llegar
       urlsRef.current.forEach((u) => { if (u && u.startsWith('blob:')) URL.revokeObjectURL(u); });
       urlsRef.current = [];
       if (viewer.url && viewer.url.startsWith('blob:')) URL.revokeObjectURL(viewer.url);
@@ -98,12 +126,12 @@ export default function Gallery() {
     setLoadingMore(true);
     setLoadMoreError(false);
     try {
-      const page = await listPhotosPage(pairId, { pageSize: PAGE_SIZE, cursor: cursorRef.current });
+      const page = await listPhotosPage(pairId, { pageSize: PAGE_SIZE, cursor: cursorRef.current, onThumb: makeOnThumb(gen) });
       if (gen !== genRef.current) return;
-      page.items.forEach((it) => { if (it.thumbUrl && it.thumbUrl.startsWith('blob:')) urlsRef.current.push(it.thumbUrl); });
+      // Con onThumb las miniaturas llegan aparte (ya registradas en urlsRef); las que llegaron antes, de thumbsRef
       cursorRef.current = page.cursor;
       setHasMore(page.hasMore);
-      setItems((prev) => mergeUnique(prev, page.items));
+      setItems((prev) => mergeUnique(prev, withThumbs(page.items)));
     } catch (e) {
       if (gen === genRef.current) setLoadMoreError(true);
     } finally {

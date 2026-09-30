@@ -167,8 +167,9 @@ export async function listPhotos(pairId, max = 100) {
 }
 
 // One page of the gallery, newest first. `cursor` is the last doc of the previous page.
-// Returns { items, cursor, hasMore }; on a failed "load more" it throws so the UI can offer a retry.
-export async function listPhotosPage(pairId, { pageSize = 60, cursor = null } = {}) {
+// Returns { items, cursor, hasMore } (+ thumbsDone with onThumb(id, url)); on a failed "load more" it throws
+// so the UI can offer a retry.
+export async function listPhotosPage(pairId, { pageSize = 60, cursor = null, onThumb = null } = {}) {
   const fblib = await fb();
   if (db && fblib) {
     try {
@@ -181,13 +182,21 @@ export async function listPhotosPage(pairId, { pageSize = 60, cursor = null } = 
         : query(col, orderBy('createdAt', 'desc'), limit(pageSize + 1));
       const snap = await getDocs(q);
       const { page, hasMore } = splitPage(snap.docs, pageSize);
-      const urls = await mapLimit(page, THUMB_CONCURRENCY, (docSnap) => resolveThumbUrl(fblib, pairId, docSnap));
-      const items = page.map((docSnap, i) => ({
+      const items = page.map((docSnap) => ({
         id: docSnap.id,
-        thumbUrl: urls[i] || '',
+        thumbUrl: '',
         createdAt: docSnap.data()?.createdAt?.toMillis?.() || Date.now(),
       }));
-      return { items, cursor: page.length ? page[page.length - 1] : cursor, hasMore };
+      const nextCursor = page.length ? page[page.length - 1] : cursor;
+      const thumbs = mapLimit(page, THUMB_CONCURRENCY, async (docSnap, i) => {
+        const url = await resolveThumbUrl(fblib, pairId, docSnap);
+        if (onThumb) { if (url) onThumb(docSnap.id, url); } else items[i].thumbUrl = url || '';
+      });
+      // With onThumb: return the grid now (empty slots) and report each thumb as it arrives; the caller owns
+      // those blob URLs, also the ones arriving after it moved on. Without it: wait and return them filled in
+      if (onThumb) return { items, cursor: nextCursor, hasMore, thumbsDone: thumbs };
+      await thumbs;
+      return { items, cursor: nextCursor, hasMore };
     } catch (e) {
       if (cursor) throw e;
       // First page: fall back to local

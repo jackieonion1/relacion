@@ -266,6 +266,10 @@ describe('listPhotosPage', () => {
     id: `D${i}`,
     data: () => ({ thumbUrl: `https://t/${i}?alt=media`, createdAt: { toMillis: () => 1000 - i } }),
   }));
+  // Node trae fetch: sin esto los tests saldrían a la red. Falla como un CORS: se usa la URL remota
+  const realFetch = global.fetch;
+  beforeEach(() => { global.fetch = jest.fn(() => Promise.reject(new TypeError('blocked'))); });
+  afterEach(() => { global.fetch = realFetch; });
 
   test('resuelve las miniaturas con 6 a la vez como mucho y conserva el orden', async () => {
     getDocs.mockResolvedValue({ docs: docs(13) }); // página de 12 + 1 que indica que hay más
@@ -281,6 +285,22 @@ describe('listPhotosPage', () => {
     expect(page.items.map((it) => it.id)).toEqual(docs(12).map((d) => d.id));
     expect(page.items[3].thumbUrl).toBe('https://t/3?alt=media');
     expect(page.hasMore).toBe(true);
+  });
+
+  test('con onThumb devuelve la cuadrícula sin esperar a las miniaturas y las avisa una a una', async () => {
+    getDocs.mockResolvedValue({ docs: docs(3) });
+    const gate = [];
+    getThumb.mockImplementation(() => new Promise((r) => gate.push(r)));
+    const onThumb = jest.fn();
+    const page = await listPhotosPage(PAIR, { pageSize: 60, onThumb });
+    expect(page.items.map((it) => it.thumbUrl)).toEqual(['', '', '']);
+    expect(onThumb).not.toHaveBeenCalled();
+    gate[2](null);
+    await flush();
+    expect(onThumb).toHaveBeenCalledWith('D2', 'https://t/2?alt=media');
+    gate[0](null); gate[1](null);
+    await page.thumbsDone;
+    expect(onThumb).toHaveBeenCalledTimes(3);
   });
 
   test('una miniatura que falla deja su hueco vacío y no tumba la página', async () => {
