@@ -1,4 +1,4 @@
-import { deletePhoto, retryPendingPhotos, uploadPhoto } from './photos';
+import { deletePhoto, retryPendingPhotos, uploadPhoto, madridDayKey } from './photos';
 import { deleteThumb, deleteOrig, getThumb, getOrig } from './photoCache';
 import { collection, doc, deleteDoc, setDoc, getDoc } from 'firebase/firestore';
 import { ref, getDownloadURL, deleteObject, uploadBytes } from 'firebase/storage';
@@ -258,5 +258,13 @@ describe('uploadPhoto', () => {
 
     expect(result).toEqual({ id, cancelled: true });
     expect(metaIds()).not.toContain(id);
+  });
+});
+
+describe('madridDayKey', () => {
+  test('el día cambia a medianoche de Madrid, no a la UTC', () => {
+    // 30/09 22:30 UTC = 01/10 00:30 en Madrid (UTC+2 en verano)
+    expect(madridDayKey(new Date('2026-09-30T21:59:00Z'))).toBe('2026-09-30');
+    expect(madridDayKey(new Date('2026-09-30T22:30:00Z'))).toBe('2026-10-01');
   });
 });

@@ -200,7 +200,7 @@ export async function listPhotosPage(pairId, { pageSize = 60, cursor = null } = 
 }
 
 // Europe/Madrid day key (YYYY-MM-DD)
-function madridDayKey(d = new Date()) {
+export function madridDayKey(d = new Date()) {
   try {
     const fmt = new Intl.DateTimeFormat('en-GB', {
       timeZone: 'Europe/Madrid', year: 'numeric', month: '2-digit', day: '2-digit'
