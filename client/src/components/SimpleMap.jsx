@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Modal from './Modal';
-import { db, auth, authReady } from '../lib/firebase';
+import { db, whenAuthed, listenWhenAuthed } from '../lib/firebase';
 
 const STORAGE_KEY = (pairId, role) => `pair_${pairId || 'default'}_${role}_location`;
 
@@ -11,16 +11,6 @@ async function fb() {
     _fb = await import('firebase/firestore');
   }
   return _fb;
-}
-
-async function waitAuth(timeout = 1200) {
-  if (!authReady) return;
-  try {
-    await Promise.race([
-      authReady,
-      new Promise((res) => setTimeout(res, timeout)),
-    ]);
-  } catch {}
 }
 
 function kmDistance(lat1, lon1, lat2, lon2) {
@@ -98,15 +88,17 @@ export default function SimpleMap({ onDistanceChange }) {
   // Modal state
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [form, setForm] = useState({ city: '', addr1: '', addr2: '' });
+  const [saveError, setSaveError] = useState(''); // write rejected after the modal was closed
 
   // Firestore listener to sync locations across clients
   useEffect(() => {
     if (!pairId || !db) return;
-    let unsubscribe = null;
-    (async () => {
+    // Sync unsubscribe: a cleanup before the session/import arrives still cancels it. On error the local cache stays
+    const onError = (err) => console.warn('Locations listener:', err?.code || err?.message || err);
+    return listenWhenAuthed(async () => {
       const f = await fb();
       const col = f.collection(db, 'pairs', pairId, 'locations');
-      unsubscribe = f.onSnapshot(col, (snap) => {
+      return f.onSnapshot(col, (snap) => {
         let n = {}, v = {};
         snap.forEach((doc) => {
           if (doc.id === 'novio') n = doc.data();
@@ -117,9 +109,8 @@ export default function SimpleMap({ onDistanceChange }) {
         // Keep a local cache as fallback
         try { localStorage.setItem(STORAGE_KEY(pairId, 'novio'), JSON.stringify(n || {})); } catch {}
         try { localStorage.setItem(STORAGE_KEY(pairId, 'novia'), JSON.stringify(v || {})); } catch {}
-      });
-    })();
-    return () => { if (unsubscribe) unsubscribe(); };
+      }, onError);
+    }, onError);
   }, [pairId]);
 
   // Recompute distance when cities change
@@ -175,10 +166,15 @@ export default function SimpleMap({ onDistanceChange }) {
     const payload = { city: form.city.trim(), addr1: form.addr1.trim(), addr2: form.addr2.trim() };
     // Always keep local cache
     try { localStorage.setItem(STORAGE_KEY(pairId, role), JSON.stringify(payload)); } catch {}
-    // Firestore write for sync (if configured)
+    // Close at once: offline the server ack never arrives (the write stays queued)
+    if (role === 'novio') setNovio(payload); else setNovia(payload);
+    setIsModalOpen(false);
+    setSaveError('');
+    // Firestore write for sync (if configured); only a rejection is shown
     try {
       if (pairId && db) {
-        await waitAuth();
+        const user = await whenAuthed(Infinity); // modal already closed: wait out a slow sign-in instead of dropping the write
+        if (!user) throw new Error('no-auth');
         const f = await fb();
         const ref = f.doc(f.collection(db, 'pairs', pairId, 'locations'), role);
         await f.setDoc(ref, { ...payload, updatedAt: f.serverTimestamp() }, { merge: true });
@@ -186,9 +182,8 @@ export default function SimpleMap({ onDistanceChange }) {
     } catch (err) {
       // Non-fatal; local cache remains
       console.warn('Failed to write location to Firestore', err);
+      setSaveError('No se pudo guardar la ubicación. La otra persona no la verá.');
     }
-    if (role === 'novio') setNovio(payload); else setNovia(payload);
-    setIsModalOpen(false);
   }
 
   return (
@@ -240,6 +235,13 @@ export default function SimpleMap({ onDistanceChange }) {
           {novia?.addr2 ? <div>{novia.addr2}</div> : null}
         </div>
       </div>
+
+      {saveError && (
+        <div className="mt-2 flex items-center justify-between gap-3 text-xs text-rose-600">
+          <span>{saveError}</span>
+          <button type="button" onClick={() => setSaveError('')} className="btn-link" aria-label="Cerrar aviso">×</button>
+        </div>
+      )}
 
       {/* FAB to update location */}
       {createPortal(

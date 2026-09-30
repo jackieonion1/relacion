@@ -1,4 +1,4 @@
-import { db, auth, authReady } from './firebase';
+import { db, auth, whenAuthed, listenWhenAuthed } from './firebase';
 
 let _fb;
 async function fb() {
@@ -9,19 +9,9 @@ async function fb() {
   return _fb;
 }
 
-async function waitAuth(timeout = 1200) {
-  if (!authReady) return;
-  try {
-    await Promise.race([
-      authReady,
-      new Promise((res) => setTimeout(res, timeout)),
-    ]);
-  } catch {}
-}
-
 export async function listEvents(pairId, { futureOnly = true, max = 50 } = {}) {
   if (!pairId || !db) return [];
-  await waitAuth();
+  await whenAuthed();
   const f = await fb();
   const col = f.collection(db, 'pairs', pairId, 'events');
   let q;
@@ -91,7 +81,7 @@ export function eventToFormValues(ev) {
 
 export async function addEvent(pairId, { title, date, time, endDate, location = '', eventType = 'conjunto', seeEachOther = false }, identity = 'yo') {
   if (!pairId || !db) throw new Error('missing-context');
-  await waitAuth();
+  await whenAuthed();
   const f = await fb();
   if (!auth?.currentUser) throw new Error('no-auth');
 
@@ -111,7 +101,7 @@ export async function addEvent(pairId, { title, date, time, endDate, location = 
 
 export async function updateEvent(pairId, id, { title, date, time, endDate, location = '', eventType = 'conjunto', seeEachOther = false }) {
   if (!pairId || !id || !db) throw new Error('missing-context');
-  await waitAuth();
+  await whenAuthed();
   const f = await fb();
   if (!auth?.currentUser) throw new Error('no-auth');
 
@@ -128,27 +118,29 @@ export async function updateEvent(pairId, id, { title, date, time, endDate, loca
 
 export async function deleteEvent(pairId, id) {
   if (!pairId || !id || !db) return;
-  await waitAuth();
+  await whenAuthed();
   const f = await fb();
   if (!auth?.currentUser) throw new Error('no-auth');
   const ref = f.doc(f.collection(db, 'pairs', pairId, 'events'), id);
   await f.deleteDoc(ref);
 }
 
-export async function listenEvents(pairId, { futureOnly = true, max = 50 } = {}, onChange) {
+// Returns the unsubscribe synchronously; waits for the session inside (see listenWhenAuthed)
+export function listenEvents(pairId, { futureOnly = true, max = 50 } = {}, onChange, onError) {
   if (!pairId || !db) return () => {};
-  await waitAuth();
-  const f = await fb();
-  const col = f.collection(db, 'pairs', pairId, 'events');
-  let q;
-  if (futureOnly) {
-    const now = f.Timestamp.fromDate(new Date());
-    q = f.query(col, f.where('start', '>=', now), f.orderBy('start', 'asc'), f.limit(max));
-  } else {
-    q = f.query(col, f.orderBy('start', 'asc'), f.limit(max));
-  }
-  return f.onSnapshot(q, (snap) => {
-    const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-    onChange(list);
-  });
+  return listenWhenAuthed(async () => {
+    const f = await fb();
+    const col = f.collection(db, 'pairs', pairId, 'events');
+    let q;
+    if (futureOnly) {
+      const now = f.Timestamp.fromDate(new Date());
+      q = f.query(col, f.where('start', '>=', now), f.orderBy('start', 'asc'), f.limit(max));
+    } else {
+      q = f.query(col, f.orderBy('start', 'asc'), f.limit(max));
+    }
+    return f.onSnapshot(q, (snap) => {
+      const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      onChange(list);
+    }, onError);
+  }, onError);
 }

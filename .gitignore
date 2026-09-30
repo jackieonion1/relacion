@@ -66,6 +66,9 @@ node_modules/
 .env
 # Config web pública de Firebase (sin secretos); CRA la carga en start y build
 !client/.env
+# Overrides locales (CRA los carga por encima de .env): nunca al repo
+.env.local
+.env.*.local
 
 # Build de la app y SDK de Google Cloud descargado en local
 client/build/

@@ -1,6 +1,6 @@
-import { deletePhoto, retryPendingPhotos, uploadPhoto } from './photos';
+import { deletePhoto, retryPendingPhotos, uploadPhoto, listPhotosPage, madridDayKey } from './photos';
 import { deleteThumb, deleteOrig, getThumb, getOrig } from './photoCache';
-import { collection, doc, deleteDoc, setDoc, getDoc } from 'firebase/firestore';
+import { collection, doc, deleteDoc, setDoc, getDoc, getDocs } from 'firebase/firestore';
 import { ref, getDownloadURL, deleteObject, uploadBytes } from 'firebase/storage';
 
 jest.mock('./firebase', () => ({
@@ -8,6 +8,7 @@ jest.mock('./firebase', () => ({
   db: {},
   storage: {},
   authReady: Promise.resolve(),
+  whenAuthed: () => Promise.resolve({ uid: 'u1' }),
 }));
 jest.mock('./photoCache', () => ({
   getThumb: jest.fn(),
@@ -257,5 +258,102 @@ describe('uploadPhoto', () => {
 
     expect(result).toEqual({ id, cancelled: true });
     expect(metaIds()).not.toContain(id);
+  });
+
+  describe('red «conectada» pero inútil', () => {
+    // El tope de 45 s pasa a 0 ms; el resto de temporizadores (imagen, flush) siguen reales
+    beforeEach(() => {
+      const realSetTimeout = global.setTimeout;
+      jest.spyOn(global, 'setTimeout').mockImplementation((fn, ms, ...args) => realSetTimeout(fn, ms === 45000 ? 0 : ms, ...args));
+    });
+
+    test('a los 45 s deja de esperar sin cancelar: pendiente, con `done` y la marca intacta', async () => {
+      let finish;
+      uploadBytes.mockImplementation(() => new Promise((r) => { finish = r; }));
+
+      const result = await uploadPhoto(PAIR, new Blob(['f']));
+
+      expect(result).toMatchObject({ pending: true, error: expect.objectContaining({ message: 'slow' }) });
+      expect(result.done).toBeInstanceOf(Promise);
+      expect(pendingIds()).toContain(result.id);
+      expect(metaIds()).toContain(result.id);
+      // la subida sigue: al terminar crea el doc y quita la marca
+      finish(); await flush(); finish(); await flush();
+      await result.done;
+      expect(setDoc).toHaveBeenCalledTimes(1);
+      expect(pendingIds()).not.toContain(result.id);
+    });
+
+    test('el reintento salta la foto que sigue subiendo en lugar de quedarse esperándola', async () => {
+      // Solo la subida nueva se cuelga; la de P1 (pendiente de antes) va bien
+      uploadBytes.mockImplementationOnce(() => new Promise(() => {})).mockResolvedValue();
+      getDoc.mockResolvedValue({ exists: () => false });
+      getThumb.mockResolvedValue(new Blob(['t']));
+      getOrig.mockResolvedValue(new Blob(['o']));
+
+      const { id } = await uploadPhoto(PAIR, new Blob(['f']));
+      const r = await retryPendingPhotos(PAIR); // P1 se reintenta; `id` sigue en vuelo
+
+      expect(uploadBytes.mock.calls.filter(([ref]) => ref.path.includes(id))).toHaveLength(1);
+      expect(r).toMatchObject({ sent: 1, failed: 0 });
+    });
+  });
+});
+
+describe('listPhotosPage', () => {
+  const docs = (n) => Array.from({ length: n }, (_, i) => ({
+    id: `D${i}`,
+    data: () => ({ thumbUrl: `https://t/${i}?alt=media`, createdAt: { toMillis: () => 1000 - i } }),
+  }));
+  // Node trae fetch: sin esto los tests saldrían a la red. Falla como un CORS: se usa la URL remota
+  const realFetch = global.fetch;
+  beforeEach(() => { global.fetch = jest.fn(() => Promise.reject(new TypeError('blocked'))); });
+  afterEach(() => { global.fetch = realFetch; });
+
+  test('resuelve las miniaturas con 6 a la vez como mucho y conserva el orden', async () => {
+    getDocs.mockResolvedValue({ docs: docs(13) }); // página de 12 + 1 que indica que hay más
+    let inFlight = 0; let max = 0;
+    getThumb.mockImplementation(async () => {
+      inFlight += 1; max = Math.max(max, inFlight);
+      await new Promise((r) => setTimeout(r, 5));
+      inFlight -= 1;
+      return null; // sin caché: usa la URL remota (fetch no existe en jsdom)
+    });
+    const page = await listPhotosPage(PAIR, { pageSize: 12 });
+    expect(max).toBe(6);
+    expect(page.items.map((it) => it.id)).toEqual(docs(12).map((d) => d.id));
+    expect(page.items[3].thumbUrl).toBe('https://t/3?alt=media');
+    expect(page.hasMore).toBe(true);
+  });
+
+  test('con onThumb devuelve la cuadrícula sin esperar a las miniaturas y las avisa una a una', async () => {
+    getDocs.mockResolvedValue({ docs: docs(3) });
+    const gate = [];
+    getThumb.mockImplementation(() => new Promise((r) => gate.push(r)));
+    const onThumb = jest.fn();
+    const page = await listPhotosPage(PAIR, { pageSize: 60, onThumb });
+    expect(page.items.map((it) => it.thumbUrl)).toEqual(['', '', '']);
+    expect(onThumb).not.toHaveBeenCalled();
+    gate[2](null);
+    await flush();
+    expect(onThumb).toHaveBeenCalledWith('D2', 'https://t/2?alt=media');
+    gate[0](null); gate[1](null);
+    await page.thumbsDone;
+    expect(onThumb).toHaveBeenCalledTimes(3);
+  });
+
+  test('una miniatura que falla deja su hueco vacío y no tumba la página', async () => {
+    getDocs.mockResolvedValue({ docs: docs(3) });
+    getThumb.mockImplementation(async (id) => { if (id === 'D1') throw new Error('idb'); return null; });
+    const page = await listPhotosPage(PAIR, { pageSize: 60 });
+    expect(page.items.map((it) => it.thumbUrl)).toEqual(['https://t/0?alt=media', '', 'https://t/2?alt=media']);
+  });
+});
+
+describe('madridDayKey', () => {
+  test('el día cambia a medianoche de Madrid, no a la UTC', () => {
+    // 30/09 22:30 UTC = 01/10 00:30 en Madrid (UTC+2 en verano)
+    expect(madridDayKey(new Date('2026-09-30T21:59:00Z'))).toBe('2026-09-30');
+    expect(madridDayKey(new Date('2026-09-30T22:30:00Z'))).toBe('2026-10-01');
   });
 });

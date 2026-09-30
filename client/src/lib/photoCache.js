@@ -76,11 +76,17 @@ export async function putThumb(id, blob) {
   await set(THUMBS, { id, blob });
 }
 
+// The LRU touch rewrites the whole record (the image included): at most once every 10 minutes per photo
+const TOUCH_EVERY = 10 * 60 * 1000;
+export function shouldTouch(rec, now = Date.now()) {
+  return now - (rec?.ts || 0) > TOUCH_EVERY;
+}
+
 export async function getOrig(id) {
   const rec = await get(ORIG, id);
   if (!rec) return null;
   // touch LRU (without mutating stored data shape)
-  await set(ORIG, { ...rec, ts: Date.now() });
+  if (shouldTouch(rec)) await set(ORIG, { ...rec, ts: Date.now() });
   // Legacy shape with blob
   if (rec.blob) {
     try {

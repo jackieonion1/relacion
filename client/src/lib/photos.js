@@ -1,6 +1,10 @@
-import { auth, db, storage, authReady } from './firebase';
+import { auth, db, storage, whenAuthed } from './firebase';
 import { getThumb, putThumb, getOrig, putOrig, pruneOrig, deleteThumb, deleteOrig } from './photoCache';
 import { splitPage } from './pagination';
+import { mapLimit } from './pool';
+
+// Thumbnails resolved at once on a cold cache (each one: getDownloadURL + fetch + IndexedDB write)
+const THUMB_CONCURRENCY = 6;
 
 // Helpers
 function genId() {
@@ -52,17 +56,6 @@ function drawContain(img, max) {
   const w = Math.round(img.width * ratio);
   const h = Math.round(img.height * ratio);
   return { w, h };
-}
-
-// Wait for anonymous auth to be ready (avoid first-operation race)
-async function waitAuth(timeout = 1200) {
-  if (!authReady) return;
-  try {
-    await Promise.race([
-      authReady,
-      new Promise((resolve) => setTimeout(resolve, timeout)),
-    ]);
-  } catch {}
 }
 
 async function resizeToBlob(file, maxSize, quality = 0.85) {
@@ -147,15 +140,15 @@ export async function listPhotos(pairId, max = 100) {
   const fblib = await fb();
   if (db && fblib) {
     try {
-      await waitAuth();
+      await whenAuthed();
       const { collection, getDocs, query, orderBy, limit } = fblib;
       const col = collection(db, 'pairs', pairId, 'photos');
       const q = query(col, orderBy('createdAt', 'desc'), limit(max));
       const snap = await getDocs(q);
-      for (const docSnap of snap.docs) {
-        const thumbUrl = await resolveThumbUrl(fblib, pairId, docSnap);
-        items.push({ id: docSnap.id, thumbUrl, createdAt: docSnap.data()?.createdAt?.toMillis?.() || Date.now() });
-      }
+      const urls = await mapLimit(snap.docs, THUMB_CONCURRENCY, (docSnap) => resolveThumbUrl(fblib, pairId, docSnap));
+      snap.docs.forEach((docSnap, i) => {
+        items.push({ id: docSnap.id, thumbUrl: urls[i] || '', createdAt: docSnap.data()?.createdAt?.toMillis?.() || Date.now() });
+      });
       return items;
     } catch (e) {
       // Fall back to local
@@ -174,12 +167,13 @@ export async function listPhotos(pairId, max = 100) {
 }
 
 // One page of the gallery, newest first. `cursor` is the last doc of the previous page.
-// Returns { items, cursor, hasMore }; on a failed "load more" it throws so the UI can offer a retry.
-export async function listPhotosPage(pairId, { pageSize = 60, cursor = null } = {}) {
+// Returns { items, cursor, hasMore } (+ thumbsDone with onThumb(id, url)); on a failed "load more" it throws
+// so the UI can offer a retry.
+export async function listPhotosPage(pairId, { pageSize = 60, cursor = null, onThumb = null } = {}) {
   const fblib = await fb();
   if (db && fblib) {
     try {
-      await waitAuth();
+      await whenAuthed();
       const { collection, getDocs, query, orderBy, limit, startAfter } = fblib;
       const col = collection(db, 'pairs', pairId, 'photos');
       // pageSize + 1 tells us whether there is another page without an empty extra read
@@ -188,12 +182,21 @@ export async function listPhotosPage(pairId, { pageSize = 60, cursor = null } = 
         : query(col, orderBy('createdAt', 'desc'), limit(pageSize + 1));
       const snap = await getDocs(q);
       const { page, hasMore } = splitPage(snap.docs, pageSize);
-      const items = [];
-      for (const docSnap of page) {
-        const thumbUrl = await resolveThumbUrl(fblib, pairId, docSnap);
-        items.push({ id: docSnap.id, thumbUrl, createdAt: docSnap.data()?.createdAt?.toMillis?.() || Date.now() });
-      }
-      return { items, cursor: page.length ? page[page.length - 1] : cursor, hasMore };
+      const items = page.map((docSnap) => ({
+        id: docSnap.id,
+        thumbUrl: '',
+        createdAt: docSnap.data()?.createdAt?.toMillis?.() || Date.now(),
+      }));
+      const nextCursor = page.length ? page[page.length - 1] : cursor;
+      const thumbs = mapLimit(page, THUMB_CONCURRENCY, async (docSnap, i) => {
+        const url = await resolveThumbUrl(fblib, pairId, docSnap);
+        if (onThumb) { if (url) onThumb(docSnap.id, url); } else items[i].thumbUrl = url || '';
+      });
+      // With onThumb: return the grid now (empty slots) and report each thumb as it arrives; the caller owns
+      // those blob URLs, also the ones arriving after it moved on. Without it: wait and return them filled in
+      if (onThumb) return { items, cursor: nextCursor, hasMore, thumbsDone: thumbs };
+      await thumbs;
+      return { items, cursor: nextCursor, hasMore };
     } catch (e) {
       if (cursor) throw e;
       // First page: fall back to local
@@ -211,7 +214,7 @@ export async function listPhotosPage(pairId, { pageSize = 60, cursor = null } = 
 }
 
 // Europe/Madrid day key (YYYY-MM-DD)
-function madridDayKey(d = new Date()) {
+export function madridDayKey(d = new Date()) {
   try {
     const fmt = new Intl.DateTimeFormat('en-GB', {
       timeZone: 'Europe/Madrid', year: 'numeric', month: '2-digit', day: '2-digit'
@@ -243,7 +246,7 @@ export async function getDailyPhotoId(pairId) {
   if (!(db && fblib)) return '';
   const dayKey = madridDayKey();
   try {
-    await waitAuth();
+    await whenAuthed();
   } catch {}
   try {
     const { collection, doc, getDoc, setDoc, getDocs, query, orderBy, limit } = fblib;
@@ -281,7 +284,7 @@ export async function getPhotoThumbUrl(pairId, id) {
   const fblib = await fb();
   if (!(db && storage && fblib)) return '';
   try {
-    await waitAuth();
+    await whenAuthed();
     const { collection, doc, getDoc, updateDoc, ref, getDownloadURL } = fblib;
     let url = '';
     try {
@@ -310,7 +313,7 @@ export async function getOriginal(pairId, id) {
   const fblib = await fb();
   if (storage && fblib) {
     try {
-      await waitAuth();
+      await whenAuthed();
       const { ref, getDownloadURL, collection, doc, getDoc, updateDoc } = fblib;
       // Prefer URL saved in Firestore (works across users)
       let url = '';
@@ -360,7 +363,7 @@ export async function getOriginalUrl(pairId, id) {
   const fblib = await fb();
   if (!(storage && fblib)) return '';
   try {
-    await waitAuth();
+    await whenAuthed();
     const { ref, getDownloadURL, collection, doc, getDoc, updateDoc } = fblib;
     let url = '';
     try {
@@ -435,7 +438,7 @@ function pushRemote(pairId, id, identity, thumbBlob, origBlob) {
     const fblib = await fb();
     if (!(db && storage && fblib)) throw new Error('no-firebase');
     // authReady never resolves without a session: bounded wait instead of hanging forever
-    await waitAuth(15000);
+    await whenAuthed(15000);
     if (!auth?.currentUser) throw new Error('no-auth');
     if (deletedIds.has(id)) throw new Error('cancelled');
     const { ref, uploadBytes, deleteObject, collection, doc, setDoc, serverTimestamp, getDownloadURL } = fblib;
@@ -477,7 +480,9 @@ function isOffline() {
   return typeof navigator !== 'undefined' && navigator.onLine === false;
 }
 
-// Returns { id, thumbUrl, createdAt, pending, error }. `pending` = cached here but not uploaded (yet).
+// Returns { id, thumbUrl, createdAt, pending, error, done? }. `pending` = cached here but not uploaded (yet).
+// error 'slow' = still uploading after UPLOAD_WAIT_MS; `done` settles when that upload ends.
+const UPLOAD_WAIT_MS = 45 * 1000;
 export async function uploadPhoto(pairId, file, identity = 'yo') {
   const id = genId();
   // make derivatives
@@ -491,6 +496,7 @@ export async function uploadPhoto(pairId, file, identity = 'yo') {
   const now = Date.now();
   let pending = false;
   let error = null;
+  let done = null;
 
   const fblib = await fb();
   if (db && storage && fblib) {
@@ -505,11 +511,22 @@ export async function uploadPhoto(pairId, file, identity = 'yo') {
       // Offline uploads don't fail, they hang: leave it pending, it is retried when the network is back
       error = new Error('offline');
     } else {
+      // "Online" but useless network: the SDK keeps retrying for minutes. Stop waiting at 45 s without
+      // cancelling: the push goes on (joined via `inflight`), the photo stays pending and `done` settles with it
+      const push = pushRemote(pairId, id, identity, thumbBlob, origBlob);
+      let timer;
+      const slow = new Promise((resolve) => { timer = setTimeout(() => resolve('slow'), UPLOAD_WAIT_MS); });
       try {
-        await pushRemote(pairId, id, identity, thumbBlob, origBlob);
-        pending = false;
+        if (await Promise.race([push.then(() => 'sent'), slow]) === 'sent') pending = false;
+        else {
+          error = new Error('slow');
+          done = push;
+          push.catch(() => {}); // the caller may ignore `done`
+        }
       } catch (e) {
         error = e; // stays pending, we already cached locally
+      } finally {
+        clearTimeout(timer);
       }
     }
   }
@@ -523,7 +540,7 @@ export async function uploadPhoto(pairId, file, identity = 'yo') {
   meta.push({ id, createdAt: now, identity });
   writeLocalMeta(pairId, meta);
 
-  return { id, thumbUrl: URL.createObjectURL(thumbBlob), createdAt: now, pending, error };
+  return { id, thumbUrl: URL.createObjectURL(thumbBlob), createdAt: now, pending, error, ...(done ? { done } : {}) };
 }
 
 // Try again every pending photo of this pair. Returns { sent, failed, lost, offline, queued }.
@@ -539,10 +556,12 @@ export function retryPendingPhotos(pairId) {
     if (isOffline()) { result.offline = true; result.failed = pending.length; return result; }
     const fblib = await fb();
     if (!(db && storage && fblib)) { result.failed = pending.length; return result; }
-    await waitAuth(15000);
+    await whenAuthed(15000);
     const { collection, doc, getDoc } = fblib;
     for (const p of pending) {
       if (deletedIds.has(p.id)) { removePending(pairId, p.id); continue; } // deleted after the snapshot above
+      // Still uploading (uploadPhoto stopped waiting at 45 s): joining it would hold this retry for minutes
+      if (inflight.has(`${pairId}:${p.id}`)) continue;
       try {
         // The write may have gone through and only the mark survived: check before uploading again
         const snap = await getDoc(doc(collection(db, 'pairs', pairId, 'photos'), p.id));
@@ -605,7 +624,7 @@ export async function deletePhoto(pairId, id) {
 
   const fblib = await fb();
   try {
-    await waitAuth();
+    await whenAuthed();
   } catch {}
 
   if (db && storage && fblib) {

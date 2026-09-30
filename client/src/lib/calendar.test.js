@@ -5,6 +5,7 @@ jest.mock('./firebase', () => ({
   auth: { currentUser: { uid: 'u1' } },
   db: {},
   authReady: Promise.resolve(),
+  whenAuthed: () => Promise.resolve({ uid: 'u1' }),
 }));
 jest.mock('firebase/firestore', () => ({
   collection: jest.fn(),

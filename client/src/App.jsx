@@ -14,6 +14,7 @@ import CogIcon from './components/icons/CogIcon';
 import Modal from './components/Modal';
 import { subscribeToPush, getPushSubscription, unsubscribeFromPush, getPushDiag } from './lib/push';
 import { normalizePairCode, isValidPairCode } from './lib/pairCode';
+import { versionLabel } from './lib/buildInfo';
 
 const IDENTITY_KEY = 'identity'; // 'yo' | 'ella'
 const PAIR_KEY = 'pairId';
@@ -357,6 +358,8 @@ function Settings() {
         </div>
       )}
       <IdentityReset />
+      {/* Qué versión tiene cada móvil, sin pedir nada técnico */}
+      <p className="text-center text-xs text-gray-400">{versionLabel()}</p>
       <Modal isOpen={!!pairConfirm} onClose={() => setPairConfirm('')}>
         <div className="p-6 text-center">
           <h3 className="text-lg font-semibold mb-2">

@@ -4,19 +4,21 @@ import { listenEvents } from '../lib/calendar';
 import Countdown from '../components/Countdown';
 import RandomPhoto from '../components/RandomPhoto';
 import { db } from '../lib/firebase';
+import { ANNIVERSARY, timeBetween } from '../lib/together';
 
 export default function Dashboard() {
   const navigate = useNavigate();
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [eventsError, setEventsError] = useState(false);
+  const [eventsKey, setEventsKey] = useState(0); // bump to subscribe again after an error
 
   // Weather state
   const [weatherNovio, setWeatherNovio] = useState(null);
   const [weatherNovia, setWeatherNovia] = useState(null);
   const [weatherLoading, setWeatherLoading] = useState(true);
 
-  // Hardcoded anniversary date: November 24, 2024
-  const anniv = '2024-11-24';
+  // Anniversary date (November 24, 2024, local time): ANNIVERSARY in lib/together
 
   // Generate automatic special events (only next occurrence of each type)
   const generateSpecialEvents = () => {
@@ -127,79 +129,43 @@ export default function Dashboard() {
     return specialEvents;
   };
 
-  const timeTogether = useMemo(() => {
-    const start = new Date(anniv);
-    const now = new Date();
-
-    let years = now.getFullYear() - start.getFullYear();
-    let months = now.getMonth() - start.getMonth();
-    let days = now.getDate() - start.getDate();
-
-    if (days < 0) {
-      months--;
-      const lastMonth = new Date(now.getFullYear(), now.getMonth(), 0);
-      days += lastMonth.getDate();
-    }
-
-    if (months < 0) {
-      years--;
-      months += 12;
-    }
-
-    return { years, months, days };
-  }, [anniv]);
+  const timeTogether = useMemo(() => timeBetween(ANNIVERSARY), []);
 
   useEffect(() => {
     let cancelled = false;
-    let unsub = () => {};
     console.log('🔄 Dashboard: Subscribing to events');
     setLoading(true);
-    (async () => {
-      try {
-        const pairId = localStorage.getItem('pairId');
-        if (!pairId) {
-          const specials = generateSpecialEvents();
-          if (!cancelled) {
-            specials.sort((a, b) => {
-              const dateA = a.start?.toDate ? a.start.toDate() : new Date(0);
-              const dateB = b.start?.toDate ? b.start.toDate() : new Date(0);
-              return dateA - dateB;
-            });
-            setEvents(specials);
-            setLoading(false);
-          }
-          return;
-        }
-        unsub = await listenEvents(pairId, { futureOnly: true, max: 100 }, (list) => {
-          const specialEvents = generateSpecialEvents();
-          const allEvents = [...list, ...specialEvents];
-          allEvents.sort((a, b) => {
-            const dateA = a.start?.toDate ? a.start.toDate() : new Date(0);
-            const dateB = b.start?.toDate ? b.start.toDate() : new Date(0);
-            return dateA - dateB;
-          });
-          if (!cancelled) {
-            console.log('✅ Dashboard: Events updated', allEvents.length, 'events');
-            setEvents(allEvents);
-            setLoading(false);
-          }
-        });
-      } catch (error) {
-        console.error('Dashboard subscribe error:', error);
-        const specials = generateSpecialEvents();
-        specials.sort((a, b) => {
-          const dateA = a.start?.toDate ? a.start.toDate() : new Date(0);
-          const dateB = b.start?.toDate ? b.start.toDate() : new Date(0);
-          return dateA - dateB;
-        });
-        if (!cancelled) {
-          setEvents(specials);
-          setLoading(false);
-        }
+    const byStart = (a, b) => {
+      const dateA = a.start?.toDate ? a.start.toDate() : new Date(0);
+      const dateB = b.start?.toDate ? b.start.toDate() : new Date(0);
+      return dateA - dateB;
+    };
+    const showSpecialsOnly = () => {
+      if (cancelled) return;
+      setEvents(generateSpecialEvents().sort(byStart));
+      setLoading(false);
+    };
+    const pairId = localStorage.getItem('pairId');
+    if (!pairId) {
+      showSpecialsOnly();
+      return () => { cancelled = true; };
+    }
+    // Sync unsubscribe; without a session yet it reports an error but still subscribes when the session arrives
+    const unsub = listenEvents(pairId, { futureOnly: true, max: 100 }, (list) => {
+      const allEvents = [...list, ...generateSpecialEvents()].sort(byStart);
+      if (!cancelled) {
+        console.log('✅ Dashboard: Events updated', allEvents.length, 'events');
+        setEvents(allEvents);
+        setEventsError(false);
+        setLoading(false);
       }
-    })();
+    }, (error) => {
+      console.error('Dashboard subscribe error:', error);
+      showSpecialsOnly();
+      if (!cancelled) setEventsError(true);
+    });
     return () => { cancelled = true; try { unsub(); } catch {} };
-  }, []);
+  }, [eventsKey]);
 
   // QA controls removed; live data only
 
@@ -619,7 +585,13 @@ export default function Dashboard() {
       <div className="card">
         <div className="flex items-center justify-between mb-2">
           <h3 className="text-sm text-gray-600">Próximos eventos</h3>
-          <Link to="/calendar" className="btn-link text-sm">Ver calendario</Link>
+          {eventsError ? (
+            <button type="button" onClick={() => { setEventsError(false); setEventsKey((k) => k + 1); }} className="btn-link text-sm text-rose-600">
+              No se pudo cargar. Reintentar
+            </button>
+          ) : (
+            <Link to="/calendar" className="btn-link text-sm">Ver calendario</Link>
+          )}
         </div>
         <div className="min-h-[140px]">
           {loading ? (

@@ -1,4 +1,4 @@
-import { auth, db, storage, authReady } from './firebase';
+import { auth, db, storage, whenAuthed } from './firebase';
 import { getOrig, putOrig, pruneOrig, deleteOrig } from './audioCache';
 
 // Helpers
@@ -19,7 +19,7 @@ export async function uploadSubtitles(pairId, id, file) {
   } catch {}
   if (db && storage && fblib) {
     try {
-      await waitAuth();
+      await whenAuthed();
       const { ref, uploadBytes, getDownloadURL, collection, doc, setDoc } = fblib;
       const base = `pairs/${pairId}/music/${id}`;
       const sRef = ref(storage, `${base}/subs.${type}`);
@@ -41,7 +41,7 @@ export async function getSubtitles(pairId, id) {
   const fblib = await fb();
   if (db && fblib) {
     try {
-      await waitAuth();
+      await whenAuthed();
       const { collection, doc, getDoc } = fblib;
       const dRef = doc(collection(db, 'pairs', pairId, 'music'), id);
       const snap = await getDoc(dRef);
@@ -68,7 +68,7 @@ export async function renameMusic(pairId, id, name) {
   const fblib = await fb();
   if (db && fblib) {
     try {
-      await waitAuth();
+      await whenAuthed();
       const { collection, doc, setDoc } = fblib;
       await setDoc(doc(collection(db, 'pairs', pairId, 'music'), id), { name }, { merge: true });
     } catch (e) {
@@ -166,23 +166,12 @@ async function fb() {
   return _fb;
 }
 
-// Wait for anonymous auth to be ready (avoid first-operation race)
-async function waitAuth(timeout = 1200) {
-  if (!authReady) return;
-  try {
-    await Promise.race([
-      authReady,
-      new Promise((resolve) => setTimeout(resolve, timeout)),
-    ]);
-  } catch {}
-}
-
 export async function listMusic(pairId, max = 100) {
   const items = [];
   const fblib = await fb();
   if (db && fblib) {
     try {
-      await waitAuth();
+      await whenAuthed();
       const { collection, getDocs, query, orderBy, limit } = fblib;
       const col = collection(db, 'pairs', pairId, 'music');
       const q = query(col, orderBy('createdAt', 'desc'), limit(max));
@@ -222,7 +211,7 @@ export async function getOriginal(pairId, id) {
   const fblib = await fb();
   if (storage && fblib) {
     try {
-      await waitAuth();
+      await whenAuthed();
       const { ref, getDownloadURL, collection, doc, getDoc, setDoc } = fblib;
       let url = '';
       try {
@@ -265,7 +254,7 @@ export async function getOriginalUrl(pairId, id) {
   const fblib = await fb();
   if (!(storage && fblib)) return '';
   try {
-    await waitAuth();
+    await whenAuthed();
     const { ref, getDownloadURL, collection, doc, getDoc, setDoc } = fblib;
     let url = '';
     try {
@@ -306,7 +295,7 @@ export async function uploadMusic(pairId, file, identity = 'yo') {
   const fblib = await fb();
   if (db && storage && fblib) {
     try {
-      if (authReady) await authReady;
+      await whenAuthed();
       if (!auth?.currentUser) throw new Error('no-auth');
       const { ref, uploadBytes, collection, doc, setDoc, serverTimestamp, getDownloadURL } = fblib;
       const base = `pairs/${pairId}/music/${id}`;
@@ -341,7 +330,7 @@ export async function uploadMusic(pairId, file, identity = 'yo') {
 export async function deleteMusic(pairId, id) {
   const fblib = await fb();
   try {
-    await waitAuth();
+    await whenAuthed();
   } catch {}
 
   if (db && storage && fblib) {
@@ -372,7 +361,7 @@ export async function setLyrics(pairId, id, text) {
   const fblib = await fb();
   if (db && fblib) {
     try {
-      await waitAuth();
+      await whenAuthed();
       const { collection, doc, setDoc } = fblib;
       await setDoc(doc(collection(db, 'pairs', pairId, 'music'), id), { lyrics: text || '' }, { merge: true });
     } catch {}
@@ -385,7 +374,7 @@ export async function getLyrics(pairId, id) {
   const fblib = await fb();
   if (db && fblib) {
     try {
-      await waitAuth();
+      await whenAuthed();
       const { collection, doc, getDoc } = fblib;
       const dRef = doc(collection(db, 'pairs', pairId, 'music'), id);
       const snap = await getDoc(dRef);
