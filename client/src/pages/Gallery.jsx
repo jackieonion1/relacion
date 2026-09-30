@@ -1,9 +1,12 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { listPhotos, uploadPhoto, getOriginal, getOriginalUrl, deletePhoto } from '../lib/photos';
+import { listPhotosPage, listPendingPhotos, getPendingIds, retryPendingPhotos, confirmQueued, uploadPhoto, getOriginal, getOriginalUrl, deletePhoto } from '../lib/photos';
+import { mergeUnique } from '../lib/pagination';
 import Modal from '../components/Modal';
 import TrashIcon from '../components/icons/TrashIcon';
+
+const PAGE_SIZE = 60;
 
 export default function Gallery() {
   const location = useLocation();
@@ -24,20 +27,52 @@ export default function Gallery() {
   const [viewer, setViewer] = useState({ open: false, id: null, url: '', fallbackUrl: '', loading: false });
   const [deleting, setDeleting] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+  // Paginación: cursor = último doc de la página cargada; genRef descarta páginas de una carga anterior
+  const cursorRef = useRef(null);
+  const genRef = useRef(0);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [loadMoreError, setLoadMoreError] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
+  // Fotos guardadas en este móvil que aún no se han subido, y avisos de subida
+  const [pendingIds, setPendingIds] = useState([]);
+  const [retrying, setRetrying] = useState(false);
+  const [notices, setNotices] = useState([]);
+  const urlOpenedRef = useRef('');
+  const autoRetriedRef = useRef(false);
+
+  function addNotice(text) {
+    setNotices((prev) => [...prev, { key: `${Date.now()}-${Math.random()}`, text }]);
+  }
 
   useEffect(() => {
     let cancelled = false;
     async function load() {
       setLoading(true);
+      const gen = ++genRef.current;
       try {
-        const list = await listPhotos(pairId, 100);
+        const [page, pendingItems] = await Promise.all([
+          listPhotosPage(pairId, { pageSize: PAGE_SIZE }),
+          listPendingPhotos(pairId),
+        ]);
         if (cancelled) return;
         urlsRef.current.forEach((u) => { if (u && u.startsWith('blob:')) URL.revokeObjectURL(u); });
         urlsRef.current = [];
+        // Pendientes que no aparecen aún en Firestore van delante; si ya están, se descarta su copia
+        const remoteIds = new Set(page.items.map((it) => it.id));
+        const extra = [];
+        pendingItems.forEach((it) => {
+          if (remoteIds.has(it.id)) { if (it.thumbUrl) URL.revokeObjectURL(it.thumbUrl); } else extra.push(it);
+        });
+        const list = [...extra, ...page.items];
         list.forEach((it) => { if (it.thumbUrl && it.thumbUrl.startsWith('blob:')) urlsRef.current.push(it.thumbUrl); });
+        cursorRef.current = page.cursor;
+        setHasMore(page.hasMore);
+        setLoadMoreError(false);
+        setPendingIds(getPendingIds(pairId));
         setItems(list);
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled && gen === genRef.current) setLoading(false);
       }
     }
     if (pairId) load();
@@ -47,29 +82,96 @@ export default function Gallery() {
       urlsRef.current = [];
       if (viewer.url && viewer.url.startsWith('blob:')) URL.revokeObjectURL(viewer.url);
     };
-  }, [pairId]);
+  }, [pairId, reloadKey]);
 
+  // Abre ?photo=id sin exigir que esté en la lista cargada (puede estar en una página aún sin cargar)
   useEffect(() => {
-    if (photoIdFromUrl && items.length > 0 && !viewer.open) {
-      const photoExists = items.find(item => item.id === photoIdFromUrl);
-      if (photoExists) {
-        openViewer(photoIdFromUrl);
-      }
+    if (!photoIdFromUrl) { urlOpenedRef.current = ''; return; }
+    if (!pairId || viewer.open || urlOpenedRef.current === photoIdFromUrl) return;
+    urlOpenedRef.current = photoIdFromUrl;
+    openViewer(photoIdFromUrl);
+  }, [photoIdFromUrl, viewer.open]);
+
+  async function loadMore() {
+    if (loadingMore || !hasMore || !cursorRef.current) return;
+    const gen = genRef.current;
+    setLoadingMore(true);
+    setLoadMoreError(false);
+    try {
+      const page = await listPhotosPage(pairId, { pageSize: PAGE_SIZE, cursor: cursorRef.current });
+      if (gen !== genRef.current) return;
+      page.items.forEach((it) => { if (it.thumbUrl && it.thumbUrl.startsWith('blob:')) urlsRef.current.push(it.thumbUrl); });
+      cursorRef.current = page.cursor;
+      setHasMore(page.hasMore);
+      setItems((prev) => mergeUnique(prev, page.items));
+    } catch (e) {
+      if (gen === genRef.current) setLoadMoreError(true);
+    } finally {
+      setLoadingMore(false);
     }
-  }, [photoIdFromUrl, items, viewer.open]);
+  }
+
+  async function retryPending(auto = false) {
+    if (!pairId || getPendingIds(pairId).length === 0) return;
+    setRetrying(true);
+    try {
+      const r = await retryPendingPhotos(pairId);
+      if (r.sent > 0) setReloadKey((k) => k + 1);
+      // Ya en la cola del SDK: cuando el servidor lo confirme, quita la marca y la tarjeta «sin subir»
+      if (r.queued.length > 0) {
+        confirmQueued(pairId, r.queued).then((n) => { if (n > 0) setPendingIds(getPendingIds(pairId)); });
+      }
+      if (r.lost > 0) {
+        addNotice(`${r.lost === 1 ? 'Una foto ya no está' : `${r.lost} fotos ya no están`} en este móvil y no se puede subir. Vuelve a elegirla.`);
+      }
+      if (!auto && r.offline) addNotice('Sin conexión: las fotos se subirán cuando vuelva.');
+      else if (!auto && r.failed > 0) addNotice(`No se pudo subir ${r.failed === 1 ? 'una foto' : `${r.failed} fotos`}. Inténtalo de nuevo más tarde.`);
+    } finally {
+      setRetrying(false);
+      setPendingIds(getPendingIds(pairId));
+    }
+  }
+
+  // Reintenta las pendientes al abrir la galería y cada vez que vuelve la conexión
+  useEffect(() => {
+    if (!pairId) return undefined;
+    const onOnline = () => { retryPending(true); };
+    window.addEventListener('online', onOnline);
+    return () => window.removeEventListener('online', onOnline);
+  }, [pairId]);
+  useEffect(() => {
+    if (loading || autoRetriedRef.current) return;
+    autoRetriedRef.current = true;
+    retryPending(true);
+  }, [loading]);
 
   async function onSelect(e) {
-    const list = Array.from(e.target.files || []);
+    const input = e.target;
+    const list = Array.from(input.files || []);
     if (!list.length || !pairId) return;
     setUploading(true);
     try {
       for (const f of list) {
-        const added = await uploadPhoto(pairId, f, localStorage.getItem('identity') || 'yo');
-        if (added.thumbUrl) urlsRef.current.push(added.thumbUrl);
-        setItems((prev) => [{ id: added.id, thumbUrl: added.thumbUrl, createdAt: added.createdAt }, ...prev]);
+        // Un fichero que falla no debe abortar el resto del lote
+        try {
+          const added = await uploadPhoto(pairId, f, localStorage.getItem('identity') || 'yo');
+          if (added.cancelled) continue; // borrada mientras subía
+          if (added.thumbUrl) urlsRef.current.push(added.thumbUrl);
+          // Una recarga durante la subida ya puede haber traído esta foto como pendiente: sin duplicar
+          setItems((prev) => [{ id: added.id, thumbUrl: added.thumbUrl, createdAt: added.createdAt }, ...prev.filter((it) => it.id !== added.id)]);
+          if (added.pending) {
+            const why = added.error?.message === 'offline' ? 'sin conexión' : 'error al subir';
+            addNotice(`"${f.name}" no se ha subido (${why}). Está guardada en este móvil; se reintentará sola o pulsa Reintentar.`);
+          }
+        } catch (err) {
+          console.error('Upload failed', err);
+          addNotice(`No se pudo procesar "${f.name}". Prueba con otra foto.`);
+        }
       }
     } finally {
       setUploading(false);
+      setPendingIds(getPendingIds(pairId));
+      input.value = ''; // permite volver a elegir el mismo fichero
     }
   }
 
@@ -198,6 +300,7 @@ export default function Gallery() {
       await deletePhoto(pairId, id);
       // remove from UI list
       setItems((prev) => prev.filter((it) => it.id !== id));
+      setPendingIds(getPendingIds(pairId));
       closeViewer();
     } catch (e) {
       console.error('Delete failed', e);
@@ -248,22 +351,58 @@ export default function Gallery() {
         </div>
       )}
 
+      {notices.map((n) => (
+        <div key={n.key} role="alert" className="card flex items-start justify-between gap-3 text-sm text-rose-600">
+          <span>{n.text}</span>
+          <button
+            type="button"
+            onClick={() => setNotices((prev) => prev.filter((x) => x.key !== n.key))}
+            className="btn-link"
+            aria-label="Cerrar aviso"
+          >
+            ×
+          </button>
+        </div>
+      ))}
+
+      {pendingIds.length > 0 && (
+        <div className="card flex items-center justify-between gap-3 text-sm text-gray-700">
+          <span>{pendingIds.length === 1 ? '1 foto sin subir' : `${pendingIds.length} fotos sin subir`}</span>
+          <button type="button" onClick={() => retryPending(false)} disabled={retrying} className="btn-primary disabled:opacity-60">
+            {retrying ? 'Subiendo…' : 'Reintentar'}
+          </button>
+        </div>
+      )}
+
       {loading ? (
         <div className="text-center text-gray-500">Cargando…</div>
       ) : items.length === 0 ? (
         <div className="text-center text-gray-500">No hay fotos aún.</div>
       ) : (
-        <div className="grid grid-cols-3 gap-2">
-          {items.map((it) => (
-            <button key={it.id} onClick={() => openViewer(it.id)} className="relative group transition hover:scale-[1.01]">
-              {it.thumbUrl ? (
-                <img src={it.thumbUrl} alt="" className="w-full h-28 object-cover rounded-xl border border-rose-100" />
-              ) : (
-                <div className="w-full h-28 rounded-xl border border-rose-100 bg-rose-50" />
-              )}
-            </button>
-          ))}
-        </div>
+        <>
+          <div className="grid grid-cols-3 gap-2">
+            {items.map((it) => (
+              <button key={it.id} onClick={() => openViewer(it.id)} className="relative group transition hover:scale-[1.01]">
+                {it.thumbUrl ? (
+                  <img src={it.thumbUrl} alt="" className="w-full h-28 object-cover rounded-xl border border-rose-100" />
+                ) : (
+                  <div className="w-full h-28 rounded-xl border border-rose-100 bg-rose-50" />
+                )}
+                {pendingIds.includes(it.id) && (
+                  <span className="absolute bottom-1 left-1 text-[10px] leading-none bg-rose-600 text-white rounded px-1.5 py-1">Sin subir</span>
+                )}
+              </button>
+            ))}
+          </div>
+          {hasMore && (
+            <div className="text-center">
+              <button type="button" onClick={loadMore} disabled={loadingMore} className="btn-ghost disabled:opacity-60">
+                {loadingMore ? 'Cargando…' : 'Cargar más'}
+              </button>
+              {loadMoreError && <p className="text-xs text-rose-600 mt-1">No se pudieron cargar más fotos. Inténtalo de nuevo.</p>}
+            </div>
+          )}
+        </>
       )}
 
       <Modal isOpen={viewer.open} onClose={closeViewer} bare>
@@ -336,7 +475,7 @@ export default function Gallery() {
               </div>
             </>
           ) : (
-            <div className="absolute inset-0 flex items-center justify-center text-gray-200">No disponible offline</div>
+            <div className="absolute inset-0 flex items-center justify-center text-gray-200">No se pudo cargar la foto</div>
           )}
         </div>
       </Modal>

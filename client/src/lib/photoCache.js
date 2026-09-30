@@ -115,8 +115,10 @@ export async function putOrig(id, blob) {
   }
 }
 
-export async function pruneOrig(max = 20) {
+// keepIds: originals that must survive the prune (photos still waiting to be uploaded)
+export async function pruneOrig(max = 20, keepIds = []) {
   const db = await openDB();
+  const keep = new Set(keepIds);
   return new Promise((resolve, reject) => {
     const [tx, store] = txStore(db, ORIG, 'readwrite');
     const idx = store.index('ts');
@@ -130,8 +132,10 @@ export async function pruneOrig(max = 20) {
       curReq.onsuccess = () => {
         const cursor = curReq.result;
         if (cursor && removed < toDelete) {
-          store.delete(cursor.primaryKey);
-          removed += 1;
+          if (!keep.has(cursor.primaryKey)) {
+            store.delete(cursor.primaryKey);
+            removed += 1;
+          }
           cursor.continue();
         } else {
           resolve();
