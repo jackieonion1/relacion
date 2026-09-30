@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { createPortal } from 'react-dom';
-import { addEvent, listEvents, deleteEvent } from '../lib/calendar';
+import { addEvent, updateEvent, listEvents, deleteEvent, eventToFormValues } from '../lib/calendar';
 import Modal from '../components/Modal';
 import EventTypeSwitcher from '../components/EventTypeSwitcher';
 import ViewSwitcher from '../components/ViewSwitcher';
@@ -9,7 +9,7 @@ import MonthlyCalendarView from '../components/MonthlyCalendarView';
 import CollapsibleSection from '../components/CollapsibleSection';
 import HeartRainAnimation from '../components/HeartRainAnimation';
 
-const EventList = ({ events, onDelete, onItemClick }) => {
+const EventList = ({ events, onDelete, onEdit, onItemClick }) => {
   if (events.length === 0) {
     return <div className="text-gray-500 text-sm px-4 py-2">No hay eventos aquí.</div>;
   }
@@ -63,12 +63,22 @@ const EventList = ({ events, onDelete, onItemClick }) => {
               ) : null}
             </div>
             {!ev.isSpecialEvent && (
-              <button
-                onClick={(e) => { e.stopPropagation(); onDelete(ev.id); }}
-                className="btn-link text-sm"
-              >
-                Borrar
-              </button>
+              <div className="flex items-center gap-3">
+                {onEdit && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onEdit(ev); }}
+                    className="btn-link text-sm"
+                  >
+                    Editar
+                  </button>
+                )}
+                <button
+                  onClick={(e) => { e.stopPropagation(); onDelete(ev.id); }}
+                  className="btn-link text-sm"
+                >
+                  Borrar
+                </button>
+              </div>
             )}
           </li>
         );
@@ -81,6 +91,7 @@ export default function CalendarPage() {
   const location = useLocation();
   const [view, setView] = useState('Lista'); // 'Lista' | 'Calendario'
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editingEvent, setEditingEvent] = useState(null); // null = new event
   const pairId = useMemo(() => localStorage.getItem('pairId') || '', []);
   const identity = useMemo(() => localStorage.getItem('identity') || 'yo', []);
   const [items, setItems] = useState([]);
@@ -188,7 +199,34 @@ export default function CalendarPage() {
     return { upcomingEvents: upcoming, pastEvents: past.reverse() };
   }, [items]);
 
-  async function onAdd(e) {
+  function openNewEvent() {
+    setEditingEvent(null);
+    setStartDate(''); setStartTime(''); setEndDate(''); setTouchedEndDate(false);
+    setSelectedEventType('conjunto');
+    setError('');
+    setIsModalOpen(true);
+  }
+
+  function openEditEvent(ev) {
+    if (ev.isSpecialEvent) return;
+    const v = eventToFormValues(ev);
+    setEditingEvent(ev);
+    setStartDate(v.date);
+    setStartTime(v.time);
+    setEndDate(v.endDate);
+    // Keep the end date following the start only when it was the same day; otherwise leave it as saved
+    setTouchedEndDate(v.endDate !== v.date);
+    setSelectedEventType(v.eventType);
+    setError('');
+    setIsModalOpen(true);
+  }
+
+  function closeModal() {
+    setIsModalOpen(false);
+    setEditingEvent(null);
+  }
+
+  async function onSave(e) {
     e.preventDefault();
     // currentTarget is null after the first await
     const formEl = e.currentTarget;
@@ -196,18 +234,27 @@ export default function CalendarPage() {
     const data = Object.fromEntries(form);
     const { title, location, date, time, endDate } = data;
     if (!title || !date) return;
+    // An end before the start would be dropped silently (the event becomes single-day)
+    if (endDate && endDate < date) {
+      setError('La fecha de fin no puede ser anterior al inicio.');
+      return;
+    }
     setSaving(true);
     setError('');
     setSaveError('');
 
     const seeEachOther = form.has('seeEachOther');
     const finalEventType = seeEachOther ? 'conjunto' : selectedEventType;
+    const editingId = editingEvent?.id;
     try {
       // Only waits for the write to be queued, not for the server ack (offline it never arrives)
-      const { committed } = await addEvent(pairId, { title, date, time, endDate, location, eventType: finalEventType, seeEachOther }, identity);
+      const fields = { title, date, time, endDate, location, eventType: finalEventType, seeEachOther };
+      const { committed } = editingId
+        ? await updateEvent(pairId, editingId, fields)
+        : await addEvent(pairId, fields, identity);
       formEl.reset();
       setSelectedEventType('conjunto'); // Reset to default
-      setIsModalOpen(false);
+      closeModal();
       setRefreshKey(k => k + 1); // Force a reliable refetch
       // If the server ends up rejecting it, say so and drop the local ghost
       committed.catch(() => {
@@ -239,6 +286,8 @@ export default function CalendarPage() {
       eventTitle: eventTitle
     });
   };
+
+  const editValues = editingEvent ? eventToFormValues(editingEvent) : null;
 
   const handleListItemClick = (ev) => {
     const dt = ev.start?.toDate?.();
@@ -437,12 +486,12 @@ export default function CalendarPage() {
           <div className="divide-y divide-gray-200">
             <div className="card rounded-b-none">
               <CollapsibleSection title="Próximos eventos" defaultOpen>
-                {loading ? <div className="text-gray-500 px-4 py-2">Cargando…</div> : <EventList events={upcomingEvents} onDelete={onDelete} onItemClick={handleListItemClick} />}
+                {loading ? <div className="text-gray-500 px-4 py-2">Cargando…</div> : <EventList events={upcomingEvents} onDelete={onDelete} onEdit={openEditEvent} onItemClick={handleListItemClick} />}
               </CollapsibleSection>
             </div>
             <div className="card rounded-t-none">
               <CollapsibleSection title="Eventos pasados">
-                <EventList events={pastEvents} onDelete={onDelete} onItemClick={handleListItemClick} />
+                <EventList events={pastEvents} onDelete={onDelete} onEdit={openEditEvent} onItemClick={handleListItemClick} />
               </CollapsibleSection>
             </div>
           </div>
@@ -459,7 +508,7 @@ export default function CalendarPage() {
       {/* New event button - portal to body so it floats above scroll */}
       {createPortal(
         <button
-          onClick={() => { setStartDate(''); setStartTime(''); setEndDate(''); setTouchedEndDate(false); setIsModalOpen(true); }}
+          onClick={openNewEvent}
           className="fab btn-primary shadow-lg rounded-full px-5 py-3 font-semibold"
           aria-label="Nuevo evento"
           title="Nuevo evento"
@@ -469,12 +518,12 @@ export default function CalendarPage() {
         document.body
       )}
 
-      <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)}>
-        <form onSubmit={onAdd} className="p-6 space-y-4">
-          <h3 className="font-semibold text-lg">Añadir evento</h3>
+      <Modal isOpen={isModalOpen} onClose={closeModal}>
+        <form key={editingEvent?.id || 'new'} onSubmit={onSave} className="p-6 space-y-4">
+          <h3 className="font-semibold text-lg">{editingEvent ? 'Editar evento' : 'Añadir evento'}</h3>
           <div className="space-y-3">
-            <input name="title" placeholder="Título" className={inputClass} required />
-            <input name="location" placeholder="Ubicación (opcional)" className={inputClass} />
+            <input name="title" placeholder="Título" className={inputClass} defaultValue={editValues?.title} required />
+            <input name="location" placeholder="Ubicación (opcional)" className={inputClass} defaultValue={editValues?.location} />
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="block text-sm text-gray-600 mb-1">Fecha de inicio</label>
@@ -516,14 +565,14 @@ export default function CalendarPage() {
               />
             </div>
             <label className="flex items-center gap-2 text-sm text-gray-700 select-none">
-              <input type="checkbox" name="seeEachOther" className="accent-rose-500 w-4 h-4" />
+              <input type="checkbox" name="seeEachOther" defaultChecked={!!editValues?.seeEachOther} className="accent-rose-500 w-4 h-4" />
               ¿Nos vemos?
             </label>
           </div>
           {error && <p className="text-xs text-rose-600">{error}</p>}
           <div className="flex justify-end gap-2">
-            <button type="button" onClick={() => setIsModalOpen(false)} className="btn-ghost">Cancelar</button>
-            <button disabled={saving} className="btn-primary disabled:opacity-60">{saving ? 'Guardando…' : 'Añadir'}</button>
+            <button type="button" onClick={closeModal} className="btn-ghost">Cancelar</button>
+            <button disabled={saving} className="btn-primary disabled:opacity-60">{saving ? 'Guardando…' : (editingEvent ? 'Guardar' : 'Añadir')}</button>
           </div>
         </form>
       </Modal>
@@ -666,7 +715,7 @@ export default function CalendarPage() {
               <>
                 {specialMessage}
                 {dayEvents.length > 0 ? (
-                  <EventList events={dayEvents} onDelete={onDelete} />
+                  <EventList events={dayEvents} onDelete={onDelete} onEdit={openEditEvent} />
                 ) : (
                   !specialMessage && <div className="text-gray-500 text-sm py-4">No hay eventos en este día.</div>
                 )}
