@@ -38,12 +38,8 @@ export async function listEvents(pairId, { futureOnly = true, max = 50 } = {}) {
   return futureOnly ? list : list.reverse();
 }
 
-export async function addEvent(pairId, { title, date, time, endDate, location = '', eventType = 'conjunto', seeEachOther = false }, identity = 'yo') {
-  if (!pairId || !db) throw new Error('missing-context');
-  await waitAuth();
-  const f = await fb();
-  if (!auth?.currentUser) throw new Error('no-auth');
-  
+// Fields the form manages, identical on create and edit (toTimestamp: Timestamp.fromDate)
+export function buildEventFields({ title, date, time, endDate, location = '', eventType = 'conjunto', seeEachOther = false }, toTimestamp) {
   // Parse date and time
   const [y, m, d] = (date || '').split('-').map(Number);
   let hh = 12, mm = 0;
@@ -53,15 +49,11 @@ export async function addEvent(pairId, { title, date, time, endDate, location = 
     mm = Math.min(59, Math.max(0, Number(parts[1])));
   }
   const startDate = new Date(y, (m || 1) - 1, d || 1, hh, mm, 0, 0);
-  const start = f.Timestamp.fromDate(startDate);
-  
-  const payload = {
+
+  const fields = {
     title: String(title || '').trim(),
     location: String(location || '').trim(),
-    start,
-    createdAt: f.serverTimestamp(),
-    createdBy: auth.currentUser.uid,
-    identity,
+    start: toTimestamp(startDate),
     eventType: eventType || 'conjunto',
     seeEachOther: !!seeEachOther,
   };
@@ -72,15 +64,65 @@ export async function addEvent(pairId, { title, date, time, endDate, location = 
     if (ey && em && ed) {
       const finalDate = new Date(ey, em - 1, ed, 23, 59, 59, 999);
       if (finalDate > startDate) {
-        payload.end = f.Timestamp.fromDate(finalDate);
+        fields.end = toTimestamp(finalDate);
       }
     }
   }
-  
+  return fields;
+}
+
+const pad2 = (n) => String(n).padStart(2, '0');
+const localDay = (dt) => `${dt.getFullYear()}-${pad2(dt.getMonth() + 1)}-${pad2(dt.getDate())}`;
+
+// Inverse of buildEventFields: form input values in LOCAL time (toISOString would give UTC and shift the day)
+export function eventToFormValues(ev) {
+  const start = ev?.start?.toDate?.();
+  const end = ev?.end?.toDate?.();
+  return {
+    title: ev?.title || '',
+    location: ev?.location || '',
+    date: start ? localDay(start) : '',
+    time: start ? `${pad2(start.getHours())}:${pad2(start.getMinutes())}` : '',
+    endDate: end ? localDay(end) : '',
+    eventType: ev?.eventType || 'conjunto',
+    seeEachOther: !!ev?.seeEachOther,
+  };
+}
+
+export async function addEvent(pairId, { title, date, time, endDate, location = '', eventType = 'conjunto', seeEachOther = false }, identity = 'yo') {
+  if (!pairId || !db) throw new Error('missing-context');
+  await waitAuth();
+  const f = await fb();
+  if (!auth?.currentUser) throw new Error('no-auth');
+
+  const payload = {
+    ...buildEventFields({ title, date, time, endDate, location, eventType, seeEachOther }, f.Timestamp.fromDate),
+    createdAt: f.serverTimestamp(),
+    createdBy: auth.currentUser.uid,
+    identity,
+  };
+
   const col = f.collection(db, 'pairs', pairId, 'events');
   // Resolves once the write is queued (persistence keeps it offline); `committed` settles with the server ack
   const committed = f.addDoc(col, payload);
   committed.catch(() => {}); // callers that ignore it must not raise an unhandled rejection
+  return { committed };
+}
+
+export async function updateEvent(pairId, id, { title, date, time, endDate, location = '', eventType = 'conjunto', seeEachOther = false }) {
+  if (!pairId || !id || !db) throw new Error('missing-context');
+  await waitAuth();
+  const f = await fb();
+  if (!auth?.currentUser) throw new Error('no-auth');
+
+  const payload = buildEventFields({ title, date, time, endDate, location, eventType, seeEachOther }, f.Timestamp.fromDate);
+  // updateDoc keeps fields missing from the payload, so a cleared end date has to be removed explicitly
+  if (!payload.end) payload.end = f.deleteField();
+
+  const ref = f.doc(f.collection(db, 'pairs', pairId, 'events'), id);
+  // updateDoc (not setDoc merge) so a deleted event is not resurrected; same non-blocking ack as addEvent
+  const committed = f.updateDoc(ref, payload);
+  committed.catch(() => {});
   return { committed };
 }
 
