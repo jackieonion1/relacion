@@ -1,6 +1,6 @@
-import { deletePhoto, retryPendingPhotos, uploadPhoto, madridDayKey } from './photos';
+import { deletePhoto, retryPendingPhotos, uploadPhoto, listPhotosPage, madridDayKey } from './photos';
 import { deleteThumb, deleteOrig, getThumb, getOrig } from './photoCache';
-import { collection, doc, deleteDoc, setDoc, getDoc } from 'firebase/firestore';
+import { collection, doc, deleteDoc, setDoc, getDoc, getDocs } from 'firebase/firestore';
 import { ref, getDownloadURL, deleteObject, uploadBytes } from 'firebase/storage';
 
 jest.mock('./firebase', () => ({
@@ -258,6 +258,36 @@ describe('uploadPhoto', () => {
 
     expect(result).toEqual({ id, cancelled: true });
     expect(metaIds()).not.toContain(id);
+  });
+});
+
+describe('listPhotosPage', () => {
+  const docs = (n) => Array.from({ length: n }, (_, i) => ({
+    id: `D${i}`,
+    data: () => ({ thumbUrl: `https://t/${i}?alt=media`, createdAt: { toMillis: () => 1000 - i } }),
+  }));
+
+  test('resuelve las miniaturas con 6 a la vez como mucho y conserva el orden', async () => {
+    getDocs.mockResolvedValue({ docs: docs(13) }); // página de 12 + 1 que indica que hay más
+    let inFlight = 0; let max = 0;
+    getThumb.mockImplementation(async () => {
+      inFlight += 1; max = Math.max(max, inFlight);
+      await new Promise((r) => setTimeout(r, 5));
+      inFlight -= 1;
+      return null; // sin caché: usa la URL remota (fetch no existe en jsdom)
+    });
+    const page = await listPhotosPage(PAIR, { pageSize: 12 });
+    expect(max).toBe(6);
+    expect(page.items.map((it) => it.id)).toEqual(docs(12).map((d) => d.id));
+    expect(page.items[3].thumbUrl).toBe('https://t/3?alt=media');
+    expect(page.hasMore).toBe(true);
+  });
+
+  test('una miniatura que falla deja su hueco vacío y no tumba la página', async () => {
+    getDocs.mockResolvedValue({ docs: docs(3) });
+    getThumb.mockImplementation(async (id) => { if (id === 'D1') throw new Error('idb'); return null; });
+    const page = await listPhotosPage(PAIR, { pageSize: 60 });
+    expect(page.items.map((it) => it.thumbUrl)).toEqual(['https://t/0?alt=media', '', 'https://t/2?alt=media']);
   });
 });
 

@@ -1,6 +1,10 @@
 import { auth, db, storage, whenAuthed } from './firebase';
 import { getThumb, putThumb, getOrig, putOrig, pruneOrig, deleteThumb, deleteOrig } from './photoCache';
 import { splitPage } from './pagination';
+import { mapLimit } from './pool';
+
+// Thumbnails resolved at once on a cold cache (each one: getDownloadURL + fetch + IndexedDB write)
+const THUMB_CONCURRENCY = 6;
 
 // Helpers
 function genId() {
@@ -141,10 +145,10 @@ export async function listPhotos(pairId, max = 100) {
       const col = collection(db, 'pairs', pairId, 'photos');
       const q = query(col, orderBy('createdAt', 'desc'), limit(max));
       const snap = await getDocs(q);
-      for (const docSnap of snap.docs) {
-        const thumbUrl = await resolveThumbUrl(fblib, pairId, docSnap);
-        items.push({ id: docSnap.id, thumbUrl, createdAt: docSnap.data()?.createdAt?.toMillis?.() || Date.now() });
-      }
+      const urls = await mapLimit(snap.docs, THUMB_CONCURRENCY, (docSnap) => resolveThumbUrl(fblib, pairId, docSnap));
+      snap.docs.forEach((docSnap, i) => {
+        items.push({ id: docSnap.id, thumbUrl: urls[i] || '', createdAt: docSnap.data()?.createdAt?.toMillis?.() || Date.now() });
+      });
       return items;
     } catch (e) {
       // Fall back to local
@@ -177,11 +181,12 @@ export async function listPhotosPage(pairId, { pageSize = 60, cursor = null } = 
         : query(col, orderBy('createdAt', 'desc'), limit(pageSize + 1));
       const snap = await getDocs(q);
       const { page, hasMore } = splitPage(snap.docs, pageSize);
-      const items = [];
-      for (const docSnap of page) {
-        const thumbUrl = await resolveThumbUrl(fblib, pairId, docSnap);
-        items.push({ id: docSnap.id, thumbUrl, createdAt: docSnap.data()?.createdAt?.toMillis?.() || Date.now() });
-      }
+      const urls = await mapLimit(page, THUMB_CONCURRENCY, (docSnap) => resolveThumbUrl(fblib, pairId, docSnap));
+      const items = page.map((docSnap, i) => ({
+        id: docSnap.id,
+        thumbUrl: urls[i] || '',
+        createdAt: docSnap.data()?.createdAt?.toMillis?.() || Date.now(),
+      }));
       return { items, cursor: page.length ? page[page.length - 1] : cursor, hasMore };
     } catch (e) {
       if (cursor) throw e;
