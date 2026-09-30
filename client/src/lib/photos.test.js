@@ -139,6 +139,32 @@ describe('deletePhoto con una subida en curso', () => {
     expect(deleteObject.mock.calls.length).toBeGreaterThan(2); // limpieza de lo subido tarde
   });
 
+  test('si el borrado ya quitó la miniatura (getDownloadURL falla) igual limpia el original', async () => {
+    getDoc.mockResolvedValue({ exists: () => false });
+    getThumb.mockResolvedValue(new Blob(['t']));
+    getOrig.mockResolvedValue(new Blob(['o']));
+    let releaseOrig;
+    uploadBytes
+      .mockImplementationOnce(() => Promise.resolve()) // thumb.jpg ya subido
+      .mockImplementationOnce(() => new Promise((r) => { releaseOrig = r; })); // orig.jpg en vuelo
+
+    const retry = retryPendingPhotos(PAIR);
+    await flush();
+    expect(uploadBytes).toHaveBeenCalledTimes(2);
+
+    await deletePhoto(PAIR, P1); // borra thumb.jpg de Storage mientras sube orig.jpg
+    deleteObject.mockClear();
+    getDownloadURL.mockImplementation(async (r) => {
+      if (r.path.endsWith('thumb.jpg')) throw new Error('storage/object-not-found');
+      return 'https://x/y?alt=media';
+    });
+    releaseOrig();
+    await retry;
+
+    expect(setDoc).not.toHaveBeenCalled();
+    expect(deleteObject.mock.calls.map(([r]) => r.path)).toContain(`pairs/${PAIR}/photos/${P1}/orig.jpg`);
+  });
+
   test('un reintento posterior al borrado no vuelve a subir la foto', async () => {
     deleteDoc.mockImplementation(() => new Promise(() => {})); // offline
     deletePhoto(PAIR, P1);

@@ -443,14 +443,20 @@ function pushRemote(pairId, id, identity, thumbBlob, origBlob) {
     const tRef = ref(storage, `${base}/thumb.jpg`);
     const oRef = ref(storage, `${base}/orig.jpg`);
     const cacheMeta = { contentType: 'image/jpeg', cacheControl: 'public, max-age=31536000, immutable' };
-    await uploadBytes(tRef, thumbBlob, cacheMeta);
-    await uploadBytes(oRef, origBlob, cacheMeta);
-    const [thumbUrlRemote, origUrlRemote] = await Promise.all([
-      getDownloadURL(tRef),
-      getDownloadURL(oRef),
-    ]);
-    if (deletedIds.has(id)) {
-      // Deleted while uploading: drop what we just uploaded (best effort) and never create the doc
+    let thumbUrlRemote;
+    let origUrlRemote;
+    try {
+      await uploadBytes(tRef, thumbBlob, cacheMeta);
+      await uploadBytes(oRef, origBlob, cacheMeta);
+      [thumbUrlRemote, origUrlRemote] = await Promise.all([
+        getDownloadURL(tRef),
+        getDownloadURL(oRef),
+      ]);
+      if (deletedIds.has(id)) throw new Error('cancelled');
+    } catch (e) {
+      // Deleted while uploading: deletePhoto may already have removed thumb.jpg, so getDownloadURL
+      // can fail before we notice. Either way drop what we uploaded (best effort) and never create the doc
+      if (!deletedIds.has(id)) throw e;
       await Promise.allSettled([deleteObject(tRef), deleteObject(oRef)]);
       throw new Error('cancelled');
     }
