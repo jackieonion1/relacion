@@ -88,6 +88,7 @@ export default function CalendarPage() {
   const [refreshKey, setRefreshKey] = useState(0);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [saveError, setSaveError] = useState(''); // write rejected after the modal was closed
   // New event form state (controlled for iOS/web consistency)
   const [startDate, setStartDate] = useState('');
   const [startTime, setStartTime] = useState('');
@@ -117,7 +118,7 @@ export default function CalendarPage() {
     (async () => {
       setLoading(true);
       try {
-        const list = await listEvents(pairId, { futureOnly: false, max: 100 });
+        const list = await listEvents(pairId, { futureOnly: false, max: 300 });
         
         // Generate special events (only next occurrence of each type)
         const specialEvents = generateSpecialEvents();
@@ -189,23 +190,35 @@ export default function CalendarPage() {
 
   async function onAdd(e) {
     e.preventDefault();
-    const form = new FormData(e.currentTarget);
+    // currentTarget is null after the first await
+    const formEl = e.currentTarget;
+    const form = new FormData(formEl);
     const data = Object.fromEntries(form);
     const { title, location, date, time, endDate } = data;
     if (!title || !date) return;
     setSaving(true);
     setError('');
-    
+    setSaveError('');
+
     const seeEachOther = form.has('seeEachOther');
     const finalEventType = seeEachOther ? 'conjunto' : selectedEventType;
-    // Call addEvent and close popup regardless of result
-    addEvent(pairId, { title, date, time, endDate, location, eventType: finalEventType, seeEachOther }, identity);
-    
-    e.currentTarget.reset();
-    setSelectedEventType('conjunto'); // Reset to default
-    setIsModalOpen(false);
-    setSaving(false);
-    setRefreshKey(k => k + 1); // Force a reliable refetch
+    try {
+      // Only waits for the write to be queued, not for the server ack (offline it never arrives)
+      const { committed } = await addEvent(pairId, { title, date, time, endDate, location, eventType: finalEventType, seeEachOther }, identity);
+      formEl.reset();
+      setSelectedEventType('conjunto'); // Reset to default
+      setIsModalOpen(false);
+      setRefreshKey(k => k + 1); // Force a reliable refetch
+      // If the server ends up rejecting it, say so and drop the local ghost
+      committed.catch(() => {
+        setSaveError(`No se pudo guardar el evento "${title}".`);
+        setRefreshKey(k => k + 1);
+      });
+    } catch (err) {
+      setError('No se pudo guardar el evento.');
+    } finally {
+      setSaving(false);
+    }
   }
 
   const onDelete = async (id) => {
@@ -407,7 +420,13 @@ export default function CalendarPage() {
   return (
     <div className="space-y-4">
       <h2 className="text-lg font-semibold text-rose-600">Calendario</h2>
-      <ViewSwitcher 
+      {saveError && (
+        <div className="card flex items-center justify-between gap-3 text-sm text-rose-600">
+          <span>{saveError}</span>
+          <button type="button" onClick={() => setSaveError('')} className="btn-link" aria-label="Cerrar aviso">×</button>
+        </div>
+      )}
+      <ViewSwitcher
         views={['Lista', 'Calendario']}
         activeView={view}
         onChange={setView}
