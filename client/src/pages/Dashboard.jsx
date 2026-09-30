@@ -4,6 +4,7 @@ import { listenEvents } from '../lib/calendar';
 import Countdown from '../components/Countdown';
 import RandomPhoto from '../components/RandomPhoto';
 import { db } from '../lib/firebase';
+import { ANNIVERSARY, timeBetween } from '../lib/together';
 
 export default function Dashboard() {
   const navigate = useNavigate();
@@ -17,8 +18,7 @@ export default function Dashboard() {
   const [weatherNovia, setWeatherNovia] = useState(null);
   const [weatherLoading, setWeatherLoading] = useState(true);
 
-  // Hardcoded anniversary date: November 24, 2024
-  const anniv = '2024-11-24';
+  // Anniversary date (November 24, 2024, local time): ANNIVERSARY in lib/together
 
   // Generate automatic special events (only next occurrence of each type)
   const generateSpecialEvents = () => {
@@ -129,27 +129,7 @@ export default function Dashboard() {
     return specialEvents;
   };
 
-  const timeTogether = useMemo(() => {
-    const start = new Date(anniv);
-    const now = new Date();
-
-    let years = now.getFullYear() - start.getFullYear();
-    let months = now.getMonth() - start.getMonth();
-    let days = now.getDate() - start.getDate();
-
-    if (days < 0) {
-      months--;
-      const lastMonth = new Date(now.getFullYear(), now.getMonth(), 0);
-      days += lastMonth.getDate();
-    }
-
-    if (months < 0) {
-      years--;
-      months += 12;
-    }
-
-    return { years, months, days };
-  }, [anniv]);
+  const timeTogether = useMemo(() => timeBetween(ANNIVERSARY), []);
 
   useEffect(() => {
     let cancelled = false;
