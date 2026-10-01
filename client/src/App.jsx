@@ -254,7 +254,7 @@ function Settings() {
       try {
         if (e?.data?.type === 'pushsubscriptionchange') {
           if (Notification.permission === 'granted' && pair) {
-            const vapid = process.env.REACT_APP_VAPID_PUBLIC_KEY || '';
+            const vapid = import.meta.env.REACT_APP_VAPID_PUBLIC_KEY || '';
             const identity = localStorage.getItem(IDENTITY_KEY) || 'yo';
             if (vapid) {
               subscribeToPush(pair, identity, vapid).then(() => setSubscribed(true)).catch(() => {});
@@ -278,7 +278,7 @@ function Settings() {
 
   async function onSubscribe() {
     try {
-      const vapid = process.env.REACT_APP_VAPID_PUBLIC_KEY || '';
+      const vapid = import.meta.env.REACT_APP_VAPID_PUBLIC_KEY || '';
       if (!vapid) { alert('Falta REACT_APP_VAPID_PUBLIC_KEY'); return; }
       if (!pair) { alert('Configura el código de pareja primero'); return; }
       const identity = localStorage.getItem(IDENTITY_KEY) || 'yo';

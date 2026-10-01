@@ -15,13 +15,10 @@ root.render(
 );
 
 // Register/Unregister Service Worker
-if (process.env.NODE_ENV === 'production' && 'serviceWorker' in navigator) {
+if (import.meta.env.PROD && 'serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    const swUrl = (process.env.PUBLIC_URL && process.env.PUBLIC_URL !== '/')
-      ? `${process.env.PUBLIC_URL.replace(/\/$/, '')}/sw.js`
-      : '/sw.js';
     navigator.serviceWorker
-      .register(swUrl)
+      .register('/sw.js')
       .catch((err) => console.warn('SW registration failed:', err));
   });
 } else if ('serviceWorker' in navigator) {
