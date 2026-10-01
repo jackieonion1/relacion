@@ -57,7 +57,8 @@ export function recordSync(storage, { pairId, identity, uid, endpoint }, now = D
 
 // Devuelve {status}:
 //  'unsupported' | 'no-permission' (aún no concedido) | 'denied' | 'invalid' (sin pareja o identidad elegida)
-//  'no-sub' | 'incomplete' | 'no-auth' | 'skipped' (huella igual y reciente) | 'synced' | 'error'
+//  'no-sw' (el SW no estuvo listo a tiempo: no se sabe si hay suscripción) | 'no-sub' | 'incomplete' | 'no-auth'
+//  | 'skipped' (huella igual y reciente) | 'synced' | 'error'
 export async function resyncSubscription({ pairId, identity, env, getUid, exists, write, stamp, storage, deviceId, ua = '', now = Date.now() }) {
   try {
     if (!isValidPairCode(pairId) || !IDENTITIES.includes(identity)) return { status: 'invalid' };
@@ -67,7 +68,9 @@ export async function resyncSubscription({ pairId, identity, env, getUid, exists
     if (perm !== 'granted') return { status: 'no-permission' };
 
     const pm = await env.getPushManager();
-    const sub = pm ? await pm.getSubscription() : null;
+    // Sin SW a tiempo no es «sin suscripción»: contarlo como tal acabaría enseñando «Activar» a quien sí la tiene
+    if (!pm) return { status: 'no-sw' };
+    const sub = await pm.getSubscription();
     if (!sub) return { status: 'no-sub' };
     const read = readSubscription(sub);
     if (!read) return { status: 'incomplete' };
@@ -81,9 +84,10 @@ export async function resyncSubscription({ pairId, identity, env, getUid, exists
 
     const id = `${identity}-${deviceId()}`;
     const missing = !(await exists(pairId, id));
-    const data = { endpoint: read.endpoint, keys: read.keys, uid, ua, updatedAt: stamp() };
-    // createdAt solo si el doc no existe (p. ej. lo borró un 410); nunca se reescribe
-    if (missing) Object.assign(data, { identity, enabled: true, createdAt: stamp() });
+    // identity y enabled siempre: si el doc desapareció entre exists() y write() (un 410, una lectura de caché),
+    // el merge lo recrearía sin ellos. createdAt solo si el doc no existe; nunca se reescribe
+    const data = { endpoint: read.endpoint, keys: read.keys, identity, enabled: true, uid, ua, updatedAt: stamp() };
+    if (missing) data.createdAt = stamp();
     await write(pairId, id, data);
     recordSync(storage, { pairId, identity, uid, endpoint: read.endpoint }, now);
     return { status: 'synced' };

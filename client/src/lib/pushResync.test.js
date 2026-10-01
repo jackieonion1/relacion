@@ -42,6 +42,13 @@ describe('resyncSubscription: solo lee', () => {
     }));
   });
 
+  test('SW no listo a tiempo: no-sw (no cuenta como sin suscripción) y no escribe', async () => {
+    const t = setup();
+    const env = { supported: () => true, permission: () => 'granted', getPushManager: async () => null };
+    expect(await t.run({ env })).toEqual({ status: 'no-sw' });
+    expect(t.write).not.toHaveBeenCalled();
+  });
+
   test('sin suscripción no escribe nada ni crea una', async () => {
     const t = setup({ sub: null });
     expect(await t.run()).toEqual({ status: 'no-sub' });
@@ -115,12 +122,12 @@ describe('resyncSubscription: cuándo corre', () => {
 });
 
 describe('resyncSubscription: doc y limitador', () => {
-  test('doc existente: merge sin createdAt ni identity', async () => {
+  test('doc existente: merge sin createdAt, con identity y enabled', async () => {
     const t = setup({ docs: { 'ella-dev1': { createdAt: 'ORIGINAL', identity: 'ella', uid: 'viejo', endpoint: 'https://push.example/viejo' } } });
     await t.run();
     const data = t.write.mock.calls[0][2];
     expect(data).not.toHaveProperty('createdAt');
-    expect(data).not.toHaveProperty('identity');
+    expect(data).toMatchObject({ identity: 'ella', enabled: true });
     expect(t.docs['ella-dev1']).toMatchObject({ createdAt: 'ORIGINAL', uid: 'uid-1', endpoint: 'https://push.example/abc' });
   });
 
@@ -169,7 +176,7 @@ describe('decideNotice', () => {
     expect(decideNotice('no-sub', s)).toBe(false);
   });
 
-  test.each(['synced', 'skipped', 'incomplete', 'denied', 'unsupported', 'invalid', 'error', 'no-auth'])('%s: nunca se enseña', (status) => {
+  test.each(['synced', 'skipped', 'incomplete', 'denied', 'unsupported', 'invalid', 'error', 'no-auth', 'no-sw'])('%s: nunca se enseña', (status) => {
     const s = memoryStorage();
     for (let i = 0; i < 3; i++) expect(decideNotice(status, s)).toBe(false);
   });
@@ -179,6 +186,11 @@ describe('decideNotice', () => {
     decideNotice('no-sub', s);
     decideNotice('error', s);
     expect(decideNotice('no-sub', s)).toBe(true);
+  });
+
+  test('SW lento en dos aperturas seguidas: nunca enseña «Activar»', () => {
+    const s = memoryStorage();
+    for (let i = 0; i < 3; i++) expect(decideNotice('no-sw', s)).toBe(false);
   });
 
   test('«Luego» lo silencia una semana', () => {

@@ -346,7 +346,7 @@ function Settings() {
             </div>
             <p className="text-xs text-gray-500 mt-1">
               {subscribed && notifPerm === 'granted'
-                ? (syncedAt ? `Registrado en el servidor el ${new Date(syncedAt).toLocaleDateString()}` : 'Suscrito en este móvil, sin confirmar en el servidor')
+                ? (syncedAt ? `Última sincronización con el servidor: ${new Date(syncedAt).toLocaleDateString()}` : 'Suscrito en este móvil, sin confirmar en el servidor')
                 : 'Requiere instalar la PWA y HTTPS.'}
             </p>
           </div>
