@@ -28,7 +28,7 @@ const hits = {};
 const server = https.createServer({ key: fs.readFileSync(`${dir}/k.pem`), cert: fs.readFileSync(`${dir}/c.pem`) }, (req, res) => {
   hits[req.url] = (hits[req.url] || 0) + 1;
   req.resume();
-  res.writeHead(410).end();
+  res.writeHead(req.url.endsWith('/ok') ? 201 : 410).end();
 });
 await new Promise((r) => server.listen(0, '127.0.0.1', r));
 const port = server.address().port;
@@ -56,8 +56,8 @@ const subTest = await seedSub('TEST', 'sub-uid');
 
 // 1) sendTestPush sin auth -> unauthenticated y sin envío
 const callUrl = 'http://127.0.0.1:5001/demo-relacion/europe-southwest1/sendTestPush';
-const call = async (headers) => {
-  const res = await fetch(callUrl, { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify({ data: { pairId: 'TEST' } }) });
+const call = async (headers, pairId = 'TEST') => {
+  const res = await fetch(callUrl, { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify({ data: { pairId } }) });
   return { status: res.status, json: await res.json().catch(() => null) };
 };
 const anon = await call({}).catch((e) => fail(`sendTestPush sin auth: fetch falló (${e?.message || e})`));
@@ -69,6 +69,35 @@ const jwt = [{ alg: 'none', typ: 'JWT' }, { sub: 'caller-uid', user_id: 'caller-
   .map((p) => b64url(JSON.stringify(p))).join('.') + '.';
 const authed = await call({ Authorization: `Bearer ${jwt}` }).catch((e) => fail(`sendTestPush con auth: fetch falló (${e?.message || e})`));
 check(authed.status === 200 && authed.json?.result?.ok === true, `sendTestPush con auth responde ok (status ${authed.status}, ${JSON.stringify(authed.json)})`);
+
+// 2b) Dedupe por endpoint, exclusión por uid y 201 sin borrado. Par DEDUP: dos docs con el mismo endpoint
+// vivo (/ok), uno del propio emisor (/self, excluido), dos docs con el mismo endpoint muerto (/dead) y uno de otro endpoint muerto
+const seedDoc = async (pairId, id, endpoint, uid) => {
+  const ecdh = crypto.createECDH('prime256v1');
+  ecdh.generateKeys();
+  const ref = db.collection('pairs').doc(pairId).collection('pushSubs').doc(id);
+  await ref.set({ endpoint: `https://127.0.0.1:${port}/${endpoint}`, keys: { p256dh: b64url(ecdh.getPublicKey()), auth: b64url(crypto.randomBytes(16)) }, enabled: true, identity: id, uid });
+  return ref;
+};
+const dd = {
+  ok1: await seedDoc('DEDUP', 'ok1', 'ok', 'sub-uid'),
+  ok2: await seedDoc('DEDUP', 'ok2', 'ok', 'sub-uid'),
+  self: await seedDoc('DEDUP', 'self', 'self', 'caller-uid'),
+  dead1: await seedDoc('DEDUP', 'dead1', 'dead', 'sub-uid'),
+  dead2: await seedDoc('DEDUP', 'dead2', 'dead', 'sub-uid'),
+  other: await seedDoc('DEDUP', 'other', 'other', 'sub-uid'),
+};
+const dedup = await call({ Authorization: `Bearer ${jwt}` }, 'DEDUP').catch((e) => fail(`sendTestPush DEDUP: fetch falló (${e?.message || e})`));
+check(dedup.status === 200, `sendTestPush DEDUP responde 200 (status ${dedup.status})`);
+check(hits['/ok'] === 1, `dos docs con el mismo endpoint -> un solo envío (peticiones: ${hits['/ok'] || 0})`);
+check(!hits['/self'], `sub del emisor excluida por uid (peticiones: ${hits['/self'] || 0})`);
+check(hits['/dead'] === 1, `endpoint compartido muerto -> un solo envío (peticiones: ${hits['/dead'] || 0})`);
+check(hits['/other'] === 1, `endpoint distinto se envía (peticiones: ${hits['/other'] || 0})`);
+const exists = async (k) => (await dd[k].get()).exists;
+check((await exists('ok1')) && (await exists('ok2')), 'la dedupe y el 201 no borran docs');
+check(await exists('self'), 'la sub excluida no se toca');
+check(!(await exists('dead1')) && !(await exists('dead2')), '410 borra todos los docs que comparten el endpoint');
+check(!(await exists('other')), '410 borra el doc del otro endpoint');
 
 // 3) Triggers: crean nota y evento y esperamos a que intenten enviar
 const pair = (id) => db.collection('pairs').doc(id);
