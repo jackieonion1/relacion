@@ -1,0 +1,83 @@
+/* Celebration rain (HeartRain.jsx). Own file so the keyframes load once instead of a <style> per render */
+@keyframes heartFall {
+  0% {
+    transform: translateY(-50px) rotate(0deg);
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(calc(100vh + 100px)) rotate(360deg);
+    opacity: 0;
+  }
+}
+
+@keyframes heartFireworks {
+  0% {
+    transform: translate(0, 0) scale(0.5) rotate(0deg);
+    opacity: 1;
+  }
+  50% {
+    transform: translate(var(--dx), var(--dy)) scale(1.2) rotate(180deg);
+    opacity: 1;
+  }
+  100% {
+    transform: translate(calc(var(--dx) * 1.5), calc(var(--dy) * 1.5)) scale(0.3) rotate(360deg);
+    opacity: 0;
+  }
+}
+
+.heart-fall {
+  animation: heartFall 4s ease-in forwards;
+}
+
+.heart-fireworks {
+  animation: heartFireworks 3s ease-out forwards;
+}
+
+/* Centred above the bottom bar (same offset as .fab), clear of the home indicator */
+.heart-rain-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: calc(4.75rem + env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  pointer-events: none;
+}
+
+.heart-rain-stop {
+  pointer-events: auto;
+  min-height: 44px;
+  min-width: 44px;
+  padding: 0 1.25rem;
+  border-radius: 9999px;
+  border: 1px solid #fecdd3;
+  background: rgba(255, 255, 255, 0.92);
+  color: #e11d48;
+  font-weight: 600;
+  font-size: 0.95rem;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.15);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.heart-rain-stop:focus-visible {
+  outline: 3px solid #fb7185;
+  outline-offset: 2px;
+}
+
+/* With reduced motion nothing falls: a still row of the celebration's emoji instead */
+.heart-rain-still {
+  font-size: 2rem;
+  line-height: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .heart-fall,
+  .heart-fireworks {
+    animation: none;
+    display: none;
+  }
+}
