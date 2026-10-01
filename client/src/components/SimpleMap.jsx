@@ -2,6 +2,8 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Modal from './Modal';
 import { db, whenAuthed, listenWhenAuthed } from '../lib/firebase';
+import { geocodeCity } from '../lib/weather';
+import { ROLE_LABELS } from '../lib/eventTypes';
 
 const STORAGE_KEY = (pairId, role) => `pair_${pairId || 'default'}_${role}_location`;
 
@@ -24,49 +26,6 @@ function kmDistance(lat1, lon1, lat2, lon2) {
     Math.sin(dLon / 2) * Math.sin(dLon / 2);
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   return R * c;
-}
-
-const geocodeCache = new Map();
-function withTimeout(promise, ms = 6000) {
-  return new Promise((resolve) => {
-    let settled = false;
-    const t = setTimeout(() => { if (!settled) resolve(null); }, ms);
-    promise.then((v) => { settled = true; clearTimeout(t); resolve(v); })
-           .catch(() => { settled = true; clearTimeout(t); resolve(null); });
-  });
-}
-async function geocodeCity(name) {
-  const key = (name || '').trim().toLowerCase();
-  if (!key) return null;
-  if (geocodeCache.has(key)) return geocodeCache.get(key);
-  // Primary: Open-Meteo
-  const url1 = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(key)}&count=1&language=es&format=json`;
-  const p1 = (async () => {
-    const res = await fetch(url1, { mode: 'cors' });
-    if (!res.ok) return null;
-    const data = await res.json();
-    const r = data?.results?.[0];
-    if (!r) return null;
-    return { lat: r.latitude, lon: r.longitude };
-  })();
-  let out = await withTimeout(p1, 6000);
-  // Fallback: maps.co (Nominatim proxy) if primary fails/times out
-  if (!out) {
-    const url2 = `https://geocode.maps.co/search?q=${encodeURIComponent(key)}&format=json&limit=1`;
-    const p2 = (async () => {
-      const res = await fetch(url2, { mode: 'cors' });
-      if (!res.ok) return null;
-      const data = await res.json();
-      const r = Array.isArray(data) ? data[0] : null;
-      if (!r) return null;
-      const lat = parseFloat(r.lat); const lon = parseFloat(r.lon);
-      if (Number.isFinite(lat) && Number.isFinite(lon)) return { lat, lon };
-      return null;
-    })();
-    out = await withTimeout(p2, 6000);
-  }
-  if (out) geocodeCache.set(key, out);
-  return out;
 }
 
 export default function SimpleMap({ onDistanceChange }) {
@@ -193,7 +152,7 @@ export default function SimpleMap({ onDistanceChange }) {
         <div className="absolute left-4 top-1/2 -translate-y-1/2 text-center">
           <div className="text-2xl mb-1">📍</div>
           <div className="text-xs font-medium text-gray-700 bg-white px-2 py-1 rounded shadow-sm">
-            Novio
+            {ROLE_LABELS.novio}
           </div>
         </div>
 
@@ -201,7 +160,7 @@ export default function SimpleMap({ onDistanceChange }) {
         <div className="absolute right-4 top-1/2 -translate-y-1/2 text-center">
           <div className="text-2xl mb-1">📍</div>
           <div className="text-xs font-medium text-gray-700 bg-white px-2 py-1 rounded shadow-sm">
-            Novia
+            {ROLE_LABELS.novia}
           </div>
         </div>
 
@@ -257,7 +216,7 @@ export default function SimpleMap({ onDistanceChange }) {
       {/* Modal update */}
       <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)}>
         <form onSubmit={saveLocation} className="p-6 space-y-4">
-          <h3 className="font-semibold text-lg">Actualizar ubicación ({identity === 'ella' ? 'Novia' : 'Novio'})</h3>
+          <h3 className="font-semibold text-lg">Actualizar ubicación ({identity === 'ella' ? ROLE_LABELS.novia : ROLE_LABELS.novio})</h3>
           <div className="space-y-3">
             <div>
               <label className="block text-sm text-gray-600 mb-1">Ciudad</label>

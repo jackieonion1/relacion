@@ -15,7 +15,7 @@ export default function CollapsibleSection({ title, children, defaultOpen = fals
         </span>
       </button>
       {isOpen && (
-        <div className="pb-4 animate-fade-in-fast">
+        <div className="pb-4">
           {children}
         </div>
       )}

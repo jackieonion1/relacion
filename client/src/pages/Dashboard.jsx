@@ -5,6 +5,9 @@ import Countdown from '../components/Countdown';
 import RandomPhoto from '../components/RandomPhoto';
 import { db } from '../lib/firebase';
 import { ANNIVERSARY, timeBetween } from '../lib/together';
+import { nextSpecialEvents } from '../lib/specialDays';
+import { fetchCityWeather, weatherEmoji, weatherType } from '../lib/weather';
+import { ROLE_LABELS } from '../lib/eventTypes';
 
 export default function Dashboard() {
   const navigate = useNavigate();
@@ -20,115 +23,6 @@ export default function Dashboard() {
 
   // Anniversary date (November 24, 2024, local time): ANNIVERSARY in lib/together
 
-  // Generate automatic special events (only next occurrence of each type)
-  const generateSpecialEvents = () => {
-    const specialEvents = [];
-    const now = new Date();
-    const anniversaryDate = new Date(2024, 10, 24); // November 24, 2024
-    
-    // Find next monthiversary/anniversary (24th of next month)
-    let nextMonthiversary = null;
-    for (let i = 0; i < 24; i++) { // Look ahead 24 months
-      const testDate = new Date(now.getFullYear(), now.getMonth() + i, 24);
-      if (testDate > now && testDate >= anniversaryDate) {
-        const isRealAnniversary = testDate.getMonth() === 10; // November
-        
-        // Calculate months since anniversary
-        const yearsDiff = testDate.getFullYear() - anniversaryDate.getFullYear();
-        const monthsDiff = testDate.getMonth() - anniversaryDate.getMonth();
-        const totalMonths = yearsDiff * 12 + monthsDiff;
-        
-        if (totalMonths > 0) {
-          let title = '';
-          if (totalMonths >= 12) {
-            const years = Math.floor(totalMonths / 12);
-            const remainingMonths = totalMonths % 12;
-            if (remainingMonths === 0) {
-              title = `${years} ${years === 1 ? 'año' : 'años'} juntos`;
-            } else {
-              title = `${years} ${years === 1 ? 'año' : 'años'} y ${remainingMonths} ${remainingMonths === 1 ? 'mes' : 'meses'} juntos`;
-            }
-          } else {
-            title = `${totalMonths} ${totalMonths === 1 ? 'mes' : 'meses'} juntos`;
-          }
-          
-          if (isRealAnniversary) {
-            title = `¡Aniversario! ${title}`;
-          } else {
-            title = `¡Mesiversario! ${title}`;
-          }
-          
-          nextMonthiversary = {
-            id: `anniversary-${testDate.getFullYear()}-${testDate.getMonth()}`,
-            title,
-            start: { toDate: () => testDate },
-            location: '',
-            eventType: 'conjunto',
-            isSpecialEvent: true,
-            specialType: isRealAnniversary ? 'anniversary' : 'monthiversary'
-          };
-          break;
-        }
-      }
-    }
-    
-    if (nextMonthiversary) {
-      specialEvents.push(nextMonthiversary);
-    }
-    
-    // Find next Lucy's birthday (April 21)
-    let nextLucyBirthday = null;
-    for (let year = now.getFullYear(); year <= now.getFullYear() + 1; year++) {
-      const lucyBirthday = new Date(year, 3, 21); // April 21
-      if (lucyBirthday > now) {
-        const lucyAge = year - 2003;
-        if (lucyAge > 0) {
-          nextLucyBirthday = {
-            id: `lucy-birthday-${year}`,
-            title: `¡Cumpleaños de Lucy! ${lucyAge} años`,
-            start: { toDate: () => lucyBirthday },
-            location: '',
-            eventType: 'lucy-birthday',
-            isSpecialEvent: true,
-            specialType: 'birthday'
-          };
-          break;
-        }
-      }
-    }
-    
-    if (nextLucyBirthday) {
-      specialEvents.push(nextLucyBirthday);
-    }
-    
-    // Find next Sebas's birthday (November 4)
-    let nextSebasBirthday = null;
-    for (let year = now.getFullYear(); year <= now.getFullYear() + 1; year++) {
-      const sebasBirthday = new Date(year, 10, 4); // November 4
-      if (sebasBirthday > now) {
-        const sebasAge = year - 1998;
-        if (sebasAge > 0) {
-          nextSebasBirthday = {
-            id: `sebas-birthday-${year}`,
-            title: `¡Cumpleaños de Sebas! ${sebasAge} años`,
-            start: { toDate: () => sebasBirthday },
-            location: '',
-            eventType: 'sebas-birthday',
-            isSpecialEvent: true,
-            specialType: 'birthday'
-          };
-          break;
-        }
-      }
-    }
-    
-    if (nextSebasBirthday) {
-      specialEvents.push(nextSebasBirthday);
-    }
-    
-    return specialEvents;
-  };
-
   const timeTogether = useMemo(() => timeBetween(ANNIVERSARY), []);
 
   useEffect(() => {
@@ -142,7 +36,7 @@ export default function Dashboard() {
     };
     const showSpecialsOnly = () => {
       if (cancelled) return;
-      setEvents(generateSpecialEvents().sort(byStart));
+      setEvents(nextSpecialEvents().sort(byStart));
       setLoading(false);
     };
     const pairId = localStorage.getItem('pairId');
@@ -152,7 +46,7 @@ export default function Dashboard() {
     }
     // Sync unsubscribe; without a session yet it reports an error but still subscribes when the session arrives
     const unsub = listenEvents(pairId, { futureOnly: true, max: 100 }, (list) => {
-      const allEvents = [...list, ...generateSpecialEvents()].sort(byStart);
+      const allEvents = [...list, ...nextSpecialEvents()].sort(byStart);
       if (!cancelled) {
         console.log('✅ Dashboard: Events updated', allEvents.length, 'events');
         setEvents(allEvents);
@@ -191,97 +85,13 @@ export default function Dashboard() {
     return !!(a && b && a.getTime() === b.getTime());
   }, [nextEvent, nextMeetEvent]);
 
-  // --- Weather helpers ---
-  const geocodeCache = useMemo(() => new Map(), []);
-  function withTimeout(promise, ms = 6000) {
-    return new Promise((resolve) => {
-      let settled = false;
-      const t = setTimeout(() => { if (!settled) resolve(null); }, ms);
-      promise.then((v) => { settled = true; clearTimeout(t); resolve(v); })
-             .catch(() => { settled = true; clearTimeout(t); resolve(null); });
-    });
-  }
-  async function geocodeCity(name) {
-    const key = (name || '').trim().toLowerCase();
-    if (!key) return null;
-    if (geocodeCache.has(key)) return geocodeCache.get(key);
-    const url1 = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(key)}&count=1&language=es&format=json`;
-    const p1 = (async () => {
-      const res = await fetch(url1, { mode: 'cors' });
-      if (!res.ok) return null;
-      const data = await res.json();
-      const r = data?.results?.[0];
-      if (!r) return null;
-      return { lat: r.latitude, lon: r.longitude };
-    })();
-    let out = await withTimeout(p1, 6000);
-    if (!out) {
-      const url2 = `https://geocode.maps.co/search?q=${encodeURIComponent(key)}&format=json&limit=1`;
-      const p2 = (async () => {
-        const res = await fetch(url2, { mode: 'cors' });
-        if (!res.ok) return null;
-        const data = await res.json();
-        const r = Array.isArray(data) ? data[0] : null;
-        if (!r) return null;
-        const lat = parseFloat(r.lat); const lon = parseFloat(r.lon);
-        if (Number.isFinite(lat) && Number.isFinite(lon)) return { lat, lon };
-        return null;
-      })();
-      out = await withTimeout(p2, 6000);
-    }
-    if (out) geocodeCache.set(key, out);
-    return out;
-  }
-
-  function weatherEmoji(code) {
-    if (code === 0) return '☀️';
-    if ([1, 2].includes(code)) return '🌤️';
-    if (code === 3) return '☁️';
-    if ([45, 48].includes(code)) return '🌫️';
-    if ([51,53,55,56,57,61,63,65,66,67,80,81,82].includes(code)) return '🌧️';
-    if ([71,73,75,77,85,86].includes(code)) return '❄️';
-    if ([95,96,99].includes(code)) return '⛈️';
-    return '🌡️';
-  }
-
-  // Approximate moon phase (0=new, 0.5=full). Returns matching emoji.
-  function moonPhaseEmoji(date) {
-    try {
-      const d = new Date(date);
-      // Simple phase approximation
-      const synodicMonth = 29.53058867;
-      const knownNewMoon = new Date('2000-01-06T18:14:00Z').getTime();
-      const daysSince = (d.getTime() - knownNewMoon) / (1000 * 60 * 60 * 24);
-      const phase = ((daysSince % synodicMonth) + synodicMonth) % synodicMonth;
-      const frac = phase / synodicMonth; // 0..1
-      if (frac < 0.0625) return '🌑';            // New
-      if (frac < 0.1875) return '🌒';            // Waxing crescent
-      if (frac < 0.3125) return '🌓';            // First quarter
-      if (frac < 0.4375) return '🌔';            // Waxing gibbous
-      if (frac < 0.5625) return '🌕';            // Full
-      if (frac < 0.6875) return '🌖';            // Waning gibbous
-      if (frac < 0.8125) return '🌗';            // Last quarter
-      if (frac < 0.9375) return '🌘';            // Waning crescent
-      return '🌑';
-    } catch { return '🌙'; }
-  }
-
   // Decide themed background colors (pastel gradients) based on condition and phase
   function getWeatherTheme(w) {
     const code = w?.code ?? -1;
     const phase = w?.phase || 'day'; // dawn | day | dusk | night
 
     // Map WMO code to high-level condition
-    const type = (() => {
-      if (code === 0) return 'soleado';
-      if ([1, 2].includes(code)) return 'parcial';
-      if ([3].includes(code)) return 'nublado';
-      if ([45, 48].includes(code)) return 'niebla';
-      if ([71,73,75,77,85,86].includes(code)) return 'nieve';
-      if ([95,96,99].includes(code)) return 'tormenta';
-      if ([51,53,55,56,57,61,63,65,66,67,80,81,82].includes(code)) return 'lluvia';
-      return 'parcial';
-    })();
+    const type = weatherType(code);
 
     // Pastel gradients per user's scheme
     const palettes = {
@@ -377,52 +187,6 @@ export default function Dashboard() {
         } catch {}
 
         // Geocode and fetch weather for each city
-        async function fetchCityWeather(city) {
-          if (!city) return null;
-          const g = await geocodeCity(city);
-          if (!g) return null;
-          const url = `https://api.open-meteo.com/v1/forecast?latitude=${g.lat}&longitude=${g.lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,wind_speed_10m,weather_code&daily=sunrise,sunset&forecast_days=1&wind_speed_unit=kmh&timezone=auto`;
-          const res = await fetch(url, { mode: 'cors' });
-          if (!res.ok) return null;
-          const data = await res.json();
-          const c = data?.current || {};
-          const sunriseIso = data?.daily?.sunrise?.[0] || null;
-          const sunsetIso = data?.daily?.sunset?.[0] || null;
-          const nowIso = c?.time || null;
-          const sunrise = sunriseIso ? new Date(sunriseIso) : null;
-          const sunset = sunsetIso ? new Date(sunsetIso) : null;
-          const now = nowIso ? new Date(nowIso) : new Date();
-
-          // Determine day phase
-          let phase = 'day';
-          if (sunrise && sunset) {
-            const marginMs = 45 * 60 * 1000; // 45 minutes window for dawn/dusk
-            if (now < new Date(sunrise.getTime() - marginMs) || now >= new Date(sunset.getTime() + marginMs)) {
-              phase = 'night';
-            } else if (now >= new Date(sunrise.getTime() - marginMs) && now < new Date(sunrise.getTime() + marginMs)) {
-              phase = 'dawn';
-            } else if (now >= new Date(sunset.getTime() - marginMs) && now < new Date(sunset.getTime() + marginMs)) {
-              phase = 'dusk';
-            } else {
-              phase = 'day';
-            }
-          }
-
-          return {
-            city,
-            temp: typeof c.temperature_2m === 'number' ? Math.round(c.temperature_2m) : null,
-            feels: typeof c.apparent_temperature === 'number' ? Math.round(c.apparent_temperature) : null,
-            humidity: typeof c.relative_humidity_2m === 'number' ? Math.round(c.relative_humidity_2m) : null,
-            wind: typeof c.wind_speed_10m === 'number' ? Math.round(c.wind_speed_10m) : null,
-            code: typeof c.weather_code === 'number' ? c.weather_code : null,
-            sunrise: sunriseIso,
-            sunset: sunsetIso,
-            now: nowIso,
-            phase,
-            moon: phase === 'night' ? moonPhaseEmoji(now) : null,
-          };
-        }
-
         const [wNovio, wNovia] = await Promise.all([
           fetchCityWeather(cities.novio),
           fetchCityWeather(cities.novia),
@@ -577,8 +341,8 @@ export default function Dashboard() {
           <div className="text-sm text-gray-600">Clima ahora</div>
         </div>
         <div className="grid grid-cols-2 gap-3">
-          {renderWeatherCard('Novio', weatherNovio)}
-          {renderWeatherCard('Novia', weatherNovia)}
+          {renderWeatherCard(ROLE_LABELS.novio, weatherNovio)}
+          {renderWeatherCard(ROLE_LABELS.novia, weatherNovia)}
         </div>
       </div>
 

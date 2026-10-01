@@ -1,11 +1,8 @@
 import React from 'react';
+import { EVENT_TYPES } from '../lib/eventTypes';
 
 export default function EventTypeSwitcher({ activeType, onChange }) {
-  const types = [
-    { value: 'conjunto', emoji: '🩷', text: 'Conjunto', color: 'bg-rose-500' },
-    { value: 'novio', emoji: '💛', text: 'Novio', color: 'bg-yellow-500' },
-    { value: 'novia', emoji: '💜', text: 'Novia', color: 'bg-purple-500' }
-  ];
+  const types = EVENT_TYPES;
 
   return (
     <div className="bg-gray-200 p-1 rounded-lg flex items-center justify-center space-x-1">
