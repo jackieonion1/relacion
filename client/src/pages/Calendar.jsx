@@ -89,7 +89,7 @@ const EventList = ({ events, onDelete, onEdit, onItemClick }) => {
 
 export default function CalendarPage() {
   const location = useLocation();
-  const [view, setView] = useState('Lista'); // 'Lista' | 'Calendario'
+  const [view, setView] = useState('Calendario'); // 'Lista' | 'Calendario'; always opens on the month
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingEvent, setEditingEvent] = useState(null); // null = new event
   const pairId = useMemo(() => localStorage.getItem('pairId') || '', []);
