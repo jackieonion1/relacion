@@ -15,9 +15,9 @@ export const MAX_RUNTIME = 6;
 const contentType = (resp) => (resp.headers.get('content-type') || '').toLowerCase();
 const isHtml = (resp) => contentType(resp).includes('text/html');
 
-const isStaticAsset = (pathname) => /^\/static\/(js\/[^/]+\.js|css\/[^/]+\.css)$/.test(pathname);
+export const isStaticAsset = (pathname) => /^\/static\/(js\/[^/]+\.js|css\/[^/]+\.css)$/.test(pathname);
 
-function isGoodAsset(pathname, resp) {
+export function isGoodAsset(pathname, resp) {
   if (!resp || resp.status !== 200 || resp.type === 'opaque' || resp.redirected || isHtml(resp)) return false;
   const type = contentType(resp);
   if (pathname.endsWith('.js')) return type.includes('javascript');
@@ -25,19 +25,19 @@ function isGoodAsset(pathname, resp) {
   return false;
 }
 
-const isGoodShell = (resp) => !!resp && resp.status === 200 && !resp.redirected && isHtml(resp);
+export const isGoodShell = (resp) => !!resp && resp.status === 200 && !resp.redirected && isHtml(resp);
 
 export function shellAssets(html) {
   const found = String(html || '').match(/\/static\/(?:js|css)\/[^"'\s>?#]+\.(?:js|css)/g) || [];
   return [...new Set(found)].filter(isStaticAsset);
 }
 
-function hasEntryAssets(urls) {
+export function hasEntryAssets(urls) {
   return urls.some((u) => /^\/static\/js\/main\.[^/]+\.js$/.test(u))
     && urls.some((u) => /^\/static\/css\/main\.[^/]+\.css$/.test(u));
 }
 
-function runtimeEvictions(paths, keep, max = MAX_RUNTIME) {
+export function runtimeEvictions(paths, keep, max = MAX_RUNTIME) {
   const keepSet = new Set(keep);
   const extra = paths.length - max;
   if (extra <= 0) return [];
@@ -87,4 +87,49 @@ export async function ensureShell(doc = document) {
     console.warn('Shell guard failed:', err);
     return 'failed';
   }
+}
+
+// Lanza la guarda y la reintenta mientras no haya podido (sin red, o error de red). Sin temporizadores:
+// solo al volver la red o al volver la app a primer plano, y nunca dos intentos a la vez. Termina con
+// 'ok', 'repaired' o 'server-differs' y entonces quita sus listeners. Devuelve `stop`.
+// No espera a `load` ni a register(): ensureShell solo usa caches y fetch de la página. Arranca en cuanto
+// el SW controla la página o, en la primera visita, cuando está listo (register() ya habrá instalado)
+export function guardShell({ doc = document, win = window, sw = navigator.serviceWorker } = {}) {
+  let running = false;
+  let finished = false;
+
+  const stop = () => {
+    finished = true;
+    win.removeEventListener('online', attempt);
+    doc.removeEventListener('visibilitychange', onVisible);
+  };
+
+  async function attempt() {
+    if (running || finished) return;
+    running = true;
+    let result;
+    try {
+      result = await ensureShell(doc);
+    } catch {
+      result = 'failed'; // ensureShell no rechaza; por si acaso
+    } finally {
+      running = false;
+    }
+    if (result !== 'skipped' && result !== 'failed') stop();
+  }
+
+  function onVisible() {
+    if (doc.visibilityState === 'visible') attempt();
+  }
+
+  const start = () => {
+    if (finished) return;
+    win.addEventListener('online', attempt);
+    doc.addEventListener('visibilitychange', onVisible);
+    attempt();
+  };
+
+  if (sw && sw.controller) start();
+  else if (sw && sw.ready) sw.ready.then(start, () => {});
+  return stop;
 }
