@@ -36,6 +36,12 @@ test('admite 15 opciones como mucho, cada una con un color distinto de los 15', 
   expect(screen.queryByText('Opción 16')).toBeNull();
   expect(screen.queryByText('Máximo 15 opciones')).not.toBeNull();
   expect(screen.getByRole('button', { name: 'Añadir' }).disabled).toBe(true);
+  // Enter skips the disabled button: only the cap inside addOption stops a 16th option
+  const input = screen.getByPlaceholderText('Añadir opción');
+  fireEvent.change(input, { target: { value: 'Opción 16' } });
+  fireEvent.keyDown(input, { key: 'Enter' });
+  expect(chips()).toHaveLength(15);
+  expect(saved()).toHaveLength(15);
   const colors = saved().map((o) => o.color);
   expect(new Set(colors).size).toBe(15);
   // 15 hues every 24 degrees, from red to rose
