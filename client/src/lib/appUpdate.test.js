@@ -1,3 +1,5 @@
+import fs from 'fs';
+import path from 'path';
 import { manifestEntrypoints, loadedEntrypoints, isNewer, checkForUpdate, applyUpdate, repairApp } from './appUpdate';
 
 const manifest = (hash, cssHash = hash) => ({
@@ -9,6 +11,10 @@ const htmlRes = () => ({ ok: true, headers: { get: () => 'text/html; charset=utf
 
 function loadPage(hash) {
   document.head.innerHTML = `<script defer src="/static/js/main.${hash}.js"></script><link href="/static/css/main.${hash}.css" rel="stylesheet">`;
+}
+// Como lo escribe Vite: módulos con crossorigin y el modulepreload de un chunk, que no es de arranque
+function loadVitePage(hash) {
+  document.head.innerHTML = `<script type="module" crossorigin src="/static/js/main.${hash}.js"></script><link rel="modulepreload" crossorigin href="/static/js/vendor.${hash}.chunk.js"><link rel="stylesheet" crossorigin href="/static/css/main.${hash}.css">`;
 }
 
 function fakeSw({ waiting = null } = {}) {
@@ -35,6 +41,14 @@ describe('comparar versiones', () => {
     loadPage('aaa');
     expect(manifestEntrypoints(manifest('aaa'))).toEqual(['static/css/main.aaa.css', 'static/js/main.aaa.js']);
     expect(loadedEntrypoints()).toEqual(['static/css/main.aaa.css', 'static/js/main.aaa.js']);
+  });
+
+  test('una página de Vite da los mismos entrypoints; de CRA a Vite hay versión nueva', () => {
+    loadVitePage('aaa');
+    expect(loadedEntrypoints()).toEqual(['static/css/main.aaa.css', 'static/js/main.aaa.js']);
+    expect(isNewer(manifestEntrypoints(manifest('aaa')), loadedEntrypoints())).toBe(false);
+    loadPage('cra');
+    expect(isNewer(manifestEntrypoints(manifest('aaa')), loadedEntrypoints())).toBe(true);
   });
 
   test('nuevo si cambia el JS o solo el CSS; nunca si falta un lado (desarrollo)', () => {
@@ -139,5 +153,21 @@ describe('repairApp', () => {
     await expect(repairApp(reload)).rejects.toThrow();
     expect(global.caches.delete).not.toHaveBeenCalled();
     expect(reload).not.toHaveBeenCalled();
+  });
+});
+
+// client/build tras `npm run build`; sin build, se salta
+const BUILD = path.join(__dirname, '..', '..', 'build');
+const hasBuild = fs.existsSync(path.join(BUILD, 'index.html'));
+
+describe.skipIf(!hasBuild)('la build real (client/build)', () => {
+  test('su index y su asset-manifest.json coinciden: el aviso no sale con la versión que ya está cargada', async () => {
+    const html = fs.readFileSync(path.join(BUILD, 'index.html'), 'utf8');
+    const manifest = JSON.parse(fs.readFileSync(path.join(BUILD, 'asset-manifest.json'), 'utf8'));
+    document.head.innerHTML = new DOMParser().parseFromString(html, 'text/html').head.innerHTML;
+    expect(loadedEntrypoints()).toHaveLength(2);
+    expect(manifestEntrypoints(manifest)).toEqual(loadedEntrypoints());
+    global.fetch = vi.fn(async () => jsonRes(manifest));
+    await expect(checkForUpdate()).resolves.toBe(false);
   });
 });
