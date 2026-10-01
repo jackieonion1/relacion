@@ -4,16 +4,16 @@ import { MemoryRouter } from 'react-router-dom';
 import Gallery from './Gallery';
 import { listPhotosPage, listPendingPhotos, getPendingIds, retryPendingPhotos } from '../lib/photos';
 
-jest.mock('../lib/photos', () => ({
-  listPhotosPage: jest.fn(),
-  listPendingPhotos: jest.fn(),
-  getPendingIds: jest.fn(),
-  retryPendingPhotos: jest.fn(),
-  confirmQueued: jest.fn(),
-  uploadPhoto: jest.fn(),
-  getOriginal: jest.fn(),
-  getOriginalUrl: jest.fn(),
-  deletePhoto: jest.fn(),
+vi.mock('../lib/photos', () => ({
+  listPhotosPage: vi.fn(),
+  listPendingPhotos: vi.fn(),
+  getPendingIds: vi.fn(),
+  retryPendingPhotos: vi.fn(),
+  confirmQueued: vi.fn(),
+  uploadPhoto: vi.fn(),
+  getOriginal: vi.fn(),
+  getOriginalUrl: vi.fn(),
+  deletePhoto: vi.fn(),
 }));
 
 const flush = async () => { for (let i = 0; i < 10; i++) await Promise.resolve(); };
@@ -30,7 +30,7 @@ beforeEach(() => {
   listPendingPhotos.mockResolvedValue([]);
   getPendingIds.mockReturnValue([]);
   retryPendingPhotos.mockResolvedValue({ sent: 0, failed: 0, lost: 0, offline: false, queued: [] });
-  URL.revokeObjectURL = jest.fn();
+  URL.revokeObjectURL = vi.fn();
 });
 
 async function mount() {

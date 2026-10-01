@@ -1,7 +1,7 @@
 // Evalúa los service workers de verdad (public/sw.js y public/sw-neutral.js) con un `self`, `caches` y
 // `fetch` falsos: así se prueba el fichero que se despliega, no una copia
-const fs = require('fs');
-const path = require('path');
+import fs from 'fs';
+import path from 'path';
 
 const ORIGIN = 'https://relacion.test';
 const read = (name) => fs.readFileSync(path.join(__dirname, '..', 'public', name), 'utf8');
@@ -59,7 +59,7 @@ function load(name, env = {}) {
   const caches = env.caches || fakeCaches();
   let server = env.server || hosting('aaa');
   let online = true;
-  const fetch = jest.fn(async (req) => {
+  const fetch = vi.fn(async (req) => {
     if (!online) throw new TypeError('Failed to fetch');
     const p = keyOf(req);
     const hit = server[p] || server['/index.html'];
@@ -68,9 +68,9 @@ function load(name, env = {}) {
   const self = {
     location: { origin: ORIGIN },
     addEventListener: (t, fn) => { (handlers[t] = handlers[t] || []).push(fn); },
-    skipWaiting: jest.fn(async () => {}),
-    clients: { claim: jest.fn(async () => {}), matchAll: jest.fn(async () => []) },
-    registration: { unregister: jest.fn(async () => true), showNotification: jest.fn(async () => {}) },
+    skipWaiting: vi.fn(async () => {}),
+    clients: { claim: vi.fn(async () => {}), matchAll: vi.fn(async () => []) },
+    registration: { unregister: vi.fn(async () => true), showNotification: vi.fn(async () => {}) },
   };
   const src = read(name);
   const helpers = name === 'sw.js' ? `\n;return { ${HELPERS.join(', ')} };` : '';

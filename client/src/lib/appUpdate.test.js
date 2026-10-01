@@ -13,11 +13,11 @@ function loadPage(hash) {
 
 function fakeSw({ waiting = null } = {}) {
   const listeners = {};
-  const reg = { waiting, update: jest.fn(async () => {}), unregister: jest.fn(async () => true) };
+  const reg = { waiting, update: vi.fn(async () => {}), unregister: vi.fn(async () => true) };
   const sw = {
     controller: {},
-    getRegistration: jest.fn(async () => reg),
-    addEventListener: jest.fn((t, fn) => { listeners[t] = fn; }),
+    getRegistration: vi.fn(async () => reg),
+    addEventListener: vi.fn((t, fn) => { listeners[t] = fn; }),
   };
   Object.defineProperty(navigator, 'serviceWorker', { value: sw, configurable: true });
   return { reg, sw, listeners };
@@ -49,17 +49,17 @@ describe('comparar versiones', () => {
 
   test('checkForUpdate pide el manifest sin caché y no se fía de un HTML', async () => {
     loadPage('aaa');
-    global.fetch = jest.fn(async () => jsonRes(manifest('bbb')));
+    global.fetch = vi.fn(async () => jsonRes(manifest('bbb')));
     await expect(checkForUpdate()).resolves.toBe(true);
     expect(global.fetch).toHaveBeenCalledWith('/asset-manifest.json', { cache: 'no-store' });
-    global.fetch = jest.fn(async () => htmlRes());
+    global.fetch = vi.fn(async () => htmlRes());
     await expect(checkForUpdate()).resolves.toBe(false);
-    global.fetch = jest.fn(async () => { throw new TypeError('offline'); });
+    global.fetch = vi.fn(async () => { throw new TypeError('offline'); });
     await expect(checkForUpdate()).resolves.toBe(false);
   });
 
   test('en desarrollo ni siquiera pide el manifest', async () => {
-    global.fetch = jest.fn();
+    global.fetch = vi.fn();
     await expect(checkForUpdate()).resolves.toBe(false);
     expect(global.fetch).not.toHaveBeenCalled();
   });
@@ -67,8 +67,8 @@ describe('comparar versiones', () => {
 
 describe('applyUpdate (botón Actualizar)', () => {
   test('con un SW esperando: SKIP_WAITING y recarga al cambiar de controlador', async () => {
-    const reload = jest.fn();
-    const waiting = { postMessage: jest.fn() };
+    const reload = vi.fn();
+    const waiting = { postMessage: vi.fn() };
     const { listeners } = fakeSw({ waiting });
     waiting.postMessage.mockImplementation(() => {
       expect(reload).not.toHaveBeenCalled();
@@ -80,23 +80,23 @@ describe('applyUpdate (botón Actualizar)', () => {
   });
 
   test('sin SW esperando: solo recarga (la navegación va a la red y trae el index nuevo)', async () => {
-    const reload = jest.fn();
+    const reload = vi.fn();
     fakeSw();
     await applyUpdate(reload);
     expect(reload).toHaveBeenCalledTimes(1);
   });
 
   test('si el SW no llega a cambiar, recarga igual a los 3 s', async () => {
-    jest.useFakeTimers();
-    const reload = jest.fn();
-    fakeSw({ waiting: { postMessage: jest.fn() } });
+    vi.useFakeTimers();
+    const reload = vi.fn();
+    fakeSw({ waiting: { postMessage: vi.fn() } });
     const done = applyUpdate(reload);
     await Promise.resolve(); await Promise.resolve();
     expect(reload).not.toHaveBeenCalled();
-    jest.advanceTimersByTime(3000);
+    vi.advanceTimersByTime(3000);
     await done;
     expect(reload).toHaveBeenCalledTimes(1);
-    jest.useRealTimers();
+    vi.useRealTimers();
   });
 });
 
@@ -104,10 +104,10 @@ describe('repairApp', () => {
   test('borra las cachés del SW y recarga; no desregistra ni toca localStorage', async () => {
     localStorage.setItem('pairId', 'SEB1998');
     localStorage.setItem('identity', 'ella');
-    const reload = jest.fn();
+    const reload = vi.fn();
     const { reg } = fakeSw();
-    global.fetch = jest.fn(async () => htmlRes());
-    global.caches = { keys: jest.fn(async () => ['app-shell-v2', 'runtime-v2']), delete: jest.fn(async () => true) };
+    global.fetch = vi.fn(async () => htmlRes());
+    global.caches = { keys: vi.fn(async () => ['app-shell-v2', 'runtime-v2']), delete: vi.fn(async () => true) };
     await repairApp(reload);
     expect(global.fetch).toHaveBeenCalledWith('/index.html', { cache: 'no-store' });
     expect(global.caches.delete.mock.calls.map((c) => c[0])).toEqual(['app-shell-v2', 'runtime-v2']);
@@ -119,23 +119,23 @@ describe('repairApp', () => {
   });
 
   test('con un SW nuevo esperando lo activa antes de borrar las cachés', async () => {
-    const reload = jest.fn();
+    const reload = vi.fn();
     const order = [];
-    const waiting = { postMessage: jest.fn() };
+    const waiting = { postMessage: vi.fn() };
     const { listeners } = fakeSw({ waiting });
     waiting.postMessage.mockImplementation(() => { order.push('skip'); listeners.controllerchange(); });
-    global.fetch = jest.fn(async () => htmlRes());
-    global.caches = { keys: jest.fn(async () => ['app-shell-v2']), delete: jest.fn(async () => { order.push('delete'); return true; }) };
+    global.fetch = vi.fn(async () => htmlRes());
+    global.caches = { keys: vi.fn(async () => ['app-shell-v2']), delete: vi.fn(async () => { order.push('delete'); return true; }) };
     await repairApp(reload);
     expect(order).toEqual(['skip', 'delete']);
     expect(reload).toHaveBeenCalledTimes(1);
   });
 
   test('sin red no borra nada ni recarga', async () => {
-    const reload = jest.fn();
+    const reload = vi.fn();
     fakeSw();
-    global.fetch = jest.fn(async () => { throw new TypeError('Failed to fetch'); });
-    global.caches = { keys: jest.fn(async () => ['app-shell-v2']), delete: jest.fn() };
+    global.fetch = vi.fn(async () => { throw new TypeError('Failed to fetch'); });
+    global.caches = { keys: vi.fn(async () => ['app-shell-v2']), delete: vi.fn() };
     await expect(repairApp(reload)).rejects.toThrow();
     expect(global.caches.delete).not.toHaveBeenCalled();
     expect(reload).not.toHaveBeenCalled();

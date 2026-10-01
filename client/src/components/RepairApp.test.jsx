@@ -3,7 +3,7 @@ import { render, act, screen, fireEvent } from '@testing-library/react';
 import RepairApp from './RepairApp';
 import { repairApp } from '../lib/appUpdate';
 
-jest.mock('../lib/appUpdate', () => ({ repairApp: jest.fn() }));
+vi.mock('../lib/appUpdate', () => ({ repairApp: vi.fn() }));
 
 const flush = async () => { for (let i = 0; i < 10; i++) await Promise.resolve(); };
 const reparar = () => screen.getAllByText('Reparar');

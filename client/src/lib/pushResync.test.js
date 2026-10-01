@@ -9,11 +9,11 @@ const goodSub = () => ({ endpoint: 'https://push.example/abc', toJSON: () => ({ 
 // pushManager que revienta si alguien intenta crear o borrar la suscripción
 function setup({ sub = goodSub(), permission = 'granted', docs = {}, uid = 'uid-1', pairId = 'SEB1998', identity = 'ella', storage = memoryStorage(), now = 1000 } = {}) {
   const pushManager = {
-    getSubscription: jest.fn(async () => sub),
-    subscribe: jest.fn(() => { throw new Error('subscribe prohibido'); }),
-    unsubscribe: jest.fn(() => { throw new Error('unsubscribe prohibido'); }),
+    getSubscription: vi.fn(async () => sub),
+    subscribe: vi.fn(() => { throw new Error('subscribe prohibido'); }),
+    unsubscribe: vi.fn(() => { throw new Error('unsubscribe prohibido'); }),
   };
-  const write = jest.fn(async (pair, id, data) => { docs[id] = { ...(docs[id] || {}), ...data }; });
+  const write = vi.fn(async (pair, id, data) => { docs[id] = { ...(docs[id] || {}), ...data }; });
   const deps = {
     pairId,
     identity,

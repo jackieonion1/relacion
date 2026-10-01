@@ -1,19 +1,19 @@
 import { addEvent, updateEvent, buildEventFields, eventToFormValues } from './calendar';
 import { collection, doc, addDoc, updateDoc, serverTimestamp, deleteField } from 'firebase/firestore';
 
-jest.mock('./firebase', () => ({
+vi.mock('./firebase', () => ({
   auth: { currentUser: { uid: 'u1' } },
   db: {},
   authReady: Promise.resolve(),
   whenAuthed: () => Promise.resolve({ uid: 'u1' }),
 }));
-jest.mock('firebase/firestore', () => ({
-  collection: jest.fn(),
-  doc: jest.fn(),
-  addDoc: jest.fn(),
-  updateDoc: jest.fn(),
-  serverTimestamp: jest.fn(),
-  deleteField: jest.fn(),
+vi.mock('firebase/firestore', () => ({
+  collection: vi.fn(),
+  doc: vi.fn(),
+  addDoc: vi.fn(),
+  updateDoc: vi.fn(),
+  serverTimestamp: vi.fn(),
+  deleteField: vi.fn(),
   Timestamp: {
     fromDate: (date) => new (class { constructor() { this.ms = date.getTime(); } toDate() { return new Date(this.ms); } })(),
   },
@@ -26,7 +26,7 @@ const toTs = (d) => ts(d);
 const roundTrip = (ev) => buildEventFields(eventToFormValues(ev), toTs);
 
 beforeEach(() => {
-  jest.clearAllMocks();
+  vi.clearAllMocks();
   // CRA usa resetMocks: las implementaciones de las factorías se pierden entre tests
   collection.mockImplementation((d, ...p) => ({ path: p.join('/') }));
   doc.mockImplementation((c, id) => ({ path: `${c.path}/${id}` }));
