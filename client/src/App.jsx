@@ -10,6 +10,8 @@ import Coin from './pages/Coin';
 import Music from './pages/Music';
 import NavBar from './components/NavBar';
 import InstallPrompt from './components/InstallPrompt';
+import UpdateBanner from './components/UpdateBanner';
+import RepairApp from './components/RepairApp';
 import CogIcon from './components/icons/CogIcon';
 import Modal from './components/Modal';
 import { subscribeToPush, getPushSubscription, unsubscribeFromPush, getPushDiag } from './lib/push';
@@ -162,6 +164,7 @@ export default function App() {
               <div style={{ height: 'calc(env(safe-area-inset-top, 0px) + 56px)' }} />
 
               <InstallPrompt />
+              <UpdateBanner />
 
               <main className={`flex-1 max-w-screen-md mx-auto w-full px-4 ${isRoulette ? 'pb-2' : 'pb-safe-content'} pt-4 transition-all duration-300 ease-out ${
                 isTransitioning 
@@ -358,6 +361,7 @@ function Settings() {
         </div>
       )}
       <IdentityReset />
+      <RepairApp />
       {/* Qué versión tiene cada móvil, sin pedir nada técnico */}
       <p className="text-center text-xs text-gray-400">{versionLabel()}</p>
       <Modal isOpen={!!pairConfirm} onClose={() => setPairConfirm('')}>
