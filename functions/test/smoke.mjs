@@ -1,5 +1,6 @@
 // Smoke test para el emulador (falla con exit 1 si algo no funciona). Ejecutar desde la raíz del repo:
-//   firebase emulators:exec --config functions/test/firebase.emulator.json --only functions,firestore --project demo-relacion "node functions/test/smoke.mjs"
+//   firebase emulators:exec --config firebase.test.json --only functions,firestore --project demo-relacion "node functions/test/smoke.mjs"
+// firebase.test.json carga firestore.rules reales; la siembra por Admin SDK se las salta.
 // index.js se traga los errores de los triggers, así que se asserta sobre efectos observables: un servidor
 // HTTPS local hace de endpoint push y responde 410; web-push solo habla https, y el emulador de functions
 // acepta el certificado autofirmado gracias a functions/.env.demo-relacion (NODE_TLS_REJECT_UNAUTHORIZED=0).
