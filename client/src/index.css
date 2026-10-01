@@ -283,6 +283,8 @@ body { @apply bg-rose-50/50; }
     linear-gradient(var(--trk), var(--trk));
 }
 .progress-range::-webkit-slider-thumb {
+  /* Only WebKit/Blink have this pseudo-element: keep the prefix autoprefixer would drop for Safari 15.4+ */
+  /* autoprefixer: ignore next */
   -webkit-appearance: none;
   appearance: none;
   width: 4px;          /* minimal bar */
