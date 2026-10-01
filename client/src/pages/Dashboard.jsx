@@ -7,6 +7,7 @@ import { db } from '../lib/firebase';
 import { ANNIVERSARY, timeBetween } from '../lib/together';
 import { nextSpecialEvents } from '../lib/specialDays';
 import { fetchCityWeather, weatherEmoji, weatherType } from '../lib/weather';
+import { ROLE_LABELS } from '../lib/eventTypes';
 
 export default function Dashboard() {
   const navigate = useNavigate();
@@ -340,8 +341,8 @@ export default function Dashboard() {
           <div className="text-sm text-gray-600">Clima ahora</div>
         </div>
         <div className="grid grid-cols-2 gap-3">
-          {renderWeatherCard('Novio', weatherNovio)}
-          {renderWeatherCard('Novia', weatherNovia)}
+          {renderWeatherCard(ROLE_LABELS.novio, weatherNovio)}
+          {renderWeatherCard(ROLE_LABELS.novia, weatherNovia)}
         </div>
       </div>
 

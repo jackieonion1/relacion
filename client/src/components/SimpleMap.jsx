@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import Modal from './Modal';
 import { db, whenAuthed, listenWhenAuthed } from '../lib/firebase';
 import { geocodeCity } from '../lib/weather';
+import { ROLE_LABELS } from '../lib/eventTypes';
 
 const STORAGE_KEY = (pairId, role) => `pair_${pairId || 'default'}_${role}_location`;
 
@@ -151,7 +152,7 @@ export default function SimpleMap({ onDistanceChange }) {
         <div className="absolute left-4 top-1/2 -translate-y-1/2 text-center">
           <div className="text-2xl mb-1">📍</div>
           <div className="text-xs font-medium text-gray-700 bg-white px-2 py-1 rounded shadow-sm">
-            Novio
+            {ROLE_LABELS.novio}
           </div>
         </div>
 
@@ -159,7 +160,7 @@ export default function SimpleMap({ onDistanceChange }) {
         <div className="absolute right-4 top-1/2 -translate-y-1/2 text-center">
           <div className="text-2xl mb-1">📍</div>
           <div className="text-xs font-medium text-gray-700 bg-white px-2 py-1 rounded shadow-sm">
-            Novia
+            {ROLE_LABELS.novia}
           </div>
         </div>
 
@@ -215,7 +216,7 @@ export default function SimpleMap({ onDistanceChange }) {
       {/* Modal update */}
       <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)}>
         <form onSubmit={saveLocation} className="p-6 space-y-4">
-          <h3 className="font-semibold text-lg">Actualizar ubicación ({identity === 'ella' ? 'Novia' : 'Novio'})</h3>
+          <h3 className="font-semibold text-lg">Actualizar ubicación ({identity === 'ella' ? ROLE_LABELS.novia : ROLE_LABELS.novio})</h3>
           <div className="space-y-3">
             <div>
               <label className="block text-sm text-gray-600 mb-1">Ciudad</label>

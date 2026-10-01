@@ -19,6 +19,7 @@ import { subscribeToPush, getPushSubscription, unsubscribeFromPush, getPushDiag 
 import { getResyncInfo } from './lib/pushResync';
 import { normalizePairCode, isValidPairCode } from './lib/pairCode';
 import { versionLabel } from './lib/buildInfo';
+import { ROLE_LABELS } from './lib/eventTypes';
 
 const IDENTITY_KEY = 'identity'; // 'yo' | 'ella'
 const PAIR_KEY = 'pairId';
@@ -408,11 +409,11 @@ function IdentityReset() {
       <div className="flex items-center justify-between">
         <div>
           <div className="text-sm text-gray-600">Identidad</div>
-          <div className="text-gray-900 font-medium">{id === 'yo' ? 'Novio 🫒' : 'Novia 🍪'}</div>
+          <div className="text-gray-900 font-medium">{id === 'yo' ? `${ROLE_LABELS.novio} 🫒` : `${ROLE_LABELS.novia} 🍪`}</div>
         </div>
         <div className="flex gap-2">
-          <button onClick={() => { localStorage.setItem('identity', 'yo'); setId('yo'); }} className="btn-ghost">Novio 🫒</button>
-          <button onClick={() => { localStorage.setItem('identity', 'ella'); setId('ella'); }} className="btn-ghost">Novia 🍪</button>
+          <button onClick={() => { localStorage.setItem('identity', 'yo'); setId('yo'); }} className="btn-ghost">{ROLE_LABELS.novio} 🫒</button>
+          <button onClick={() => { localStorage.setItem('identity', 'ella'); setId('ella'); }} className="btn-ghost">{ROLE_LABELS.novia} 🍪</button>
         </div>
       </div>
     </div>
