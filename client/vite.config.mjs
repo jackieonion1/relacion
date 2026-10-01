@@ -39,6 +39,9 @@ export default defineConfig({
   build: {
     outDir: 'build',
     sourcemap: true,
+    // Lightning CSS (the default) drops -webkit- prefixes that iOS 16.4 still uses (text-decoration-line and
+    // -color, per caniuse); esbuild keeps every prefix autoprefixer added, the same set CRA shipped
+    cssMinify: 'esbuild',
     // CRA's file names: public/sw.js only caches /static/js/*.js and /static/css/*.css and needs main.*
     rolldownOptions: {
       output: {
