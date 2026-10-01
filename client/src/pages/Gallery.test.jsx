@@ -1,6 +1,6 @@
 import React from 'react';
 import { render, act } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter } from 'react-router';
 import Gallery from './Gallery';
 import { listPhotosPage, listPendingPhotos, getPendingIds, retryPendingPhotos } from '../lib/photos';
 
@@ -34,8 +34,7 @@ beforeEach(() => {
 });
 
 async function mount() {
-  // Los flags v7 solo silencian los avisos de deprecación de react-router en la salida de los tests
-  const utils = render(<MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}><Gallery /></MemoryRouter>);
+  const utils = render(<MemoryRouter><Gallery /></MemoryRouter>);
   await act(flush);
   return utils;
 }

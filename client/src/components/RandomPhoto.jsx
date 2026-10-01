@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Link } from 'react-router-dom';
+import { Link } from 'react-router';
 import { getDailyPhotoId, getOriginal, getOriginalUrl, madridDayKey } from '../lib/photos';
 
 export default function RandomPhoto() {

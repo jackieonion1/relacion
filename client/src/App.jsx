@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Routes, Route, Link, useLocation, Navigate } from 'react-router-dom';
+import { Routes, Route, Link, useLocation, Navigate } from 'react-router';
 import Dashboard from './pages/Dashboard';
 import Gallery from './pages/Gallery';
 import CalendarPage from './pages/Calendar';
