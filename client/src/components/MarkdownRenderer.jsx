@@ -4,7 +4,10 @@ function escapeHtml(str = '') {
   return String(str)
     .replaceAll('&', '&amp;')
     .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;');
+    .replaceAll('>', '&gt;')
+    // El href se construye a mano con la URL ya escapada: una " abriría atributos nuevos
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
 }
 
 function renderInline(text) {

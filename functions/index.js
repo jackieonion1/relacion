@@ -52,31 +52,44 @@ async function listSubscriptions(pairId) {
       subs.push({ id: doc.id, endpoint: d.endpoint, keys: d.keys, identity: d.identity, uid: d.uid });
     }
   });
-  return subs;
+  return { subs, total: snap.size };
 }
 
 async function sendToPair(pairId, payload, { excludeIdentity, excludeUid } = {}) {
   // Ensure VAPID is configured at runtime (avoids requiring env at module load time)
   loadVapid();
-  const subs = await listSubscriptions(pairId);
+  const { subs, total } = await listSubscriptions(pairId);
   const body = JSON.stringify(payload);
-  const tasks = subs
+  const targets = subs
     .filter((s) => (excludeIdentity ? s.identity !== excludeIdentity : true))
-    .filter((s) => (excludeUid ? s.uid !== excludeUid : true))
-    .map(async (s) => {
-      try {
-        await webpush.sendNotification({ endpoint: s.endpoint, keys: s.keys }, body);
-      } catch (e) {
-        const status = e?.statusCode || e?.status || 0;
-        if (status === 404 || status === 410) {
-          // Subscription no longer valid: delete it
-          await db.collection('pairs').doc(pairId).collection('pushSubs').doc(s.id).delete().catch(() => {});
-        } else {
-          console.warn('sendNotification error', status, e?.message || e);
+    .filter((s) => (excludeUid ? s.uid !== excludeUid : true));
+  // Dos docs con el mismo endpoint son el mismo dispositivo: un solo envío (sin borrar nada)
+  const byEndpoint = new Map();
+  for (const s of targets) if (!byEndpoint.has(s.endpoint)) byEndpoint.set(s.endpoint, s);
+  const summary = { pairId, type: payload?.data?.type, total, usable: subs.length, afterFilter: targets.length, unique: byEndpoint.size, sent: 0, failed: 0, statuses: [], deleted: 0 };
+  const tasks = [...byEndpoint.values()].map(async (s) => {
+    try {
+      await webpush.sendNotification({ endpoint: s.endpoint, keys: s.keys }, body);
+      summary.sent++;
+    } catch (e) {
+      const status = e?.statusCode || e?.status || 0;
+      summary.failed++;
+      summary.statuses.push(status);
+      if (status === 404 || status === 410) {
+        // Endpoint muerto: se borran todos los docs que lo comparten
+        const col = db.collection('pairs').doc(pairId).collection('pushSubs');
+        for (const dead of subs.filter((x) => x.endpoint === s.endpoint)) {
+          await col.doc(dead.id).delete().then(() => { summary.deleted++; }, () => {});
         }
+      } else {
+        console.warn('sendNotification error', status, e?.message || e);
       }
-    });
+    }
+  });
   await Promise.allSettled(tasks);
+  // Una línea por envío; sin endpoints ni claves
+  console.log('push', JSON.stringify(summary));
+  return summary;
 }
 
 function truncate(str = '', n = 120) {

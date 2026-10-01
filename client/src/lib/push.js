@@ -1,4 +1,5 @@
 import { db, auth, whenAuthed } from './firebase';
+import { resyncSubscription, recordSync } from './pushResync';
 
 let _f;
 async function f() {
@@ -280,25 +281,63 @@ export async function subscribeToPush(pairId, identity, vapidPublicKey) {
     throw new Error(`bad-subscription; perm=${Notification.permission}; scope=${reg.scope}; haveEndpoint=${!!endpoint}; hasKeys=${hasKeys}; host=${host}`);
   }
 
-  const { collection, doc, setDoc, serverTimestamp } = await f();
+  const { collection, doc, setDoc, getDoc, serverTimestamp } = await f();
   const col = collection(db, 'pairs', pairId, 'pushSubs');
   const id = `${identity || 'yo'}-${deviceId()}`;
-  await setDoc(doc(col, id), {
+  const ref = doc(col, id);
+  // createdAt solo al crear el doc: una suscripción repetida no debe reescribir la fecha de alta
+  let existed = false;
+  try { existed = (await getDoc(ref)).exists(); } catch {}
+  const now = () => (serverTimestamp ? serverTimestamp() : new Date());
+  await setDoc(ref, {
     endpoint,
     keys,
     identity: identity || 'yo',
     uid: auth.currentUser.uid,
     ua: navigator.userAgent,
-    createdAt: serverTimestamp ? serverTimestamp() : new Date(),
-    updatedAt: serverTimestamp ? serverTimestamp() : new Date(),
+    ...(existed ? {} : { createdAt: now() }),
+    updatedAt: now(),
     enabled: true,
   }, { merge: true });
+  try { recordSync(localStorage, { pairId, identity: identity || 'yo', uid: auth.currentUser.uid, endpoint }); } catch {}
   try {
     const host = endpoint.indexOf('://') > 0 ? endpoint.split('/')[2] : '';
     setPushDiag('ok', { host });
   } catch {}
 
   return sub;
+}
+
+// Al abrir la app: vuelve a escribir el doc de esta suscripción SIN tocar el PushManager (ver pushResync.js)
+export function resyncPush(pairId, identity) {
+  return resyncSubscription({
+    pairId,
+    identity,
+    env: {
+      supported: () => 'serviceWorker' in navigator && 'Notification' in window && 'PushManager' in window,
+      permission: () => Notification.permission,
+      // En desarrollo el SW se desregistra y ready no se resuelve nunca: no quedarse colgado
+      getPushManager: async () => {
+        let t;
+        const timeout = new Promise((resolve) => { t = setTimeout(() => resolve(null), 10000); });
+        const reg = await Promise.race([navigator.serviceWorker.ready, timeout]).finally(() => clearTimeout(t));
+        return reg ? reg.pushManager : null;
+      },
+    },
+    getUid: async () => (await whenAuthed())?.uid || null,
+    exists: async (pair, id) => {
+      const { collection, doc, getDoc } = await f();
+      return (await getDoc(doc(collection(db, 'pairs', pair, 'pushSubs'), id))).exists();
+    },
+    write: async (pair, id, data) => {
+      const { collection, doc, setDoc } = await f();
+      await setDoc(doc(collection(db, 'pairs', pair, 'pushSubs'), id), data, { merge: true });
+    },
+    stamp: () => (_f && _f.serverTimestamp ? _f.serverTimestamp() : new Date()),
+    storage: localStorage,
+    deviceId,
+    ua: navigator.userAgent,
+  });
 }
 
 export async function unsubscribeFromPush(pairId, identity) {
