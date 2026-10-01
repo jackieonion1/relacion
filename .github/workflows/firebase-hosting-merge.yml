@@ -1,6 +1,13 @@
 name: Deploy to Firebase Hosting (manual)
 on:
   workflow_dispatch:
+    inputs:
+      same_version:
+        description: 'Redesplegar sin subir la versión (solo para repetir o deshacer un deploy)'
+        type: boolean
+        default: false
+permissions:
+  contents: write
 jobs:
   build_and_deploy:
     runs-on: ubuntu-latest
@@ -9,11 +16,18 @@ jobs:
         working-directory: client
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          fetch-tags: true
       - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: client/package-lock.json
+      # Requisito: la versión de client/package.json tiene que ser mayor que la del último deploy (tag vX.Y.Z)
+      - if: ${{ !inputs.same_version }}
+        working-directory: .
+        run: node .github/scripts/check-version.mjs
       - run: npm ci
       - run: npm run build
       # After the build: sw.test.js and appUpdate.test.js also check client/build
@@ -24,3 +38,12 @@ jobs:
           firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_RELACION_89CCB }}
           channelId: live
           projectId: relacion-89ccb
+      # Marca lo desplegado: el siguiente deploy tendrá que llevar una versión mayor
+      - working-directory: .
+        run: |
+          tag="v$(node -p "require('./client/package.json').version")"
+          if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
+            echo "El tag $tag ya existe: no se vuelve a crear"
+          else
+            git tag "$tag" && git push origin "$tag"
+          fi
