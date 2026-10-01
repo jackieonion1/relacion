@@ -4,6 +4,7 @@ import { BrowserRouter } from 'react-router';
 import App from './App';
 import './index.css';
 import './lib/firebase';
+import { guardShell } from './lib/shellGuard';
 
 const root = createRoot(document.getElementById('root'));
 root.render(
@@ -16,6 +17,7 @@ root.render(
 
 // Register/Unregister Service Worker
 if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+  guardShell(); // no se espera: nunca rechaza ni bloquea el arranque
   window.addEventListener('load', () => {
     navigator.serviceWorker
       .register('/sw.js')
