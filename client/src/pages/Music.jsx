@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router';
 import { createPortal } from 'react-dom';
 import Modal from '../components/Modal';
 import { listMusic, uploadMusic, deleteMusic, renameMusic, getOriginal, getSubtitles, uploadSubtitles } from '../lib/music';
@@ -1085,7 +1085,7 @@ export default function Music() {
                     return (
                       <div
                         key={`${c.start}-${i}`}
-                        ref={(el) => (cueRefs.current[i] = el)}
+                        ref={(el) => { cueRefs.current[i] = el; }}
                         onClick={() => seekTo(c.start)}
                         className={`text-sm cursor-pointer select-none transition-colors ${isActive ? 'bg-rose-50 text-rose-800 rounded px-2 py-1' : 'text-gray-800 hover:text-gray-900'}`}
                       >

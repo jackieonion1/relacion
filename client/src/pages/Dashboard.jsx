@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router';
 import { listenEvents } from '../lib/calendar';
 import Countdown from '../components/Countdown';
 import RandomPhoto from '../components/RandomPhoto';

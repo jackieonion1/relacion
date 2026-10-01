@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation } from 'react-router';
 import { createPortal } from 'react-dom';
 import { addEvent, updateEvent, listEvents, deleteEvent, eventToFormValues } from '../lib/calendar';
 import Modal from '../components/Modal';

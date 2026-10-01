@@ -1,6 +1,6 @@
 import React from 'react';
 import { createPortal } from 'react-dom';
-import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router';
 import HomeIcon from './icons/HomeIcon';
 import CameraIcon from './icons/CameraIcon';
 import CalendarIcon from './icons/CalendarIcon';
