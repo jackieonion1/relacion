@@ -12,9 +12,11 @@ import NavBar from './components/NavBar';
 import InstallPrompt from './components/InstallPrompt';
 import UpdateBanner from './components/UpdateBanner';
 import RepairApp from './components/RepairApp';
+import PushNotice from './components/PushNotice';
 import CogIcon from './components/icons/CogIcon';
 import Modal from './components/Modal';
 import { subscribeToPush, getPushSubscription, unsubscribeFromPush, getPushDiag } from './lib/push';
+import { getResyncInfo } from './lib/pushResync';
 import { normalizePairCode, isValidPairCode } from './lib/pairCode';
 import { versionLabel } from './lib/buildInfo';
 
@@ -165,6 +167,7 @@ export default function App() {
 
               <InstallPrompt />
               <UpdateBanner />
+              <PushNotice />
 
               <main className={`flex-1 max-w-screen-md mx-auto w-full px-4 ${isRoulette ? 'pb-2' : 'pb-safe-content'} pt-4 transition-all duration-300 ease-out ${
                 isTransitioning 
@@ -224,6 +227,8 @@ function Settings() {
   });
   const [supports, setSupports] = useState({ notif: false, sw: false });
   const [subscribed, setSubscribed] = useState(false);
+  // Última vez que el doc de esta suscripción se escribió en Firestore desde este móvil (null = sin confirmar)
+  const [syncedAt, setSyncedAt] = useState(() => getResyncInfo(localStorage)?.at || null);
   const [pushDiag, setPushDiag] = useState(() => getPushDiag());
   useEffect(() => {
     try {
@@ -279,6 +284,7 @@ function Settings() {
       const identity = localStorage.getItem(IDENTITY_KEY) || 'yo';
       await subscribeToPush(pair, identity, vapid);
       setSubscribed(true);
+      setSyncedAt(getResyncInfo(localStorage)?.at || null);
       try { setPushDiag(getPushDiag()); } catch {}
     } catch (e) {
       console.warn('subscribe error', e);
@@ -336,9 +342,13 @@ function Settings() {
           <div>
             <div className="text-sm text-gray-600">Notificaciones</div>
             <div className="text-gray-900 font-medium">
-              {supports.notif ? (notifPerm === 'granted' ? (subscribed ? 'Suscrito' : 'Permiso concedido') : notifPerm === 'denied' ? 'Bloqueadas' : 'No activadas') : 'No soportadas'}
+              {supports.notif ? (notifPerm === 'granted' ? (subscribed ? 'Suscrito' : 'Permiso concedido, sin suscripción') : notifPerm === 'denied' ? 'Bloqueadas' : 'No activadas') : 'No soportadas'}
             </div>
-            <p className="text-xs text-gray-500 mt-1">Requiere instalar la PWA y HTTPS.</p>
+            <p className="text-xs text-gray-500 mt-1">
+              {subscribed && notifPerm === 'granted'
+                ? (syncedAt ? `Registrado en el servidor el ${new Date(syncedAt).toLocaleDateString()}` : 'Suscrito en este móvil, sin confirmar en el servidor')
+                : 'Requiere instalar la PWA y HTTPS.'}
+            </p>
           </div>
           <div className="flex gap-2">
             {notifPerm !== 'granted' ? (
