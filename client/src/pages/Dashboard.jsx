@@ -140,7 +140,7 @@ export default function Dashboard() {
     };
 
     const key = palettes[type] ? palettes[type][phase] : 'from-slate-100 to-gray-100';
-    const container = `bg-gradient-to-br ${key}`;
+    const container = `bg-linear-to-br/srgb ${key}`;
     const dark = phase === 'night';
     return { container, dark };
   }
@@ -205,19 +205,19 @@ export default function Dashboard() {
 
   function renderWeatherCard(label, w) {
     const loadingState = (
-      <div className="relative rounded-lg bg-gradient-to-br from-slate-50 to-gray-100 p-3 overflow-hidden">
+      <div className="relative rounded-lg bg-linear-to-br/srgb from-slate-50 to-gray-100 p-3 overflow-hidden">
         <div className="flex items-center justify-between mb-1">
           <div className="text-xs text-gray-500">{label}</div>
           <div className="text-xl">⏳</div>
         </div>
-        <div className="h-6 w-16 bg-gray-200 rounded animate-pulse mb-1" />
-        <div className="h-3 w-24 bg-gray-200 rounded animate-pulse" />
+        <div className="h-6 w-16 bg-gray-200 rounded-sm animate-pulse mb-1" />
+        <div className="h-3 w-24 bg-gray-200 rounded-sm animate-pulse" />
       </div>
     );
     if (weatherLoading && !w) return loadingState;
     if (!w) {
       return (
-        <div className="relative rounded-lg bg-gradient-to-br from-slate-50 to-gray-100 p-3 overflow-hidden">
+        <div className="relative rounded-lg bg-linear-to-br/srgb from-slate-50 to-gray-100 p-3 overflow-hidden">
           <div className="flex items-center justify-between mb-1">
             <div className="text-xs text-gray-500">{label}</div>
             <div className="text-xl">🌈</div>
@@ -299,7 +299,7 @@ export default function Dashboard() {
           <>
             <div className="text-lg font-semibold text-gray-900 mb-2">
               {loading ? (
-                <div className="animate-pulse bg-gray-200 h-6 rounded w-48"></div>
+                <div className="animate-pulse bg-gray-200 h-6 rounded-sm w-48"></div>
               ) : (
                 "No hay eventos próximos"
               )}
@@ -308,20 +308,20 @@ export default function Dashboard() {
               {loading ? (
                 <>
                   <div className="text-center">
-                    <div className="animate-pulse bg-gray-200 h-8 w-8 rounded mb-1"></div>
-                    <div className="animate-pulse bg-gray-200 h-3 w-8 rounded"></div>
+                    <div className="animate-pulse bg-gray-200 h-8 w-8 rounded-sm mb-1"></div>
+                    <div className="animate-pulse bg-gray-200 h-3 w-8 rounded-sm"></div>
                   </div>
                   <div className="text-center">
-                    <div className="animate-pulse bg-gray-200 h-8 w-8 rounded mb-1"></div>
-                    <div className="animate-pulse bg-gray-200 h-3 w-8 rounded"></div>
+                    <div className="animate-pulse bg-gray-200 h-8 w-8 rounded-sm mb-1"></div>
+                    <div className="animate-pulse bg-gray-200 h-3 w-8 rounded-sm"></div>
                   </div>
                   <div className="text-center">
-                    <div className="animate-pulse bg-gray-200 h-8 w-8 rounded mb-1"></div>
-                    <div className="animate-pulse bg-gray-200 h-3 w-8 rounded"></div>
+                    <div className="animate-pulse bg-gray-200 h-8 w-8 rounded-sm mb-1"></div>
+                    <div className="animate-pulse bg-gray-200 h-3 w-8 rounded-sm"></div>
                   </div>
                   <div className="text-center">
-                    <div className="animate-pulse bg-gray-200 h-8 w-8 rounded mb-1"></div>
-                    <div className="animate-pulse bg-gray-200 h-3 w-8 rounded"></div>
+                    <div className="animate-pulse bg-gray-200 h-8 w-8 rounded-sm mb-1"></div>
+                    <div className="animate-pulse bg-gray-200 h-3 w-8 rounded-sm"></div>
                   </div>
                 </>
               ) : (
@@ -361,20 +361,20 @@ export default function Dashboard() {
           {loading ? (
             <div className="space-y-2">
               <div className="text-sm flex items-center gap-2">
-                <div className="animate-pulse bg-gray-200 h-4 rounded flex-1"></div>
+                <div className="animate-pulse bg-gray-200 h-4 rounded-sm flex-1"></div>
                 <div className="animate-pulse bg-gray-200 w-2 h-2 rounded-full"></div>
               </div>
-              <div className="animate-pulse bg-gray-200 h-3 rounded w-20"></div>
+              <div className="animate-pulse bg-gray-200 h-3 rounded-sm w-20"></div>
               <div className="text-sm flex items-center gap-2 mt-2">
-                <div className="animate-pulse bg-gray-200 h-4 rounded flex-1"></div>
+                <div className="animate-pulse bg-gray-200 h-4 rounded-sm flex-1"></div>
                 <div className="animate-pulse bg-gray-200 w-2 h-2 rounded-full"></div>
               </div>
-              <div className="animate-pulse bg-gray-200 h-3 rounded w-24"></div>
+              <div className="animate-pulse bg-gray-200 h-3 rounded-sm w-24"></div>
               <div className="text-sm flex items-center gap-2 mt-2">
-                <div className="animate-pulse bg-gray-200 h-4 rounded flex-1"></div>
+                <div className="animate-pulse bg-gray-200 h-4 rounded-sm flex-1"></div>
                 <div className="animate-pulse bg-gray-200 w-2 h-2 rounded-full"></div>
               </div>
-              <div className="animate-pulse bg-gray-200 h-3 rounded w-16"></div>
+              <div className="animate-pulse bg-gray-200 h-3 rounded-sm w-16"></div>
             </div>
           ) : events.length > 0 ? (
             <ul className="space-y-2">
@@ -407,13 +407,13 @@ export default function Dashboard() {
                 return (
                   <li
                     key={ev.id}
-                    className="text-sm flex items-center gap-2 cursor-pointer hover:bg-gray-50 rounded px-2 -mx-2"
+                    className="text-sm flex items-center gap-2 cursor-pointer hover:bg-gray-50 rounded-sm px-2 -mx-2"
                     onClick={handleClick}
                   >
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
                         <span className="font-medium text-gray-800 truncate">{ev.title}</span>
-                        <div className={`w-2 h-2 rounded-full flex-shrink-0 ${eventTypeColor}`}></div>
+                        <div className={`w-2 h-2 rounded-full shrink-0 ${eventTypeColor}`}></div>
                       </div>
                       <span className="text-xs text-gray-500">{when}</span>
                     </div>

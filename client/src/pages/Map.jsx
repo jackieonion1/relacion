@@ -24,7 +24,7 @@ function MapViewSwitcher({ activeState, onRequestChange }) {
           }}
           className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all ${
             activeState === state.id
-              ? 'bg-white text-rose-600 shadow-sm'
+              ? 'bg-white text-rose-600 shadow-xs'
               : 'text-gray-600 hover:text-gray-900'
           }`}
         >

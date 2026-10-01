@@ -378,7 +378,7 @@ export default function Gallery() {
       )}
 
       {uploading && (
-        <div className="fixed bottom-40 right-5 z-40 text-xs text-gray-700 bg-white/80 px-2 py-1 rounded-md shadow">
+        <div className="fixed bottom-40 right-5 z-40 text-xs text-gray-700 bg-white/80 px-2 py-1 rounded-md shadow-sm">
           Subiendo…
         </div>
       )}
@@ -421,7 +421,7 @@ export default function Gallery() {
                   <div className="w-full h-28 rounded-xl border border-rose-100 bg-rose-50" />
                 )}
                 {pendingIds.includes(it.id) && (
-                  <span className="absolute bottom-1 left-1 text-[10px] leading-none bg-rose-600 text-white rounded px-1.5 py-1">Sin subir</span>
+                  <span className="absolute bottom-1 left-1 text-[10px] leading-none bg-rose-600 text-white rounded-sm px-1.5 py-1">Sin subir</span>
                 )}
               </button>
             ))}
@@ -490,7 +490,7 @@ export default function Gallery() {
                       disabled={deleting}
                       aria-label="Borrar"
                       title="Borrar"
-                      className="absolute -top-8 sm:-top-6 left-0 text-white disabled:opacity-50 drop-shadow"
+                      className="absolute -top-8 sm:-top-6 left-0 text-white disabled:opacity-50 drop-shadow-sm"
                     >
                       <TrashIcon className="w-7 h-7" />
                     </button>
@@ -498,7 +498,7 @@ export default function Gallery() {
                       onClick={closeViewer}
                       aria-label="Cerrar"
                       title="Cerrar"
-                      className="absolute -top-8 sm:-top-6 right-0 text-white drop-shadow"
+                      className="absolute -top-8 sm:-top-6 right-0 text-white drop-shadow-sm"
                     >
                       <span className="text-3xl leading-none">×</span>
                     </button>

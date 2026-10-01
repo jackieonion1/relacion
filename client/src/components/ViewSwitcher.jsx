@@ -9,7 +9,7 @@ export default function ViewSwitcher({ views, activeView, onChange }) {
           onClick={() => onChange(view)}
           className={`w-full text-center px-4 py-1.5 rounded-md text-sm font-semibold transition-colors duration-200 ${
             activeView === view
-              ? 'bg-white text-gray-800 shadow-sm'
+              ? 'bg-white text-gray-800 shadow-xs'
               : 'bg-transparent text-gray-600 hover:bg-gray-300/50'
           }`}
         >

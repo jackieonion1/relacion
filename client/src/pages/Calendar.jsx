@@ -12,10 +12,10 @@ import { birthdayOn, celebration, isMonthiversaryDay, nextSpecialEvents, partyAn
 
 // Colors of the message on top of a celebration day, by birthday name or celebration kind
 const PARTY_STYLES = {
-  Lucy: { bg: 'bg-gradient-to-r from-purple-50 to-pink-50 border border-purple-200', textColor: 'text-purple-600', subTextColor: 'text-purple-500' },
-  Sebas: { bg: 'bg-gradient-to-r from-blue-50 to-cyan-50 border border-blue-200', textColor: 'text-blue-600', subTextColor: 'text-blue-500' },
-  anniversary: { bg: 'bg-gradient-to-r from-purple-50 to-pink-50 border border-purple-200', textColor: 'text-purple-600', subTextColor: 'text-purple-500' },
-  monthiversary: { bg: 'bg-gradient-to-r from-pink-50 to-rose-50 border border-pink-200', textColor: 'text-pink-600', subTextColor: 'text-pink-500' },
+  Lucy: { bg: 'bg-linear-to-r/srgb from-purple-50 to-pink-50 border border-purple-200', textColor: 'text-purple-600', subTextColor: 'text-purple-500' },
+  Sebas: { bg: 'bg-linear-to-r/srgb from-blue-50 to-cyan-50 border border-blue-200', textColor: 'text-blue-600', subTextColor: 'text-blue-500' },
+  anniversary: { bg: 'bg-linear-to-r/srgb from-purple-50 to-pink-50 border border-purple-200', textColor: 'text-purple-600', subTextColor: 'text-purple-500' },
+  monthiversary: { bg: 'bg-linear-to-r/srgb from-pink-50 to-rose-50 border border-pink-200', textColor: 'text-pink-600', subTextColor: 'text-pink-500' },
 };
 
 const EventList = ({ events, onDelete, onEdit, onItemClick }) => {
@@ -58,13 +58,13 @@ const EventList = ({ events, onDelete, onEdit, onItemClick }) => {
         return (
           <li
             key={ev.id}
-            className="py-3 flex items-center gap-3 cursor-pointer hover:bg-gray-50 rounded px-2 -mx-2"
+            className="py-3 flex items-center gap-3 cursor-pointer hover:bg-gray-50 rounded-sm px-2 -mx-2"
             onClick={() => onItemClick && onItemClick(ev)}
           >
             <div className="flex-1 min-w-0">
               <div className="font-medium text-gray-900 truncate flex items-center gap-2">
                 <span className="truncate">{ev.title}</span>
-                <div className={`w-2 h-2 rounded-full flex-shrink-0 ${eventTypeColor}`}></div>
+                <div className={`w-2 h-2 rounded-full shrink-0 ${eventTypeColor}`}></div>
               </div>
               <div className="text-sm text-gray-500 truncate">{when}</div>
               {ev.location ? (

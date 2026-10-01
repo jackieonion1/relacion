@@ -278,14 +278,14 @@ export default function Roulette() {
             <div className="relative" style={{ width: 280, height: 280 }}>
               {/* Pointer */}
               <div className="absolute inset-x-0 -top-3 flex justify-center z-20">
-                <div className="w-0 h-0 border-l-8 border-r-8 border-t-[14px] border-l-transparent border-r-transparent border-t-rose-600 drop-shadow" />
+                <div className="w-0 h-0 border-l-8 border-r-8 border-t-14 border-l-transparent border-r-transparent border-t-rose-600 drop-shadow-sm" />
               </div>
               {/* Wheel body (canvas) */}
               <canvas
                 ref={canvasRef}
                 width={280}
                 height={280}
-                className="absolute inset-0 rounded-full shadow-sm"
+                className="absolute inset-0 rounded-full shadow-xs"
               />
               {/* No text on the wheel (clean look) */}
               {/* Center spin button */}
@@ -348,7 +348,7 @@ export default function Roulette() {
         <>
           {/* Dim background below fireworks */}
           <div
-            className="fixed inset-0 z-[10040] bg-black/60 backdrop-blur-sm"
+            className="fixed inset-0 z-10040 bg-black/60 backdrop-blur-xs"
             onClick={() => {
               setShowOverlay(false);
               if (overlayTimerRef.current) { clearTimeout(overlayTimerRef.current); overlayTimerRef.current = null; }
@@ -361,7 +361,7 @@ export default function Roulette() {
 
           {/* Result card above everything */}
           <div
-            className="fixed inset-0 z-[10070] flex items-center justify-center"
+            className="fixed inset-0 z-10070 flex items-center justify-center"
             style={{ zIndex: 10070 }}
             onClick={() => {
               setShowOverlay(false);

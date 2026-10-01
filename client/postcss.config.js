@@ -2,7 +2,7 @@
 // preset-env stage 3, whose autoprefixer replaces the standalone one
 module.exports = {
   plugins: {
-    tailwindcss: {},
+    '@tailwindcss/postcss': {},
     'postcss-flexbugs-fixes': {},
     'postcss-preset-env': { autoprefixer: { flexbox: 'no-2009' }, stage: 3 },
   },
