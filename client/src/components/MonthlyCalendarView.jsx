@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
+import { birthdayOn, isMonthiversaryDay } from '../lib/specialDays';
 
 const monthNames = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
 const dayNames = ['D', 'L', 'M', 'X', 'J', 'V', 'S'];
@@ -123,9 +124,10 @@ export default function MonthlyCalendarView({ events = [], onDayClick, targetDat
   for (let day = 1; day <= daysInMonth; day++) {
     const date = new Date(year, month, day);
     const isToday = date.toDateString() === new Date().toDateString();
-    const isSpecialDay = day === 24; // Day 24 is special ❤️
-    const isAprilParty = day === 21 && month === 3; // April 21 🎉
-    const isNovemberParty = day === 4 && month === 10; // November 4 🎉
+    const isSpecialDay = isMonthiversaryDay(day); // Day 24 is special ❤️
+    const birthday = birthdayOn(day, month)?.eventType;
+    const isAprilParty = birthday === 'lucy-birthday'; // April 21 🎉
+    const isNovemberParty = birthday === 'sebas-birthday'; // November 4 🎉
     const dateString = `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
     const eventInfos = eventsByDay.get(dateString) || [];
 

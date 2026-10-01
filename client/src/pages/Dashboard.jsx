@@ -5,6 +5,7 @@ import Countdown from '../components/Countdown';
 import RandomPhoto from '../components/RandomPhoto';
 import { db } from '../lib/firebase';
 import { ANNIVERSARY, timeBetween } from '../lib/together';
+import { nextSpecialEvents } from '../lib/specialDays';
 
 export default function Dashboard() {
   const navigate = useNavigate();
@@ -20,115 +21,6 @@ export default function Dashboard() {
 
   // Anniversary date (November 24, 2024, local time): ANNIVERSARY in lib/together
 
-  // Generate automatic special events (only next occurrence of each type)
-  const generateSpecialEvents = () => {
-    const specialEvents = [];
-    const now = new Date();
-    const anniversaryDate = new Date(2024, 10, 24); // November 24, 2024
-    
-    // Find next monthiversary/anniversary (24th of next month)
-    let nextMonthiversary = null;
-    for (let i = 0; i < 24; i++) { // Look ahead 24 months
-      const testDate = new Date(now.getFullYear(), now.getMonth() + i, 24);
-      if (testDate > now && testDate >= anniversaryDate) {
-        const isRealAnniversary = testDate.getMonth() === 10; // November
-        
-        // Calculate months since anniversary
-        const yearsDiff = testDate.getFullYear() - anniversaryDate.getFullYear();
-        const monthsDiff = testDate.getMonth() - anniversaryDate.getMonth();
-        const totalMonths = yearsDiff * 12 + monthsDiff;
-        
-        if (totalMonths > 0) {
-          let title = '';
-          if (totalMonths >= 12) {
-            const years = Math.floor(totalMonths / 12);
-            const remainingMonths = totalMonths % 12;
-            if (remainingMonths === 0) {
-              title = `${years} ${years === 1 ? 'año' : 'años'} juntos`;
-            } else {
-              title = `${years} ${years === 1 ? 'año' : 'años'} y ${remainingMonths} ${remainingMonths === 1 ? 'mes' : 'meses'} juntos`;
-            }
-          } else {
-            title = `${totalMonths} ${totalMonths === 1 ? 'mes' : 'meses'} juntos`;
-          }
-          
-          if (isRealAnniversary) {
-            title = `¡Aniversario! ${title}`;
-          } else {
-            title = `¡Mesiversario! ${title}`;
-          }
-          
-          nextMonthiversary = {
-            id: `anniversary-${testDate.getFullYear()}-${testDate.getMonth()}`,
-            title,
-            start: { toDate: () => testDate },
-            location: '',
-            eventType: 'conjunto',
-            isSpecialEvent: true,
-            specialType: isRealAnniversary ? 'anniversary' : 'monthiversary'
-          };
-          break;
-        }
-      }
-    }
-    
-    if (nextMonthiversary) {
-      specialEvents.push(nextMonthiversary);
-    }
-    
-    // Find next Lucy's birthday (April 21)
-    let nextLucyBirthday = null;
-    for (let year = now.getFullYear(); year <= now.getFullYear() + 1; year++) {
-      const lucyBirthday = new Date(year, 3, 21); // April 21
-      if (lucyBirthday > now) {
-        const lucyAge = year - 2003;
-        if (lucyAge > 0) {
-          nextLucyBirthday = {
-            id: `lucy-birthday-${year}`,
-            title: `¡Cumpleaños de Lucy! ${lucyAge} años`,
-            start: { toDate: () => lucyBirthday },
-            location: '',
-            eventType: 'lucy-birthday',
-            isSpecialEvent: true,
-            specialType: 'birthday'
-          };
-          break;
-        }
-      }
-    }
-    
-    if (nextLucyBirthday) {
-      specialEvents.push(nextLucyBirthday);
-    }
-    
-    // Find next Sebas's birthday (November 4)
-    let nextSebasBirthday = null;
-    for (let year = now.getFullYear(); year <= now.getFullYear() + 1; year++) {
-      const sebasBirthday = new Date(year, 10, 4); // November 4
-      if (sebasBirthday > now) {
-        const sebasAge = year - 1998;
-        if (sebasAge > 0) {
-          nextSebasBirthday = {
-            id: `sebas-birthday-${year}`,
-            title: `¡Cumpleaños de Sebas! ${sebasAge} años`,
-            start: { toDate: () => sebasBirthday },
-            location: '',
-            eventType: 'sebas-birthday',
-            isSpecialEvent: true,
-            specialType: 'birthday'
-          };
-          break;
-        }
-      }
-    }
-    
-    if (nextSebasBirthday) {
-      specialEvents.push(nextSebasBirthday);
-    }
-    
-    return specialEvents;
-  };
-
   const timeTogether = useMemo(() => timeBetween(ANNIVERSARY), []);
 
   useEffect(() => {
@@ -142,7 +34,7 @@ export default function Dashboard() {
     };
     const showSpecialsOnly = () => {
       if (cancelled) return;
-      setEvents(generateSpecialEvents().sort(byStart));
+      setEvents(nextSpecialEvents().sort(byStart));
       setLoading(false);
     };
     const pairId = localStorage.getItem('pairId');
@@ -152,7 +44,7 @@ export default function Dashboard() {
     }
     // Sync unsubscribe; without a session yet it reports an error but still subscribes when the session arrives
     const unsub = listenEvents(pairId, { futureOnly: true, max: 100 }, (list) => {
-      const allEvents = [...list, ...generateSpecialEvents()].sort(byStart);
+      const allEvents = [...list, ...nextSpecialEvents()].sort(byStart);
       if (!cancelled) {
         console.log('✅ Dashboard: Events updated', allEvents.length, 'events');
         setEvents(allEvents);

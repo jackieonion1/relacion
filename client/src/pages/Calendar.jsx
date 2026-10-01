@@ -8,6 +8,15 @@ import ViewSwitcher from '../components/ViewSwitcher';
 import MonthlyCalendarView from '../components/MonthlyCalendarView';
 import CollapsibleSection from '../components/CollapsibleSection';
 import HeartRainAnimation from '../components/HeartRainAnimation';
+import { birthdayOn, celebration, isMonthiversaryDay, nextSpecialEvents, partyAnimation } from '../lib/specialDays';
+
+// Colors of the message on top of a celebration day, by birthday name or celebration kind
+const PARTY_STYLES = {
+  Lucy: { bg: 'bg-gradient-to-r from-purple-50 to-pink-50 border border-purple-200', textColor: 'text-purple-600', subTextColor: 'text-purple-500' },
+  Sebas: { bg: 'bg-gradient-to-r from-blue-50 to-cyan-50 border border-blue-200', textColor: 'text-blue-600', subTextColor: 'text-blue-500' },
+  anniversary: { bg: 'bg-gradient-to-r from-purple-50 to-pink-50 border border-purple-200', textColor: 'text-purple-600', subTextColor: 'text-purple-500' },
+  monthiversary: { bg: 'bg-gradient-to-r from-pink-50 to-rose-50 border border-pink-200', textColor: 'text-pink-600', subTextColor: 'text-pink-500' },
+};
 
 const EventList = ({ events, onDelete, onEdit, onItemClick }) => {
   if (events.length === 0) {
@@ -132,7 +141,7 @@ export default function CalendarPage() {
         const list = await listEvents(pairId, { futureOnly: false, max: 300 });
         
         // Generate special events (only next occurrence of each type)
-        const specialEvents = generateSpecialEvents();
+        const specialEvents = nextSpecialEvents();
         
         // Merge Firestore events with special events
         const allEvents = [...list, ...specialEvents];
@@ -148,7 +157,7 @@ export default function CalendarPage() {
       } catch (e) {
         if (!cancelled) {
           // Even if Firestore fails, show special events
-          const specialEvents = generateSpecialEvents();
+          const specialEvents = nextSpecialEvents();
           
           // Sort events chronologically
           specialEvents.sort((a, b) => {
@@ -330,17 +339,10 @@ export default function CalendarPage() {
     setSelectedDay({ day, month, year });
     setDayEventsPopup(true);
 
-    // Birthdays
-    const isLucyBirthday = day === 21 && month === 3; // April 21st (0-indexed)
-    const isSebasBirthday = day === 4 && month === 10; // November 4th (0-indexed)
-
-    // Anniversary (24th), with fireworks only if November (real anniversary)
-    if (day === 24) {
-      const isRealAnniversary = month === 10; // November (0-indexed)
-      setHeartAnimationType(isRealAnniversary ? 'fireworks' : 'rain');
-      setShowHeartRain(true);
-    } else if (isLucyBirthday || isSebasBirthday) {
-      setHeartAnimationType('birthday');
+    // Any 24th rains (fireworks on the anniversary), birthdays get theirs
+    const animation = partyAnimation(day, month);
+    if (animation) {
+      setHeartAnimationType(animation);
       setShowHeartRain(true);
     } else {
       // Ensure animation is not left running for non-special days
@@ -355,115 +357,6 @@ export default function CalendarPage() {
   const closeDayEventsPopup = () => {
     setDayEventsPopup(false);
     setShowHeartRain(false); // Stop animation when popup closes
-  };
-
-  // Generate automatic special events (only next occurrence of each type)
-  const generateSpecialEvents = () => {
-    const specialEvents = [];
-    const now = new Date();
-    const anniversaryDate = new Date(2024, 10, 24); // November 24, 2024
-    
-    // Find next monthiversary/anniversary (24th of next month)
-    let nextMonthiversary = null;
-    for (let i = 0; i < 24; i++) { // Look ahead 24 months
-      const testDate = new Date(now.getFullYear(), now.getMonth() + i, 24);
-      if (testDate > now && testDate >= anniversaryDate) {
-        const isRealAnniversary = testDate.getMonth() === 10; // November
-        
-        // Calculate months since anniversary
-        const yearsDiff = testDate.getFullYear() - anniversaryDate.getFullYear();
-        const monthsDiff = testDate.getMonth() - anniversaryDate.getMonth();
-        const totalMonths = yearsDiff * 12 + monthsDiff;
-        
-        if (totalMonths > 0) {
-          let title = '';
-          if (totalMonths >= 12) {
-            const years = Math.floor(totalMonths / 12);
-            const remainingMonths = totalMonths % 12;
-            if (remainingMonths === 0) {
-              title = `${years} ${years === 1 ? 'año' : 'años'} juntos`;
-            } else {
-              title = `${years} ${years === 1 ? 'año' : 'años'} y ${remainingMonths} ${remainingMonths === 1 ? 'mes' : 'meses'} juntos`;
-            }
-          } else {
-            title = `${totalMonths} ${totalMonths === 1 ? 'mes' : 'meses'} juntos`;
-          }
-          
-          if (isRealAnniversary) {
-            title = `¡Aniversario! ${title}`;
-          } else {
-            title = `¡Mesiversario! ${title}`;
-          }
-          
-          nextMonthiversary = {
-            id: `anniversary-${testDate.getFullYear()}-${testDate.getMonth()}`,
-            title,
-            start: { toDate: () => testDate },
-            location: '',
-            eventType: 'conjunto',
-            isSpecialEvent: true,
-            specialType: isRealAnniversary ? 'anniversary' : 'monthiversary'
-          };
-          break;
-        }
-      }
-    }
-    
-    if (nextMonthiversary) {
-      specialEvents.push(nextMonthiversary);
-    }
-    
-    // Find next Lucy's birthday (April 21)
-    let nextLucyBirthday = null;
-    for (let year = now.getFullYear(); year <= now.getFullYear() + 1; year++) {
-      const lucyBirthday = new Date(year, 3, 21); // April 21
-      if (lucyBirthday > now) {
-        const lucyAge = year - 2003;
-        if (lucyAge > 0) {
-          nextLucyBirthday = {
-            id: `lucy-birthday-${year}`,
-            title: `¡Cumpleaños de Lucy! ${lucyAge} años`,
-            start: { toDate: () => lucyBirthday },
-            location: '',
-            eventType: 'lucy-birthday',
-            isSpecialEvent: true,
-            specialType: 'birthday'
-          };
-          break;
-        }
-      }
-    }
-    
-    if (nextLucyBirthday) {
-      specialEvents.push(nextLucyBirthday);
-    }
-    
-    // Find next Sebas's birthday (November 4)
-    let nextSebasBirthday = null;
-    for (let year = now.getFullYear(); year <= now.getFullYear() + 1; year++) {
-      const sebasBirthday = new Date(year, 10, 4); // November 4
-      if (sebasBirthday > now) {
-        const sebasAge = year - 1998;
-        if (sebasAge > 0) {
-          nextSebasBirthday = {
-            id: `sebas-birthday-${year}`,
-            title: `¡Cumpleaños de Sebas! ${sebasAge} años`,
-            start: { toDate: () => sebasBirthday },
-            location: '',
-            eventType: 'sebas-birthday',
-            isSpecialEvent: true,
-            specialType: 'birthday'
-          };
-          break;
-        }
-      }
-    }
-    
-    if (nextSebasBirthday) {
-      specialEvents.push(nextSebasBirthday);
-    }
-    
-    return specialEvents;
   };
 
   return (
@@ -583,100 +476,24 @@ export default function CalendarPage() {
             {selectedDay && `Eventos del ${selectedDay.day} de ${new Date(selectedDay.year, selectedDay.month).toLocaleDateString('es-ES', { month: 'long', year: 'numeric' })}`}
           </h3>
           {selectedDay && (() => {
-            // Check for birthdays
-            const isLucyBirthday = selectedDay.day === 21 && selectedDay.month === 3; // April 21st
-            const isSebasBirthday = selectedDay.day === 4 && selectedDay.month === 10; // November 4th
-            const isAnniversaryDay = selectedDay.day === 24;
-            
-            let specialMessage = null;
-            
-            // Birthday messages
-            if (isLucyBirthday || isSebasBirthday) {
-              const selectedDate = new Date(selectedDay.year, selectedDay.month, selectedDay.day);
-              let birthDate, name, colorScheme;
-              
-              if (isLucyBirthday) {
-                birthDate = new Date(2003, 3, 21); // April 21, 2003
-                name = 'Lucy';
-                colorScheme = {
-                  bg: 'bg-gradient-to-r from-purple-50 to-pink-50 border border-purple-200',
-                  textColor: 'text-purple-600',
-                  subTextColor: 'text-purple-500',
-                  emoji: '🎂💜🎉'
-                };
-              } else {
-                birthDate = new Date(1998, 10, 4); // November 4, 1998
-                name = 'Sebas';
-                colorScheme = {
-                  bg: 'bg-gradient-to-r from-blue-50 to-cyan-50 border border-blue-200',
-                  textColor: 'text-blue-600',
-                  subTextColor: 'text-blue-500',
-                  emoji: '🎂💙🎉'
-                };
-              }
-              
-              // Calculate age
-              const age = selectedDate.getFullYear() - birthDate.getFullYear();
-              const hasHadBirthdayThisYear = selectedDate >= new Date(selectedDate.getFullYear(), birthDate.getMonth(), birthDate.getDate());
-              const currentAge = hasHadBirthdayThisYear ? age : age - 1;
-              
-              specialMessage = (
-                <div className={`${colorScheme.bg} rounded-lg p-4 mb-4 text-center`}>
-                  <div className="text-2xl mb-2">{colorScheme.emoji}</div>
-                  <div className={`text-lg font-semibold ${colorScheme.textColor} mb-1`}>
-                    ¡¡{name} cumple {currentAge} años!!
-                  </div>
-                  <div className={`text-sm ${colorScheme.subTextColor}`}>
-                    ¡Feliz cumpleaños!
-                  </div>
+            const birthday = birthdayOn(selectedDay.day, selectedDay.month);
+            const isAnniversaryDay = isMonthiversaryDay(selectedDay.day);
+
+            // Birthday or monthiversary/anniversary message
+            const party = celebration(selectedDay.day, selectedDay.month, selectedDay.year);
+            const partyStyle = party && PARTY_STYLES[party.kind === 'birthday' ? party.name : party.kind];
+            const specialMessage = party && (
+              <div className={`${partyStyle.bg} rounded-lg p-4 mb-4 text-center`}>
+                <div className="text-2xl mb-2">{party.emoji}</div>
+                <div className={`text-lg font-semibold ${partyStyle.textColor} mb-1`}>
+                  {party.title}
                 </div>
-              );
-            } else if (isAnniversaryDay) {
-              const anniversaryDate = new Date(2024, 10, 24); // November 24, 2024 (month is 0-indexed)
-              const selectedDate = new Date(selectedDay.year, selectedDay.month, selectedDay.day);
-              const isRealAnniversary = selectedDay.month === 10; // November
-              
-              // Calculate months difference
-              const yearsDiff = selectedDate.getFullYear() - anniversaryDate.getFullYear();
-              const monthsDiff = selectedDate.getMonth() - anniversaryDate.getMonth();
-              const totalMonths = yearsDiff * 12 + monthsDiff;
-              
-              if (totalMonths > 0) {
-                let message = '';
-                if (totalMonths >= 12) {
-                  const years = Math.floor(totalMonths / 12);
-                  const remainingMonths = totalMonths % 12;
-                  if (remainingMonths === 0) {
-                    message = `¡¡${years} ${years === 1 ? 'año' : 'años'}!!`;
-                  } else {
-                    message = `¡¡${years} ${years === 1 ? 'año' : 'años'} y ${remainingMonths} ${remainingMonths === 1 ? 'mes' : 'meses'}!!`;
-                  }
-                } else {
-                  message = `¡¡${totalMonths} ${totalMonths === 1 ? 'mes' : 'meses'}!!`;
-                }
-                
-                const celebrationText = isRealAnniversary ? '¡Feliz aniversario!' : '¡Feliz mesiversario!';
-                const bgGradient = isRealAnniversary 
-                  ? 'bg-gradient-to-r from-purple-50 to-pink-50 border border-purple-200' 
-                  : 'bg-gradient-to-r from-pink-50 to-rose-50 border border-pink-200';
-                const textColor = isRealAnniversary ? 'text-purple-600' : 'text-pink-600';
-                const subTextColor = isRealAnniversary ? 'text-purple-500' : 'text-pink-500';
-                const emoji = isRealAnniversary ? '🎉💖🎉' : '💖';
-                
-                specialMessage = (
-                  <div className={`${bgGradient} rounded-lg p-4 mb-4 text-center`}>
-                    <div className="text-2xl mb-2">{emoji}</div>
-                    <div className={`text-lg font-semibold ${textColor} mb-1`}>
-                      {message}
-                    </div>
-                    <div className={`text-sm ${subTextColor}`}>
-                      {celebrationText}
-                    </div>
-                  </div>
-                );
-              }
-            }
-            
+                <div className={`text-sm ${partyStyle.subTextColor}`}>
+                  {party.subtitle}
+                </div>
+              </div>
+            );
+
             // Filter events for the selected day
             const dayEvents = items.filter(event => {
               const eventDate = event.start?.toDate();
@@ -702,8 +519,7 @@ export default function CalendarPage() {
               // If this day has a special message (anniversary, birthday), filter out the corresponding special event
               if (isOnSelectedDay && event.isSpecialEvent) {
                 if ((isAnniversaryDay && (event.specialType === 'anniversary' || event.specialType === 'monthiversary')) ||
-                    (isLucyBirthday && event.specialType === 'birthday' && event.eventType === 'lucy-birthday') ||
-                    (isSebasBirthday && event.specialType === 'birthday' && event.eventType === 'sebas-birthday')) {
+                    (birthday && event.specialType === 'birthday' && event.eventType === birthday.eventType)) {
                   return false; // Filter out the special event when there's a special message
                 }
               }

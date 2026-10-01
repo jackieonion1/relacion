@@ -41,6 +41,13 @@ test('el deep-link ?y&m&d abre el mes y la hoja de ese día', async () => {
   expect(screen.queryByText('¡Feliz aniversario!')).not.toBeNull();
 });
 
+test('la hoja de un cumpleaños lleva su mensaje y no repite el evento automático', async () => {
+  await mount('/calendar?y=2027&m=3&d=21');
+  expect(screen.queryByText('¡¡Lucy cumple 24 años!!')).not.toBeNull();
+  expect(screen.queryByText('¡Feliz cumpleaños!')).not.toBeNull();
+  expect(screen.queryByText('¡Cumpleaños de Lucy! 24 años')).toBeNull();
+});
+
 test('un deep-link fuera de rango no abre ningún día', async () => {
   await mount('/calendar?y=2026&m=12&d=1');
   expect(screen.queryByText(/^Eventos del /)).toBeNull();
