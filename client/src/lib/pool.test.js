@@ -35,6 +35,6 @@ describe('mapLimit', () => {
   });
 
   test('lista vacía resuelve al momento', async () => {
-    await expect(mapLimit([], 6, jest.fn())).resolves.toEqual([]);
+    await expect(mapLimit([], 6, vi.fn())).resolves.toEqual([]);
   });
 });

@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { resyncPush, subscribeToPush } from '../lib/push';
 import { decideNotice, dismissNotice } from '../lib/pushResync';
 
-const vapid = () => process.env.REACT_APP_VAPID_PUBLIC_KEY || '';
+const vapid = () => import.meta.env.REACT_APP_VAPID_PUBLIC_KEY || '';
 
 // Al abrir la app resincroniza la suscripción que ya existe (solo lectura del PushManager) y, solo si este
 // dispositivo no tiene ninguna y se puede pedir, ofrece «Activar notificaciones». Nunca se suscribe solo:

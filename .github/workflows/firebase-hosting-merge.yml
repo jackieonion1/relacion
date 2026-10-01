@@ -16,8 +16,8 @@ jobs:
           cache-dependency-path: client/package-lock.json
       - run: npm ci
       - run: npm run build
-        env:
-          CI: 'false'
+      # After the build: sw.test.js and appUpdate.test.js also check client/build
+      - run: npm test
       - uses: FirebaseExtended/action-hosting-deploy@v0
         with:
           repoToken: ${{ secrets.GITHUB_TOKEN }}

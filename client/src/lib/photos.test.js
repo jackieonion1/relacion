@@ -3,42 +3,42 @@ import { deleteThumb, deleteOrig, getThumb, getOrig } from './photoCache';
 import { collection, doc, deleteDoc, setDoc, getDoc, getDocs } from 'firebase/firestore';
 import { ref, getDownloadURL, deleteObject, uploadBytes } from 'firebase/storage';
 
-jest.mock('./firebase', () => ({
+vi.mock('./firebase', () => ({
   auth: { currentUser: { uid: 'u1' } },
   db: {},
   storage: {},
   authReady: Promise.resolve(),
   whenAuthed: () => Promise.resolve({ uid: 'u1' }),
 }));
-jest.mock('./photoCache', () => ({
-  getThumb: jest.fn(),
-  putThumb: jest.fn(),
-  getOrig: jest.fn(),
-  putOrig: jest.fn(),
-  pruneOrig: jest.fn(),
-  deleteThumb: jest.fn(),
-  deleteOrig: jest.fn(),
+vi.mock('./photoCache', () => ({
+  getThumb: vi.fn(),
+  putThumb: vi.fn(),
+  getOrig: vi.fn(),
+  putOrig: vi.fn(),
+  pruneOrig: vi.fn(),
+  deleteThumb: vi.fn(),
+  deleteOrig: vi.fn(),
 }));
-jest.mock('firebase/storage', () => ({
-  ref: jest.fn((s, path) => ({ path })),
-  uploadBytes: jest.fn(),
-  getDownloadURL: jest.fn(async () => 'https://x/y?alt=media'),
-  deleteObject: jest.fn(),
+vi.mock('firebase/storage', () => ({
+  ref: vi.fn((s, path) => ({ path })),
+  uploadBytes: vi.fn(),
+  getDownloadURL: vi.fn(async () => 'https://x/y?alt=media'),
+  deleteObject: vi.fn(),
 }));
-jest.mock('firebase/firestore', () => ({
-  collection: jest.fn((d, ...p) => ({ path: p.join('/') })),
-  doc: jest.fn((c, id) => ({ path: `${c.path}/${id}` })),
-  setDoc: jest.fn(),
-  updateDoc: jest.fn(),
-  getDoc: jest.fn(),
-  getDocs: jest.fn(),
-  query: jest.fn(),
-  orderBy: jest.fn(),
-  limit: jest.fn(),
-  startAfter: jest.fn(),
-  serverTimestamp: jest.fn(),
-  deleteDoc: jest.fn(),
-  waitForPendingWrites: jest.fn(),
+vi.mock('firebase/firestore', () => ({
+  collection: vi.fn((d, ...p) => ({ path: p.join('/') })),
+  doc: vi.fn((c, id) => ({ path: `${c.path}/${id}` })),
+  setDoc: vi.fn(),
+  updateDoc: vi.fn(),
+  getDoc: vi.fn(),
+  getDocs: vi.fn(),
+  query: vi.fn(),
+  orderBy: vi.fn(),
+  limit: vi.fn(),
+  startAfter: vi.fn(),
+  serverTimestamp: vi.fn(),
+  deleteDoc: vi.fn(),
+  waitForPendingWrites: vi.fn(),
 }));
 
 const PAIR = 'SEB1998';
@@ -52,7 +52,7 @@ let seq = 0;
 
 beforeEach(() => {
   P1 = `P${++seq}`;
-  jest.clearAllMocks();
+  vi.clearAllMocks();
   localStorage.clear();
   localStorage.setItem(PENDING_KEY, JSON.stringify([{ id: P1, identity: 'yo', createdAt: 1 }]));
   localStorage.setItem(`photos:${PAIR}`, JSON.stringify([{ id: P1, createdAt: 1, identity: 'yo' }]));
@@ -213,14 +213,14 @@ describe('uploadPhoto', () => {
     stub(URL, 'revokeObjectURL', { value: () => {} });
   });
   afterEach(() => {
-    jest.restoreAllMocks();
+    vi.restoreAllMocks();
     Object.values(protoDescriptors).forEach(([proto, name, desc]) => {
       if (desc) Object.defineProperty(proto, name, desc); else delete proto[name];
     });
   });
 
   test('si no se puede escribir la marca de pendiente la subida sigue y el doc se crea', async () => {
-    jest.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('quota'); });
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('quota'); });
 
     const result = await uploadPhoto(PAIR, new Blob(['f']));
 
@@ -264,7 +264,7 @@ describe('uploadPhoto', () => {
     // El tope de 45 s pasa a 0 ms; el resto de temporizadores (imagen, flush) siguen reales
     beforeEach(() => {
       const realSetTimeout = global.setTimeout;
-      jest.spyOn(global, 'setTimeout').mockImplementation((fn, ms, ...args) => realSetTimeout(fn, ms === 45000 ? 0 : ms, ...args));
+      vi.spyOn(global, 'setTimeout').mockImplementation((fn, ms, ...args) => realSetTimeout(fn, ms === 45000 ? 0 : ms, ...args));
     });
 
     test('a los 45 s deja de esperar sin cancelar: pendiente, con `done` y la marca intacta', async () => {
@@ -307,7 +307,7 @@ describe('listPhotosPage', () => {
   }));
   // Node trae fetch: sin esto los tests saldrían a la red. Falla como un CORS: se usa la URL remota
   const realFetch = global.fetch;
-  beforeEach(() => { global.fetch = jest.fn(() => Promise.reject(new TypeError('blocked'))); });
+  beforeEach(() => { global.fetch = vi.fn(() => Promise.reject(new TypeError('blocked'))); });
   afterEach(() => { global.fetch = realFetch; });
 
   test('resuelve las miniaturas con 6 a la vez como mucho y conserva el orden', async () => {
@@ -330,7 +330,7 @@ describe('listPhotosPage', () => {
     getDocs.mockResolvedValue({ docs: docs(3) });
     const gate = [];
     getThumb.mockImplementation(() => new Promise((r) => gate.push(r)));
-    const onThumb = jest.fn();
+    const onThumb = vi.fn();
     const page = await listPhotosPage(PAIR, { pageSize: 60, onThumb });
     expect(page.items.map((it) => it.thumbUrl)).toEqual(['', '', '']);
     expect(onThumb).not.toHaveBeenCalled();

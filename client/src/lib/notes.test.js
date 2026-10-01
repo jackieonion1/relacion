@@ -1,8 +1,8 @@
 import { listenNotes, addNote } from './notes';
 import { collection, doc, setDoc, onSnapshot } from 'firebase/firestore';
 
-jest.mock('./firebase', () => {
-  const { listenAfterAuth } = jest.requireActual('./authGate');
+vi.mock('./firebase', async () => {
+  const { listenAfterAuth } = await vi.importActual('./authGate');
   const whenAuthed = () => Promise.resolve({ uid: 'u1' });
   return {
     auth: { currentUser: { uid: 'u1' } },
@@ -11,21 +11,21 @@ jest.mock('./firebase', () => {
     listenWhenAuthed: (start, onError) => listenAfterAuth(whenAuthed, start, onError),
   };
 });
-jest.mock('firebase/firestore', () => ({
-  collection: jest.fn(),
-  doc: jest.fn(),
-  setDoc: jest.fn(),
-  query: jest.fn(),
-  orderBy: jest.fn(),
-  limit: jest.fn(),
-  onSnapshot: jest.fn(),
-  serverTimestamp: jest.fn(),
+vi.mock('firebase/firestore', () => ({
+  collection: vi.fn(),
+  doc: vi.fn(),
+  setDoc: vi.fn(),
+  query: vi.fn(),
+  orderBy: vi.fn(),
+  limit: vi.fn(),
+  onSnapshot: vi.fn(),
+  serverTimestamp: vi.fn(),
 }));
 
 const flush = async () => { for (let i = 0; i < 10; i++) await Promise.resolve(); };
 
 beforeEach(() => {
-  jest.clearAllMocks();
+  vi.clearAllMocks();
   // CRA usa resetMocks: las implementaciones de las factorías se pierden entre tests
   collection.mockImplementation((d, ...p) => ({ path: p.join('/') }));
   doc.mockImplementation((c) => ({ path: `${c.path}/N1`, id: 'N1' }));
@@ -52,7 +52,7 @@ describe('addNote', () => {
 
 describe('listenNotes', () => {
   test('devuelve la baja al momento (no una promesa) y cancela antes de suscribirse', async () => {
-    const stop = listenNotes('SEB1998', {}, jest.fn(), jest.fn());
+    const stop = listenNotes('SEB1998', {}, vi.fn(), vi.fn());
     expect(typeof stop).toBe('function');
     stop();
     await flush();
@@ -60,10 +60,10 @@ describe('listenNotes', () => {
   });
 
   test('pasa las notas a onChange y el error del listener a onError', async () => {
-    const unsub = jest.fn();
+    const unsub = vi.fn();
     onSnapshot.mockReturnValue(unsub);
-    const onChange = jest.fn();
-    const onError = jest.fn();
+    const onChange = vi.fn();
+    const onError = vi.fn();
     const stop = listenNotes('SEB1998', {}, onChange, onError);
     await flush();
     const [, next, error] = onSnapshot.mock.calls[0];

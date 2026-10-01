@@ -1,7 +1,7 @@
 // Evalúa los service workers de verdad (public/sw.js y public/sw-neutral.js) con un `self`, `caches` y
 // `fetch` falsos: así se prueba el fichero que se despliega, no una copia
-const fs = require('fs');
-const path = require('path');
+import fs from 'fs';
+import path from 'path';
 
 const ORIGIN = 'https://relacion.test';
 const read = (name) => fs.readFileSync(path.join(__dirname, '..', 'public', name), 'utf8');
@@ -53,13 +53,21 @@ function hosting(hash, files = {}) {
     ...files,
   };
 }
+// Lo que escribe Vite: módulos con crossorigin y, si hay un chunk común, su modulepreload
+const viteIndexHtml = (hash) => `<!doctype html><html><head><script type="module" crossorigin src="/static/js/main.${hash}.js"></script><link rel="modulepreload" crossorigin href="/static/js/vendor.${hash}.chunk.js"><link rel="stylesheet" crossorigin href="/static/css/main.${hash}.css"></head><body><div id="root"></div></body></html>`;
+function viteHosting(hash) {
+  return hosting(hash, {
+    '/index.html': [viteIndexHtml(hash), HTML],
+    [`/static/js/vendor.${hash}.chunk.js`]: ['vendor', JS],
+  });
+}
 
 function load(name, env = {}) {
   const handlers = {};
   const caches = env.caches || fakeCaches();
   let server = env.server || hosting('aaa');
   let online = true;
-  const fetch = jest.fn(async (req) => {
+  const fetch = vi.fn(async (req) => {
     if (!online) throw new TypeError('Failed to fetch');
     const p = keyOf(req);
     const hit = server[p] || server['/index.html'];
@@ -68,9 +76,9 @@ function load(name, env = {}) {
   const self = {
     location: { origin: ORIGIN },
     addEventListener: (t, fn) => { (handlers[t] = handlers[t] || []).push(fn); },
-    skipWaiting: jest.fn(async () => {}),
-    clients: { claim: jest.fn(async () => {}), matchAll: jest.fn(async () => []) },
-    registration: { unregister: jest.fn(async () => true), showNotification: jest.fn(async () => {}) },
+    skipWaiting: vi.fn(async () => {}),
+    clients: { claim: vi.fn(async () => {}), matchAll: vi.fn(async () => []) },
+    registration: { unregister: vi.fn(async () => true), showNotification: vi.fn(async () => {}) },
   };
   const src = read(name);
   const helpers = name === 'sw.js' ? `\n;return { ${HELPERS.join(', ')} };` : '';
@@ -127,6 +135,12 @@ describe('sw.js v2: qué se guarda', () => {
     expect(api.hasEntryAssets(urls)).toBe(true);
     expect(api.hasEntryAssets(['/static/js/main.d47ba32c.js'])).toBe(false);
     expect(api.shellAssets('<html>sin nada</html>')).toEqual([]);
+  });
+
+  test('index de Vite: también saca main.js, main.css y el chunk del modulepreload', () => {
+    const urls = api.shellAssets(viteIndexHtml('9e9242a6'));
+    expect(urls).toEqual(['/static/js/main.9e9242a6.js', '/static/js/vendor.9e9242a6.chunk.js', '/static/css/main.9e9242a6.css']);
+    expect(api.hasEntryAssets(urls)).toBe(true);
   });
 
   test('el recorte de runtime quita los más antiguos pero nunca los del shell', () => {
@@ -225,6 +239,19 @@ describe('sw.js v2: fetch', () => {
     expect(await runtimePaths(sw)).toEqual(expect.arrayContaining(['/static/js/main.bbb.js', '/static/css/main.bbb.css']));
   });
 
+  test('de CRA a Vite: la navegación guarda el index de Vite con sus ficheros y sin red arranca de él', async () => {
+    const sw = await installed();
+    sw.setServer(viteHosting('bbb'));
+    await dispatch(sw, 'fetch', nav('/'));
+    expect((await shellOf(sw)).body).toBe(viteIndexHtml('bbb'));
+    expect(await runtimePaths(sw)).toEqual(expect.arrayContaining(['/static/js/main.bbb.js', '/static/js/vendor.bbb.chunk.js', '/static/css/main.bbb.css']));
+    sw.setOnline(false);
+    const page = await dispatch(sw, 'fetch', nav('/notes'));
+    expect(page.response.body).toBe(viteIndexHtml('bbb'));
+    const js = await dispatch(sw, 'fetch', get('/static/js/vendor.bbb.chunk.js', 'script'));
+    expect(js.response.body).toBe('vendor');
+  });
+
   test('navegación sin red: el shell guardado; y sus ficheros salen de la caché', async () => {
     const sw = await installed();
     sw.setOnline(false);
@@ -282,5 +309,46 @@ describe('sw-neutral.js (marcha atrás nivel 1)', () => {
     const sw = load('sw-neutral.js');
     await dispatch(sw, 'push', { data: { json: () => ({ title: 'Hola', body: 'b', url: '/notes' }) } });
     expect(sw.self.registration.showNotification).toHaveBeenCalledWith('Hola', expect.objectContaining({ body: 'b', data: { url: '/notes' } }));
+  });
+});
+
+// Lo que se despliega: client/build tras `npm run build` (la CI lo construye antes de los tests). Sin build, se salta
+const BUILD = path.join(__dirname, '..', 'build');
+const hasBuild = fs.existsSync(path.join(BUILD, 'index.html'));
+const fromBuild = (p) => fs.readFileSync(path.join(BUILD, p), 'utf8');
+
+describe.skipIf(!hasBuild)('la build real (client/build)', () => {
+  const { api } = load('sw.js');
+  const html = hasBuild ? fromBuild('index.html') : '';
+  const builtFiles = hasBuild ? fs.readdirSync(BUILD, { recursive: true }).map((f) => `/${f.split(path.sep).join('/')}`) : [];
+
+  test('sw.js guarda su index: trae main.js y main.css, y cada fichero existe y es .js o .css', () => {
+    const urls = api.shellAssets(html);
+    expect(api.hasEntryAssets(urls)).toBe(true);
+    for (const u of urls) {
+      expect(u).toMatch(/\.(js|css)$/);
+      expect(builtFiles).toContain(u);
+    }
+  });
+
+  test('todo el JS y el CSS de la app cae en /static, que es lo que intercepta sw.js', () => {
+    const code = builtFiles.filter((f) => /\.(js|css)$/.test(f) && !['/sw.js', '/sw-neutral.js'].includes(f));
+    expect(code.length).toBeGreaterThan(1);
+    for (const f of code) expect(api.isStaticAsset(f)).toBe(true);
+  });
+
+  test('asset-manifest.json: los entrypoints son el main.css y el main.js del index', () => {
+    const { entrypoints } = JSON.parse(fromBuild('asset-manifest.json'));
+    const entry = api.shellAssets(html).filter((u) => /\/main\.[^/]+\.(js|css)$/.test(u)).map((u) => u.slice(1));
+    expect([...entrypoints].sort()).toEqual(entry.sort());
+  });
+
+  test('sw.js y sw-neutral.js salen tal cual; ni %PUBLIC_URL% ni process.env en lo que carga el navegador', () => {
+    expect(fromBuild('sw.js')).toBe(read('sw.js'));
+    expect(fromBuild('sw-neutral.js')).toBe(read('sw-neutral.js'));
+    expect(html).not.toMatch(/%PUBLIC_URL%|process\.env/);
+    for (const f of builtFiles.filter((p) => /^\/static\/js\/.+\.js$/.test(p))) {
+      expect(fromBuild(f)).not.toMatch(/process\.env|import\.meta\.env/);
+    }
   });
 });

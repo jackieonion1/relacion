@@ -2,26 +2,26 @@ import { setMapState, getMapState } from './mapState';
 import { doc, setDoc } from 'firebase/firestore';
 import { auth } from './firebase';
 
-jest.mock('./firebase', () => ({
+vi.mock('./firebase', () => ({
   auth: { currentUser: { uid: 'u1' } },
   db: {},
   whenAuthed: () => Promise.resolve(null),
   listenWhenAuthed: () => () => {},
 }));
-jest.mock('firebase/firestore', () => ({
-  doc: jest.fn(),
-  setDoc: jest.fn(),
-  getDoc: jest.fn(),
-  serverTimestamp: jest.fn(),
+vi.mock('firebase/firestore', () => ({
+  doc: vi.fn(),
+  setDoc: vi.fn(),
+  getDoc: vi.fn(),
+  serverTimestamp: vi.fn(),
 }));
 
 beforeEach(() => {
-  jest.clearAllMocks();
+  vi.clearAllMocks();
   localStorage.clear();
   localStorage.setItem('pairId', 'SEB1998');
   auth.currentUser = { uid: 'u1' };
   doc.mockImplementation((d, ...p) => ({ path: p.join('/') }));
-  jest.spyOn(console, 'error').mockImplementation(() => {}); // setMapState registra el rechazo
+  vi.spyOn(console, 'error').mockImplementation(() => {}); // setMapState registra el rechazo
 });
 
 describe('setMapState', () => {

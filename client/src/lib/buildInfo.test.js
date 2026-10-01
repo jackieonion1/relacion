@@ -1,4 +1,5 @@
 import { versionLabel } from './buildInfo';
+import pkg from '../../package.json';
 
 describe('versionLabel', () => {
   test('versión y fecha de build en hora de Madrid', () => {
@@ -11,8 +12,8 @@ describe('versionLabel', () => {
     expect(versionLabel('', '2026-09-30T16:42:00.000Z')).toBe('');
   });
 
-  test('craco inyecta la versión del package.json', () => {
-    expect(process.env.REACT_APP_VERSION).toBe(require('../../package.json').version);
+  test('vite.config inyecta la versión del package.json', () => {
+    expect(import.meta.env.REACT_APP_VERSION).toBe(pkg.version);
     expect(versionLabel()).toMatch(/^Versión \d+\.\d+\.\d+ · \d{2}\/\d{2}\/\d{4} \d{2}:\d{2}$/);
   });
 });
