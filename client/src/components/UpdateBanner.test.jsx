@@ -39,17 +39,17 @@ test('sin versión nueva no se ve nada', async () => {
 test('con versión nueva avisa, y solo actualiza al pulsar «Actualizar»', async () => {
   checkForUpdate.mockResolvedValue(true);
   await mount();
-  expect(screen.queryByText('Nueva versión disponible')).not.toBeNull();
+  expect(screen.queryByText('Hay una versión nueva')).not.toBeNull();
   await act(async () => { vi.advanceTimersByTime(60 * 60 * 1000); await flush(); });
   expect(applyUpdate).not.toHaveBeenCalled();
   await act(async () => { fireEvent.click(screen.getByText('Actualizar')); await flush(); });
   expect(applyUpdate).toHaveBeenCalledTimes(1);
 });
 
-test('«Luego» lo oculta sin actualizar', async () => {
+test('«Ahora no» lo oculta sin actualizar', async () => {
   checkForUpdate.mockResolvedValue(true);
   const { container } = await mount();
-  fireEvent.click(screen.getByText('Luego'));
+  fireEvent.click(screen.getByLabelText('Ahora no'));
   expect(container.innerHTML).toBe('');
   expect(applyUpdate).not.toHaveBeenCalled();
 });
@@ -57,7 +57,7 @@ test('«Luego» lo oculta sin actualizar', async () => {
 test('un SW nuevo esperando también cuenta como versión nueva', async () => {
   reg.waiting = { postMessage: vi.fn() };
   await mount();
-  expect(screen.queryByText('Nueva versión disponible')).not.toBeNull();
+  expect(screen.queryByText('Hay una versión nueva')).not.toBeNull();
 });
 
 test('al volver a primer plano vuelve a mirar, como mucho cada 5 min, y pide update() al SW', async () => {
@@ -70,5 +70,5 @@ test('al volver a primer plano vuelve a mirar, como mucho cada 5 min, y pide upd
   expect(reg.update).toHaveBeenCalledTimes(1);
   checkForUpdate.mockResolvedValue(true);
   await act(async () => { window.dispatchEvent(new Event('online')); await flush(); });
-  expect(screen.queryByText('Nueva versión disponible')).not.toBeNull();
+  expect(screen.queryByText('Hay una versión nueva')).not.toBeNull();
 });
