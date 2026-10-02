@@ -34,7 +34,10 @@ export async function actualizarEnLote(pairId, ids, cambio) {
 
 // takenAt of every photo of `ids`: noon in Madrid of that day (madridMediodia), or null to take it away
 export function ponerFecha(pairId, ids, takenAtMs) {
-  return actualizarEnLote(pairId, ids, (f) => ({ takenAt: takenAtMs == null ? f.deleteField() : new Date(takenAtMs) }));
+  // A date set by hand replaces the one read from the EXIF, so its source goes with it
+  return actualizarEnLote(pairId, ids, (f) => (takenAtMs == null
+    ? { takenAt: f.deleteField(), takenAtFuente: f.deleteField() }
+    : { takenAt: new Date(takenAtMs), takenAtFuente: 'mano' }));
 }
 
 // Our name added to (or taken from) the favourites of every photo of `ids`

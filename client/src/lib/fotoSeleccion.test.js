@@ -41,12 +41,12 @@ test('F2: la que ya no está cuenta aparte y la que falla queda para reintentar;
   expect(r).toEqual({ hechas: 2, borradas: ['P1'], fallidas: ['P2'] });
 });
 
-test('ponerFecha guarda el mediodía de Madrid como fecha, y null la quita', async () => {
+test('ponerFecha guarda el mediodía de Madrid como fecha hecha a mano, y null la quita con su fuente', async () => {
   const ms = madridMediodia('2025-03-12');
   await ponerFecha('SEB1998', ['A'], ms);
-  expect(updateDoc).toHaveBeenLastCalledWith(expect.objectContaining({ id: 'A' }), { takenAt: new Date(ms) });
+  expect(updateDoc).toHaveBeenLastCalledWith(expect.objectContaining({ id: 'A' }), { takenAt: new Date(ms), takenAtFuente: 'mano' });
   await ponerFecha('SEB1998', ['A'], null);
-  expect(updateDoc).toHaveBeenLastCalledWith(expect.objectContaining({ id: 'A' }), { takenAt: '<borrar>' });
+  expect(updateDoc).toHaveBeenLastCalledWith(expect.objectContaining({ id: 'A' }), { takenAt: '<borrar>', takenAtFuente: '<borrar>' });
 });
 
 test('ponerFavorita añade solo el nombre de quien la marca', async () => {
