@@ -17,11 +17,7 @@ import MarcaSuperior from './components/MarcaSuperior';
 import { PairGate, IdentityGate } from './components/Entrada';
 import { AvisoSlot, Avisos } from './components/Aviso';
 
-// Screens already in Carta: they lay out their own width, padding and serif h1, so <main> adds none.
-// The rest keep the old px-4 pt-4 until their own step (plan §5.2); the old header is gone everywhere
-const MIGRATED_ROUTES = new Set(['/', '/calendar', '/roulette', '/coin', '/map', '/gallery', '/notes', '/music', '/settings']);
-
-
+// Every screen lays out its own width, padding and serif h1 (plan §5 nº 00), so <main> adds none
 export default function App() {
   const location = useLocation();
   const [isTransitioning, setIsTransitioning] = useState(false);
@@ -59,7 +55,6 @@ export default function App() {
   }, [location.pathname]);
 
   const isRoulette = location.pathname === '/roulette';
-  const migrated = MIGRATED_ROUTES.has(location.pathname);
 
   return (
     <PairGate>
@@ -70,7 +65,7 @@ export default function App() {
             <div className="min-h-dvh bg-paper text-ink flex flex-col">
               <MarcaSuperior />
 
-              <main className={`flex-1 w-full ${migrated ? '' : 'max-w-(--breakpoint-md) mx-auto px-4 pt-4'} ${isRoulette ? 'pb-2' : 'pb-safe-content'} transition-all duration-300 ease-out ${
+              <main className={`flex-1 w-full ${isRoulette ? 'pb-2' : 'pb-safe-content'} transition-all duration-300 ease-out ${
                 isTransitioning
                   ? 'opacity-0 transform translate-y-1 scale-[0.98]'
                   : 'opacity-100'

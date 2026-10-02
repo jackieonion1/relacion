@@ -52,11 +52,11 @@
 }
 .brillo.on { background-size: 100% 32%; }
 
-/* Weather sky (F3): the 7 × 4 table of Dashboard.jsx paints .cielo-fondo, a light island of the bridge (its
-   animate-gradient-subtle keeps the light tokens, so the pastels are the same in both themes). The text follows the
-   phase: dark ink over the light skies, light ink at night. In the dark theme every sky is dimmed and takes light ink */
+/* Weather sky (F3): the 7 × 4 table of Dashboard.jsx paints .cielo-fondo with fixed v3 pastels (index.css), the same
+   in both themes. The text follows the phase: dark ink over the light skies, light ink at night. In the dark theme
+   every sky is dimmed and takes light ink */
 .cielo { position: relative; overflow: hidden; isolation: isolate; color: oklch(0.24 0.02 30); border: 1px solid var(--line); }
-.cielo p { color: inherit; } /* index.css paints every p with text-gray-700 */
+.cielo p { color: inherit; } /* index.css gives every p its own grey */
 .cielo .cielo-2 { color: oklch(0.42 0.02 40); }
 .cielo.de-noche { color: oklch(0.97 0.01 80); border-color: transparent; }
 .cielo.de-noche .cielo-2 { color: oklch(0.86 0.03 290); }

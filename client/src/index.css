@@ -2,11 +2,8 @@
 
 /***** Carta tokens *****/
 /* Raw values from the canvas (Prototipo.dc.html .dcr and Sistema.dc.html); @theme inline below gives them Tailwind
-   names (bg-paper, text-ink, shadow-carta…). A theme is only another set of these variables on <html>.
-   The selectors after :root are light islands of the palette bridge: see "Puente" below */
-:root,
-.tema-claro,
-.animate-gradient-subtle, .from-slate-50, .bg-purple-50, .bg-yellow-50, .from-blue-100 {
+   names (bg-paper, text-ink, shadow-carta…). A theme is only another set of these variables on <html> */
+:root {
   --paper: oklch(0.975 0.009 35);
   --card: oklch(0.993 0.004 30);
   --sunk: oklch(0.94 0.014 25);
@@ -44,7 +41,7 @@
   --cielo-noche: linear-gradient(160deg, oklch(0.34 0.07 280), oklch(0.28 0.06 305));
 }
 
-/* Dark values, written now and switched on only in development (lib/theme.js) until R10 brings "Apariencia" */
+/* Dark values: "Apariencia" in Ajustes (lib/theme.js, and index.html before the first paint) sets data-tema */
 html[data-tema='oscuro'] {
   color-scheme: dark;
   --paper: oklch(0.185 0.014 25);
@@ -120,31 +117,6 @@ html[data-tema='oscuro'] {
   --shadow-flota: var(--sh-2);
   --shadow-hoja: var(--sh-hoja);
 
-  /* Puente (bridge, deleted in R10): old screens use rose-*, gray-* and red-*; they point at the tokens so they turn
-     paper/ink/lacre and follow the theme without editing them. color-mix keeps the steps between two tokens.
-     New code uses the token names, never these */
-  --color-gray-50: color-mix(in oklab, var(--sunk) 50%, var(--card));
-  --color-gray-100: var(--sunk);
-  --color-gray-200: var(--line);
-  --color-gray-300: color-mix(in oklab, var(--ink-2) 35%, var(--line));
-  --color-gray-400: color-mix(in oklab, var(--ink-2) 70%, var(--line));
-  --color-gray-500: var(--ink-2);
-  --color-gray-600: var(--ink-2);
-  --color-gray-700: color-mix(in oklab, var(--ink) 60%, var(--ink-2));
-  --color-gray-800: var(--ink);
-  --color-gray-900: var(--ink);
-  --color-rose-50: color-mix(in oklab, var(--lacre-soft) 55%, var(--paper));
-  --color-rose-100: var(--lacre-soft);
-  --color-rose-200: color-mix(in oklab, var(--lacre) 22%, var(--lacre-soft));
-  --color-rose-300: color-mix(in oklab, var(--lacre) 50%, var(--lacre-soft));
-  --color-rose-500: var(--lacre);
-  --color-rose-600: var(--lacre);
-  --color-rose-700: var(--accent-ink);
-  --color-rose-800: color-mix(in oklab, var(--accent-ink) 75%, var(--ink));
-  --color-rose-900: color-mix(in oklab, var(--accent-ink) 55%, var(--ink));
-  --color-red-600: var(--danger);
-  --color-red-700: color-mix(in oklab, var(--danger) 85%, var(--ink));
-
   /* Tailwind 3.4 drop shadows (two layers). Inline: as a var() reference Tailwind wrapped both layers in a single
      drop-shadow(), which is invalid, and the filter painted nothing */
   --drop-shadow-sm: 0 1px 2px rgb(0 0 0 / 0.1), 0 1px 1px rgb(0 0 0 / 0.06);
@@ -195,35 +167,21 @@ html[data-tema='oscuro'] {
   --ease-hoja: cubic-bezier(0.32, 0.72, 0, 1);
   --ease-latido: cubic-bezier(0.34, 1.56, 0.64, 1);
 
-  /* The v3 hex of the other palettes the old screens use */
-  --color-yellow-50: #fefce8;
-  --color-yellow-100: #fef9c3;
-  --color-yellow-500: #eab308;
+  /* The v3 hex of the palettes the weather sky still uses (the 7 × 4 table of Dashboard.jsx, F3) */
+  --color-rose-100: #ffe4e6;
+  --color-rose-200: #fecdd3;
 
-  --color-purple-50: #faf5ff;
+  --color-gray-100: #f3f4f6;
+  --color-gray-200: #e5e7eb;
+  --color-gray-700: #374151;
+
   --color-purple-100: #f3e8ff;
   --color-purple-200: #e9d5ff;
   --color-purple-300: #d8b4fe;
-  --color-purple-400: #c084fc;
-  --color-purple-500: #a855f7;
-  --color-purple-600: #9333ea;
   --color-purple-800: #6b21a8;
 
-  --color-blue-50: #eff6ff;
-  --color-blue-100: #dbeafe;
-  --color-blue-200: #bfdbfe;
-  --color-blue-500: #3b82f6;
-  --color-blue-600: #2563eb;
   --color-blue-900: #1e3a8a;
 
-  --color-green-100: #dcfce7;
-
-  --color-pink-50: #fdf2f8;
-  --color-pink-200: #fbcfe8;
-  --color-pink-500: #ec4899;
-  --color-pink-600: #db2777;
-
-  --color-cyan-50: #ecfeff;
   --color-cyan-900: #164e63;
 
   --color-amber-100: #fef3c7;
@@ -243,14 +201,12 @@ html[data-tema='oscuro'] {
 
   --color-stone-200: #e7e5e4;
 
-  --color-slate-50: #f8fafc;
   --color-slate-100: #f1f5f9;
   --color-slate-200: #e2e8f0;
   --color-slate-300: #cbd5e1;
   --color-slate-400: #94a3b8;
   --color-slate-600: #475569;
   --color-slate-800: #1e293b;
-  --color-slate-900: #0f172a;
 
   --color-teal-200: #99f6e4;
   --color-emerald-100: #d1fae5;
@@ -265,10 +221,11 @@ html[data-tema='oscuro'] {
   ::before,
   ::backdrop,
   ::file-selector-button {
-    border-color: var(--color-gray-200, currentcolor);
+    border-color: var(--line);
   }
+  /* ink-2 a touch towards the paper: measured 5.14:1 on paper, 5.42 on card and 4.62 on sunk in light, ≥5.85 in dark */
   ::placeholder {
-    color: var(--color-gray-400);
+    color: color-mix(in oklab, var(--ink-2) 90%, var(--paper));
   }
   button:not(:disabled),
   [role="button"]:not(:disabled) {
@@ -280,26 +237,6 @@ html[data-tema='oscuro'] {
   }
   input:where(:not([type="button"], [type="reset"], [type="submit"])), select, optgroup, textarea {
     background-color: revert;
-  }
-}
-
-/* Puente: white is a surface (bg-white → card) but stays white as text, so the variable changes only on the element
-   that paints the surface (bg-white/10 is glass over the dark overlays and keeps white). White text on a rose or red
-   fill takes on-lacre, which is dark in the dark theme */
-@layer utilities {
-  .bg-white, .bg-white\/80, .bg-white\/90, .bg-white\/95, .hover\:bg-white, .from-white, .to-white {
-    --color-white: var(--card);
-  }
-  .text-white:is(.bg-rose-500, .bg-rose-600, .bg-rose-700, .bg-red-600) {
-    color: var(--on-lacre);
-  }
-}
-
-/* Light islands of the bridge (pastels that do not follow the theme until their screen is redone): text inherits the
-   colour already computed outside, so they set ink again */
-@layer base {
-  .tema-claro, .animate-gradient-subtle, .from-slate-50, .bg-purple-50, .bg-yellow-50, .from-blue-100 {
-    color: var(--ink);
   }
 }
 
@@ -331,7 +268,7 @@ html, body, #root { height: 100%; }
 /***** Tipografía *****/
 @layer base {
   h1, h2, h3 { color: var(--ink); }
-  p { @apply text-gray-700; }
+  p { color: color-mix(in oklab, var(--ink) 60%, var(--ink-2)); }
 }
 
 /* Componentes Carta (Componentes.dc.html). Utilities still win over this layer */
@@ -364,25 +301,6 @@ html, body, #root { height: 100%; }
     .btn-sec:hover, .btn-txt:hover, .btn-icono:hover { background-color: var(--sunk); }
   }
 
-  /* Alias de los botones viejos: colores Carta, medidas de antes (las pantallas les ponen su h-/px-/text-) */
-  .btn-primary, .btn-ghost {
-    display: inline-flex; align-items: center; justify-content: center; gap: 6px;
-    padding: 0.5rem 1rem; border-radius: 9999px; font-weight: 600;
-    -webkit-tap-highlight-color: transparent;
-    transition: transform var(--dur-toque) var(--ease-suave), background-color var(--dur-fundido) var(--ease-suave);
-  }
-  .btn-primary:active, .btn-ghost:active { transform: scale(0.97); }
-  .btn-primary:focus-visible, .btn-ghost:focus-visible, .btn-link:focus-visible { outline: 2px solid var(--lacre); outline-offset: 2px; }
-  .btn-primary { background-color: var(--lacre); color: var(--on-lacre); }
-  .btn-primary:active { filter: brightness(0.92); }
-  .btn-ghost { background-color: var(--card); color: var(--ink); border: 1px solid var(--line); }
-  .btn-ghost:active { background-color: var(--sunk); }
-  .btn-link { color: var(--accent-ink); }
-  @media (hover: hover) {
-    .btn-ghost:hover { background-color: var(--sunk); }
-    .btn-link:hover { text-decoration: underline; }
-  }
-
   .card { background-color: var(--card); border: 1px solid var(--line); border-radius: var(--radius-tarjeta); padding: 1rem; box-shadow: var(--sh-1); }
 
   /* Campo: 16 px para que iOS no haga zoom; foco = borde tinta + halo lacre-soft; error con aria-invalid */
@@ -407,12 +325,11 @@ html, body, #root { height: 100%; }
   .chip-tinta { background-color: var(--ink); color: var(--paper); }
 
   .title-sm { font-weight: 600; color: var(--ink); }
-  .muted { color: var(--ink-2); }
   .serif { font-family: var(--font-serif); font-optical-sizing: auto; }
   .num { font-variant-numeric: tabular-nums; }
 
   /* Rich text editor & note content basic typography */
-  .rte a, .note-content a { @apply text-rose-600 underline; }
+  .rte a, .note-content a { color: var(--lacre); text-decoration-line: underline; }
   .rte ul, .note-content ul { @apply list-disc pl-5; }
   .rte ol, .note-content ol { @apply list-decimal pl-5; }
   /* Ensure lists render bullets/numbers in card previews (inside to avoid clamp clipping) */
@@ -504,15 +421,6 @@ html, body, #root { height: 100%; }
   .app-scroll.no-scroll {
     overflow: hidden !important;
   }
-}
-
-/* Slide up animation utility used by modals/bottom sheets */
-@keyframes slide-up-fast {
-  from { transform: translateY(16px); opacity: 0; }
-  to { transform: translateY(0); opacity: 1; }
-}
-@layer utilities {
-  .animate-slide-up-fast { animation: slide-up-fast 180ms ease-out both; }
 }
 
 /* Bottom sheet slide-in (from full bottom) */
@@ -698,5 +606,3 @@ html, body, #root { height: 100%; }
   border-radius: 9999px;
   background: var(--trk);
 }
-
-/* (wave/ghost styles removed) */

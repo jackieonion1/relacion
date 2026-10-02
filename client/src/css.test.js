@@ -40,15 +40,15 @@ describe.skipIf(!hasBuild && !process.env.CI)('el CSS de la build', () => {
   });
 
   test('tokens claros en :root y oscuros bajo html[data-tema=oscuro]', () => {
-    expect(css).toMatch(/:root,\.tema-claro[^{]*\{--paper:oklch\(97\.5% \.009 35\)/);
+    expect(css).toMatch(/:root\{--paper:oklch\(97\.5% \.009 35\)/);
     expect(css).toMatch(/html\[data-tema=oscuro\]\{color-scheme:dark;--paper:oklch\(18\.5% \.014 25\)/);
   });
 
-  test('el puente: rosa → lacre, gris → tinta, blanco solo como superficie, blanco sobre rosa → on-lacre', () => {
-    expect(rule('.bg-rose-600')).toContain('var(--lacre)');
-    expect(rule('.text-gray-900')).toContain('var(--ink)');
-    expect(css).toMatch(/\.bg-white,[^{]*\.to-white\{--color-white:var\(--card\)\}/);
-    expect(css).toContain('.text-white:is(.bg-rose-500,.bg-rose-600,.bg-rose-700,.bg-red-600){color:var(--on-lacre)}');
+  test('sin puente: el gris y el rosa ya no apuntan a los tokens, el blanco es blanco y el placeholder sale de ink-2', () => {
+    expect(css).not.toMatch(/--color-(gray|rose|red)-\d+:var\(--/);
+    expect(css).not.toContain('--color-white:var(--card)');
+    expect(css).not.toContain('.tema-claro');
+    expect(css).toMatch(/::placeholder\{color:color-mix\(in oklab,var\(--ink-2\) 90%,var\(--paper\)\)\}/);
   });
 
   test('el fondo ya no lleva !important y la barra de progreso toma el lacre', () => {

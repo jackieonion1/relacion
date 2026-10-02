@@ -69,6 +69,30 @@ test('mientras no se sabe si hay suscripción: Comprobando…, sin Suscribirme',
   expect(botones()).toContain('Desactivar');
 });
 
+test('si el SW no responde en 4 s: «No se pudo comprobar», sin botones; si responde tarde, el estado real', async () => {
+  vi.useFakeTimers();
+  try {
+    window.Notification = { permission: 'granted', requestPermission: vi.fn() };
+    let resolve;
+    getPushSubscription.mockReturnValue(new Promise((r) => { resolve = r; }));
+    getPushDiag.mockReturnValue('');
+    render(<Settings />);
+    await act(flush);
+    await act(async () => { vi.advanceTimersByTime(3900); });
+    expect(screen.queryByText('Comprobando…')).not.toBeNull();
+    await act(async () => { vi.advanceTimersByTime(200); });
+    expect(screen.queryByText('Comprobando…')).toBeNull();
+    expect(screen.queryByText('No se pudo comprobar')).not.toBeNull();
+    expect(botones()).not.toContain('Suscribirme');
+    expect(botones()).not.toContain('Probar');
+    await act(async () => { resolve(null); await flush(); });
+    expect(screen.queryByText('Permiso concedido, sin suscripción')).not.toBeNull();
+    expect(botones()).toContain('Suscribirme');
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 test('Permiso concedido, sin suscripción: Suscribirme; un fallo se dice en la pantalla, sin alert', async () => {
   await mount({ perm: 'granted' });
   expect(screen.queryByText('Permiso concedido, sin suscripción')).not.toBeNull();
@@ -137,6 +161,19 @@ test('cambiar de identidad guarda yo / ella', async () => {
   fireEvent.click(screen.getByRole('button', { name: 'Novia' }));
   expect(localStorage.getItem('identity')).toBe('ella');
   expect(screen.getByRole('button', { name: 'Novia' }).getAttribute('aria-pressed')).toBe('true');
+});
+
+test('Apariencia: Claro por defecto; elegir Oscuro o Sistema lo guarda en tema', async () => {
+  await mount({ perm: 'default' });
+  expect(screen.getByRole('button', { name: 'Claro' }).getAttribute('aria-pressed')).toBe('true');
+  fireEvent.click(screen.getByRole('button', { name: 'Oscuro' }));
+  expect(localStorage.getItem('tema')).toBe('oscuro');
+  expect(document.documentElement.dataset.tema).toBe('oscuro');
+  expect(screen.getByRole('button', { name: 'Oscuro' }).getAttribute('aria-pressed')).toBe('true');
+  fireEvent.click(screen.getByRole('button', { name: 'Sistema' }));
+  expect(localStorage.getItem('tema')).toBe('sistema');
+  expect(document.documentElement.dataset.tema).toBeUndefined(); // jsdom has no dark system
+  delete document.documentElement.dataset.tema;
 });
 
 test('Buscar actualizaciones: «ya tienes la última» o «Actualizar»', async () => {
