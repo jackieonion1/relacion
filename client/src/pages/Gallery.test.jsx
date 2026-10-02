@@ -605,6 +605,49 @@ describe('3.1: selección y fecha en bloque', () => {
     expect(screen.queryByRole('toolbar', { name: 'Fotos seleccionadas' })).toBeNull();
   });
 
+  // A page before the Gallery, and a button that does what «atrás» does
+  function Atras() {
+    const navigate = useNavigate();
+    return <button type="button" onClick={() => navigate(-1)}>atrás</button>;
+  }
+  const conHistorial = () => render(
+    <MemoryRouter initialEntries={['/otra', '/gallery']} initialIndex={1}>
+      <Routes>
+        <Route path="/gallery" element={<><Gallery /><Atras /></>} />
+        <Route path="/otra" element={<p>otra pantalla</p>} />
+      </Routes>
+    </MemoryRouter>,
+  );
+  const sinBarra = () => expect(screen.queryByRole('toolbar', { name: 'Fotos seleccionadas' })).toBeNull();
+
+  test('la ✕ de la barra sale de la selección, y no deja una entrada de más en el historial', async () => {
+    conHistorial();
+    await act(flush);
+    await elegir(0);
+    const salir = within(barra()).getByRole('button', { name: 'Salir de la selección' });
+    await act(async () => { fireEvent.click(salir); await flush(); });
+    sinBarra();
+    expect(cells()).toHaveLength(3);
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'atrás' })); await flush(); });
+    expect(screen.getByText('otra pantalla')).not.toBeNull();
+  });
+
+  test('«atrás» sale de la selección en vez de salir de la Galería', async () => {
+    conHistorial();
+    await act(flush);
+    await elegir(0, 1);
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'atrás' })); await flush(); });
+    sinBarra();
+    expect(screen.queryByText('otra pantalla')).toBeNull();
+    expect(cells()).toHaveLength(3);
+    // Selecting again takes its entry again, and the next «atrás» does leave
+    await elegir();
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'atrás' })); await flush(); });
+    sinBarra();
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'atrás' })); await flush(); });
+    expect(screen.getByText('otra pantalla')).not.toBeNull();
+  });
+
   test('tocar una foto la elige en vez de abrirla, y la fecha va a todas con confirmación', async () => {
     await mount();
     await elegir(0, 2);

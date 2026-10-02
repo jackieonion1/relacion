@@ -354,11 +354,32 @@ export default function Gallery() {
   }
 
   const seleccionando = seleccion !== null;
+  // Selecting takes one entry in the history (state.enSeleccion), so the «atrás» of Android or the swipe ends the
+  // selection instead of leaving the Gallery; ending it by hand gives that entry back
+  const entradaRef = useRef(false);
+  function empezarSeleccion(ids = []) {
+    setSeleccion(new Set(ids));
+    if (entradaRef.current) return;
+    entradaRef.current = true;
+    navigate({ pathname: location.pathname, search: location.search }, { state: { ...location.state, enSeleccion: true } });
+  }
   function terminarSeleccion() {
     setSeleccion(null);
     setFechaOpen(false);
     setAlbumOpen(false);
+    if (entradaRef.current) {
+      entradaRef.current = false;
+      navigate(-1);
+    }
   }
+  useEffect(() => {
+    if (!entradaRef.current || location.state?.enSeleccion) return;
+    // That entry is gone (back): the selection goes with it
+    entradaRef.current = false;
+    setSeleccion(null);
+    setFechaOpen(false);
+    setAlbumOpen(false);
+  }, [location]);
   // What the album sheet ended in: { album, n } when the photos went into one (said, and the selection is over), or
   // null when it was closed without choosing
   function alAnadirAAlbum(r) {
@@ -965,7 +986,7 @@ export default function Gallery() {
             <p className="text-[13px] text-ink-2 text-pretty">Si son de otros días, ponles el suyo: así salen en su mes, en «Hace un año» y en Nuestro año.</p>
           </div>
           <div className="flex items-center gap-1">
-            <Button onClick={() => { setSeleccion(new Set(golpe.ids)); setFechaOpen(true); }}>Ponerles fecha</Button>
+            <Button onClick={() => { empezarSeleccion(golpe.ids); setFechaOpen(true); }}>Ponerles fecha</Button>
             <Button variant="txt" onClick={() => dejarGolpe(golpe.dia)}>Ahora no</Button>
           </div>
         </section>
@@ -1019,7 +1040,7 @@ export default function Gallery() {
                 return (
                   <button
                     type="button"
-                    onClick={() => (seleccionando ? alternar(g.items.map((it) => it.id)) : setSeleccion(new Set()))}
+                    onClick={() => (seleccionando ? alternar(g.items.map((it) => it.id)) : empezarSeleccion())}
                     aria-label={seleccionando ? `${llena ? 'Quitar' : 'Elegir'} todas las de ${g.label}` : undefined}
                     className={`absolute right-2 ${gi === 0 ? '-top-2.5' : 'top-2.5'} h-10 px-3 rounded-full text-[13px] font-semibold text-accent-ink active:bg-sunk`}
                   >
@@ -1245,6 +1266,7 @@ export default function Gallery() {
           onFecha={() => setFechaOpen(true)}
           onAlbum={() => setAlbumOpen(true)}
           onFav={() => favoritasEnBloque(!elegidasFav)}
+          onSalir={terminarSeleccion}
         />
       )}
 
