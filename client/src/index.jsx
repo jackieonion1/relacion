@@ -5,6 +5,9 @@ import App from './App';
 import './index.css';
 import './lib/firebase';
 import { guardShell } from './lib/shellGuard';
+import { applyDevTheme } from './lib/theme';
+
+applyDevTheme(); // development only: ?tema=oscuro or localStorage.tema
 
 const root = createRoot(document.getElementById('root'));
 root.render(
