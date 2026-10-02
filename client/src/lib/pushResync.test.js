@@ -137,6 +137,19 @@ describe('resyncSubscription: doc y limitador', () => {
     expect(t.write.mock.calls[0][2]).toMatchObject({ createdAt: 'TS', identity: 'ella', enabled: true });
   });
 
+  // lockPair borra las pushSubs sin uid de miembro, y las reglas piden el uid propio: un miembro cuyo doc se borró
+  // (escrito con otro uid) lo recrea al abrir con el suyo, sin pedir permiso ni tocar la suscripción
+  test('tras cerrar la pareja: doc borrado y huella de otro uid, se recrea con el uid propio sin pedir nada', async () => {
+    const t = setup({ uid: 'uid-miembro' });
+    recordSync(t.storage, { pairId: 'SEB1998', identity: 'ella', uid: 'uid-viejo', endpoint: 'https://push.example/abc' }, 900);
+    const requestPermission = vi.fn();
+    const env = { supported: () => true, permission: () => 'granted', requestPermission, getPushManager: async () => t.pushManager };
+    expect(await t.run({ env })).toEqual({ status: 'synced' });
+    expect(t.docs['ella-dev1']).toMatchObject({ uid: 'uid-miembro', createdAt: 'TS', enabled: true });
+    expect(requestPermission).not.toHaveBeenCalled();
+    expect(t.pushManager.subscribe).not.toHaveBeenCalled();
+  });
+
   test('misma huella dentro de 24 h: no vuelve a escribir; pasado el plazo, sí', async () => {
     const t = setup();
     await t.run();

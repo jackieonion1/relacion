@@ -1,4 +1,5 @@
-import { createMembership, deviceLabel } from './membership';
+import { createMembership } from './membership';
+import { deviceLabel } from '../../../functions/membershipLogic';
 
 const flush = async () => { for (let i = 0; i < 10; i++) await Promise.resolve(); };
 const deferred = () => {
@@ -141,12 +142,14 @@ describe('createMembership', () => {
   });
 });
 
+// La etiqueta la pone joinPair (functions/membershipLogic.js); el cliente solo dice si hay pantalla táctil
 test('deviceLabel: qué es cada dispositivo en Ajustes', () => {
   expect(deviceLabel('Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) Mobile/15E148')).toBe('iPhone');
-  expect(deviceLabel('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Safari/605.1.15', 5)).toBe('iPad');
-  expect(deviceLabel('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Safari/605.1.15', 0)).toBe('Mac');
+  expect(deviceLabel('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Safari/605.1.15', true)).toBe('iPad');
+  expect(deviceLabel('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Safari/605.1.15', false)).toBe('Mac');
   expect(deviceLabel('Mozilla/5.0 (Linux; Android 14; Pixel 8) Mobile Safari/537.36')).toBe('Android');
   expect(deviceLabel('Mozilla/5.0 (Linux; Android 14; SM-X710) Safari/537.36')).toBe('Tablet Android');
   expect(deviceLabel('Mozilla/5.0 (Windows NT 10.0; Win64; x64)')).toBe('Windows');
-  expect(deviceLabel('')).toBe('Navegador');
+  expect(deviceLabel('Mozilla/5.0 (X11; Linux x86_64)')).toBe('Ordenador');
+  expect(deviceLabel('')).toBe(''); // joinPair lo numera: «Dispositivo 3»
 });
