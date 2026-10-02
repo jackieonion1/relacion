@@ -104,6 +104,28 @@ test('C18: si la lista no carga, «Reintentar» la vuelve a pedir', async () => 
   expect(screen.getByText('Canción B')).toBeTruthy();
 });
 
+test('si la canción no llega (sin red, CORS) lo dice y «Reintentar» la vuelve a pedir', async () => {
+  getOriginal.mockResolvedValueOnce(null);
+  await playFirst();
+  expect(screen.getByRole('alert').textContent).toContain('No se pudo cargar la canción');
+  expect(screen.getByRole('alert').textContent).toContain('Canción A');
+  expect(miniBar()).toBeNull();
+  await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Reintentar' })); await flush(); await frame(); });
+  expect(getOriginal).toHaveBeenCalledTimes(2);
+  expect(screen.queryByRole('alert')).toBeNull();
+  expect(miniBar()).not.toBeNull();
+});
+
+test('si falla la siguiente desde el reproductor, sigue la de ahora y lo dice ahí', async () => {
+  await playFirst();
+  const src = audio().src;
+  await act(async () => { fireEvent.click(screen.getByRole('button', { name: /Abrir el reproductor/ })); await flush(); });
+  getOriginal.mockRejectedValueOnce(new Error('cors'));
+  await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Siguiente' })); await flush(); });
+  expect(screen.getByRole('alert').textContent).toContain('No se pudo cargar la canción');
+  expect(audio().src).toBe(src);
+});
+
 test('el menú ⋯ cambia el nombre y borra con confirmación', async () => {
   render(<MemoryRouter initialEntries={['/music']}><Music /></MemoryRouter>);
   await act(flush);

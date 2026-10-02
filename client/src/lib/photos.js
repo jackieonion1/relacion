@@ -167,42 +167,38 @@ export async function listPhotos(pairId, max = 100) {
 }
 
 // One page of the gallery, newest first. `cursor` is the last doc of the previous page.
-// Returns { items, cursor, hasMore } (+ thumbsDone with onThumb(id, url)); on a failed "load more" it throws
-// so the UI can offer a retry.
+// Returns { items, cursor, hasMore } (+ thumbsDone with onThumb(id, url)). With Firebase a failed page throws,
+// the first one too (also with no session after the wait), so the UI tells "could not load" from "empty"
+// and can offer a retry.
 export async function listPhotosPage(pairId, { pageSize = 60, cursor = null, onThumb = null } = {}) {
   const fblib = await fb();
   if (db && fblib) {
-    try {
-      await whenAuthed();
-      const { collection, getDocs, query, orderBy, limit, startAfter } = fblib;
-      const col = collection(db, 'pairs', pairId, 'photos');
-      // pageSize + 1 tells us whether there is another page without an empty extra read
-      const q = cursor
-        ? query(col, orderBy('createdAt', 'desc'), startAfter(cursor), limit(pageSize + 1))
-        : query(col, orderBy('createdAt', 'desc'), limit(pageSize + 1));
-      const snap = await getDocs(q);
-      const { page, hasMore } = splitPage(snap.docs, pageSize);
-      // identity: who uploaded it ('yo' | 'ella'); missing on the oldest photos
-      const items = page.map((docSnap) => ({
-        id: docSnap.id,
-        thumbUrl: '',
-        createdAt: docSnap.data()?.createdAt?.toMillis?.() || Date.now(),
-        identity: docSnap.data()?.identity || '',
-      }));
-      const nextCursor = page.length ? page[page.length - 1] : cursor;
-      const thumbs = mapLimit(page, THUMB_CONCURRENCY, async (docSnap, i) => {
-        const url = await resolveThumbUrl(fblib, pairId, docSnap);
-        if (onThumb) { if (url) onThumb(docSnap.id, url); } else items[i].thumbUrl = url || '';
-      });
-      // With onThumb: return the grid now (empty slots) and report each thumb as it arrives; the caller owns
-      // those blob URLs, also the ones arriving after it moved on. Without it: wait and return them filled in
-      if (onThumb) return { items, cursor: nextCursor, hasMore, thumbsDone: thumbs };
-      await thumbs;
-      return { items, cursor: nextCursor, hasMore };
-    } catch (e) {
-      if (cursor) throw e;
-      // First page: fall back to local
-    }
+    if (!(await whenAuthed())) throw new Error('no-auth');
+    const { collection, getDocs, query, orderBy, limit, startAfter } = fblib;
+    const col = collection(db, 'pairs', pairId, 'photos');
+    // pageSize + 1 tells us whether there is another page without an empty extra read
+    const q = cursor
+      ? query(col, orderBy('createdAt', 'desc'), startAfter(cursor), limit(pageSize + 1))
+      : query(col, orderBy('createdAt', 'desc'), limit(pageSize + 1));
+    const snap = await getDocs(q);
+    const { page, hasMore } = splitPage(snap.docs, pageSize);
+    // identity: who uploaded it ('yo' | 'ella'); missing on the oldest photos
+    const items = page.map((docSnap) => ({
+      id: docSnap.id,
+      thumbUrl: '',
+      createdAt: docSnap.data()?.createdAt?.toMillis?.() || Date.now(),
+      identity: docSnap.data()?.identity || '',
+    }));
+    const nextCursor = page.length ? page[page.length - 1] : cursor;
+    const thumbs = mapLimit(page, THUMB_CONCURRENCY, async (docSnap, i) => {
+      const url = await resolveThumbUrl(fblib, pairId, docSnap);
+      if (onThumb) { if (url) onThumb(docSnap.id, url); } else items[i].thumbUrl = url || '';
+    });
+    // With onThumb: return the grid now (empty slots) and report each thumb as it arrives; the caller owns
+    // those blob URLs, also the ones arriving after it moved on. Without it: wait and return them filled in
+    if (onThumb) return { items, cursor: nextCursor, hasMore, thumbsDone: thumbs };
+    await thumbs;
+    return { items, cursor: nextCursor, hasMore };
   }
   // Local-only (no Firebase): everything in one page
   const items = [];

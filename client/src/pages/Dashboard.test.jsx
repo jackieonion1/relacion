@@ -72,6 +72,14 @@ test('«nos vemos» lleva su propia cuenta atrás y esconde la franja si es el m
   expect(screen.queryByRole('region', { name: 'Próximo evento de los dos' })).toBeNull();
 });
 
+test('tocar «Nos vemos» abre ese evento en el calendario (?y&m&d&ev)', async () => {
+  list[0].seeEachOther = true;
+  const d = list[0].start.toDate();
+  await mount();
+  fireEvent.click(screen.getByRole('button', { name: 'Abrir «Cena juntos» en el calendario' }));
+  expect(screen.getByTestId('where').textContent).toBe(`/calendar?y=${d.getFullYear()}&m=${d.getMonth()}&d=${d.getDate()}&ev=e1`);
+});
+
 test('el clima pinta la luna y el emoji a la vez y el cielo de la tabla 7 × 4', async () => {
   const { container } = await mount();
   const sky = container.querySelector('.cielo');

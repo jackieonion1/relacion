@@ -2,7 +2,7 @@ import React from 'react';
 import { render, act, screen, within, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 import Gallery from './Gallery';
-import { listPhotosPage, listPendingPhotos, getPendingIds, retryPendingPhotos, getOriginal, getOriginalUrl } from '../lib/photos';
+import { listPhotosPage, listPendingPhotos, getPendingIds, retryPendingPhotos, getOriginal, getOriginalUrl, deletePhoto } from '../lib/photos';
 
 vi.mock('../lib/photos', () => ({
   listPhotosPage: vi.fn(),
@@ -117,4 +117,107 @@ test('O4: «Cerrar» mientras carga la foto no deja que el visor se abra solo al
   await act(async () => { llega({ size: 1000 }); await flush(); });
   expect(screen.queryByRole('button', { name: 'Cerrar' })).toBeNull();
   expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:tarde');
+});
+
+// C3: deslizar en el visor. Cada original es un blob distinto (blob:A, blob:B…) para ver cuál se revoca
+describe('C3: pasar de foto en el visor', () => {
+  const photo = (id, identity) => ({ id, thumbUrl: '', createdAt: new Date(2025, 2, 12, 12).getTime(), identity });
+  beforeEach(() => {
+    listPhotosPage.mockResolvedValue({ items: [photo('A', 'ella'), photo('B', 'yo')], cursor: null, hasMore: false, thumbsDone: Promise.resolve() });
+    getOriginal.mockImplementation(async (pairId, id) => ({ id, size: 1000 }));
+    getOriginalUrl.mockResolvedValue('');
+    URL.createObjectURL = vi.fn((blob) => `blob:${blob.id}`);
+  });
+  const shown = () => document.querySelector('img[src^="blob:"]')?.getAttribute('src');
+  const swipe = async (from, to, y = 300) => {
+    const img = document.querySelector('img[src^="blob:"]');
+    await act(async () => {
+      fireEvent.touchStart(img, { touches: [{ clientX: from, clientY: y }] });
+      fireEvent.touchMove(img, { touches: [{ clientX: to, clientY: y + 5 }] });
+      fireEvent.touchEnd(img, { touches: [] });
+      await flush();
+    });
+  };
+  async function openFirst() {
+    await mount();
+    await act(async () => { fireEvent.click(cells()[0]); await flush(); });
+    expect(shown()).toBe('blob:A');
+  }
+
+  test('a la izquierda pasa a la siguiente, revoca la anterior y el pie y el borrado siguen a la de ahora', async () => {
+    deletePhoto.mockResolvedValue();
+    await openFirst();
+    expect(screen.getByText('La subió 🍪')).toBeTruthy();
+    await swipe(600, 300);
+    expect(shown()).toBe('blob:B');
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:A');
+    expect(screen.getByText('La subió 🫒')).toBeTruthy();
+    await swipe(300, 600);
+    expect(shown()).toBe('blob:A');
+    await swipe(600, 300);
+    fireEvent.click(screen.getByRole('button', { name: 'Borrar foto' }));
+    await act(async () => { fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Borrar foto' })); await flush(); });
+    expect(deletePhoto).toHaveBeenCalledWith('SEB1998', 'B');
+  });
+
+  test('en la última se para, y no cuenta ni el pellizco ni el que empieza en el borde', async () => {
+    await openFirst();
+    await swipe(10, 400); // desde el borde izquierdo: es el «atrás» del sistema
+    await swipe(1015, 700);
+    expect(shown()).toBe('blob:A');
+    const img = document.querySelector('img[src^="blob:"]');
+    await act(async () => {
+      fireEvent.touchStart(img, { touches: [{ clientX: 600, clientY: 300 }] });
+      fireEvent.touchStart(img, { touches: [{ clientX: 600, clientY: 300 }, { clientX: 700, clientY: 300 }] });
+      fireEvent.touchMove(img, { touches: [{ clientX: 300, clientY: 300 }, { clientX: 700, clientY: 300 }] });
+      fireEvent.touchEnd(img, { touches: [{ clientX: 300, clientY: 300 }] });
+      fireEvent.touchMove(img, { touches: [{ clientX: 100, clientY: 300 }] });
+      fireEvent.touchEnd(img, { touches: [] });
+      await flush();
+    });
+    expect(shown()).toBe('blob:A');
+    await swipe(600, 300);
+    await swipe(600, 300);
+    expect(shown()).toBe('blob:B');
+    expect(screen.getByRole('button', { name: 'Foto siguiente' }).disabled).toBe(true);
+  });
+
+  test('las flechas de pantalla y del teclado hacen lo mismo', async () => {
+    await openFirst();
+    expect(screen.getByRole('button', { name: 'Foto anterior' }).disabled).toBe(true);
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Foto siguiente' })); await flush(); });
+    expect(shown()).toBe('blob:B');
+    expect(screen.queryByRole('button', { name: 'Cerrar' })).not.toBeNull();
+    await act(async () => { fireEvent.keyDown(document, { key: 'ArrowLeft' }); await flush(); });
+    expect(shown()).toBe('blob:A');
+  });
+
+  test('desde la última de la página cargada pide la siguiente y sigue', async () => {
+    listPhotosPage.mockImplementation(async (pairId, opts) => (opts.cursor
+      ? { items: [photo('C', 'yo')], cursor: 'c2', hasMore: false, thumbsDone: Promise.resolve() }
+      : { items: [photo('A', 'ella'), photo('B', 'yo')], cursor: 'c1', hasMore: true, thumbsDone: Promise.resolve() }));
+    await openFirst();
+    await swipe(600, 300);
+    await swipe(600, 300);
+    expect(listPhotosPage).toHaveBeenLastCalledWith('SEB1998', expect.objectContaining({ cursor: 'c1' }));
+    expect(shown()).toBe('blob:C');
+  });
+});
+
+// Le pasó en el iPhone: falló la primera página y decía «Aún no hay fotos»
+test('si no se puede cargar la galería lo dice, con Reintentar, y no la da por vacía', async () => {
+  listPhotosPage.mockRejectedValueOnce(new Error('no-auth'));
+  vi.spyOn(console, 'error').mockImplementation(() => {});
+  await mount();
+  expect(screen.queryByText('Aún no hay fotos')).toBeNull();
+  expect(screen.getByRole('alert').textContent).toMatch('No se pudieron cargar las fotos');
+  await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Reintentar' })); await flush(); });
+  expect(cells()).toHaveLength(3);
+});
+
+test('vacía de verdad sí dice «Aún no hay fotos»', async () => {
+  listPhotosPage.mockResolvedValue({ items: [], cursor: null, hasMore: false, thumbsDone: Promise.resolve() });
+  await mount();
+  expect(screen.getByText('Aún no hay fotos')).toBeTruthy();
+  expect(screen.queryByRole('alert')).toBeNull();
 });

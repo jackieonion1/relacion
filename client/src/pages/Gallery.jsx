@@ -11,6 +11,9 @@ import './Gallery.css';
 
 const PAGE_SIZE = 60;
 const WHO = { yo: '🫒', ella: '🍪' };
+// Deslizar en el visor (C3): recorrido mínimo, y franja de los bordes que se deja al gesto «atrás» del sistema
+const SWIPE_MIN = 56;
+const SWIPE_EDGE = 24;
 // Fondo y texto del visor: oscuros en los dos temas (Prototipo.dc.html, «VISOR»)
 const VIEWER_BG = 'oklch(0.12 0.01 30)';
 const VIEWER_INK = 'oklch(0.97 0.006 80)';
@@ -55,6 +58,10 @@ export default function Gallery() {
   const uploadInputRef = useRef(null);
   const imgRef = useRef(null);
   const pinchRef = useRef({ active: false, startDist: 0, originX: 0, originY: 0 });
+  const slideRef = useRef(null); // lo que se mueve con el dedo al deslizar (la imagen escala aparte, al pellizcar)
+  const swipeRef = useRef(null); // { x, y, dx, dy, multi } del gesto en curso
+  const swipedAtRef = useRef(0); // el clic que pueda seguir a un deslizamiento no cierra el visor
+  const advanceFromRef = useRef(null); // foto desde la que seguir cuando llegue la página siguiente
   const [viewer, setViewer] = useState({ open: false, id: null, url: '', fallbackUrl: '', loading: false });
   const viewerRef = useRef(viewer);
   viewerRef.current = viewer;
@@ -131,7 +138,7 @@ export default function Gallery() {
         setItems(list);
         replaced = true;
       } catch (e) {
-        // La primera página ya cae a lo local si Firestore falla; esto es lo que quede (p. ej. la caché local)
+        // También sin sesión: es «no se pudo cargar», no una galería vacía
         console.error('Gallery load failed', e);
         if (!cancelled) setLoadError(true);
       } finally {
@@ -373,9 +380,21 @@ export default function Gallery() {
     setViewer({ open: true, id, url, fallbackUrl, loading: false });
   }
 
-  function closeViewer() {
+  function revokeViewerUrls() {
     if (viewer.url && viewer.url.startsWith('blob:')) URL.revokeObjectURL(viewer.url);
     if (viewer.fallbackUrl && viewer.fallbackUrl.startsWith('blob:')) URL.revokeObjectURL(viewer.fallbackUrl);
+  }
+
+  // Otra foto en el mismo visor: la de ahora deja de usarse y su blob se revoca
+  function showPhoto(id) {
+    advanceFromRef.current = null;
+    revokeViewerUrls();
+    openViewer(id);
+  }
+
+  function closeViewer() {
+    advanceFromRef.current = null;
+    revokeViewerUrls();
     setViewer({ open: false, id: null, url: '', fallbackUrl: '', loading: false });
     // Navigate to clear the URL parameter, preventing the viewer from re-opening
     navigate('/gallery', { replace: true });
@@ -411,6 +430,93 @@ export default function Gallery() {
   // C11: solo si la foto dice quién la subió; las antiguas no lo guardan y el pie no sale
   const who = viewerItem ? WHO[viewerItem.identity] : undefined;
   const pendingCount = pendingIds.length;
+
+  // C3: anterior y siguiente entre las ya cargadas, en el orden de la cuadrícula. Desde la última, si hay más
+  // páginas, pide la siguiente y sigue cuando llega (efecto de abajo); si no, se para
+  const order = groups.flatMap((g) => g.items);
+  const at = viewer.id ? order.findIndex((it) => it.id === viewer.id) : -1;
+  const prevItem = at > 0 ? order[at - 1] : null;
+  const nextItem = at >= 0 ? order[at + 1] || null : null;
+  const nextOnNextPage = at >= 0 && !nextItem && hasMore;
+
+  function step(dir) {
+    if (!viewer.open || deleting || confirmDeleteOpen) return;
+    if (dir < 0) {
+      if (prevItem) showPhoto(prevItem.id);
+    } else if (nextItem) {
+      showPhoto(nextItem.id);
+    } else if (nextOnNextPage) {
+      advanceFromRef.current = viewer.id;
+      loadMore();
+    }
+  }
+  const stepRef = useRef(step);
+  stepRef.current = step;
+
+  useEffect(() => {
+    const from = advanceFromRef.current;
+    if (!from || loadingMore) return;
+    advanceFromRef.current = null;
+    if (viewerRef.current.id !== from) return;
+    const list = groupByMonth(items).flatMap((g) => g.items);
+    const next = list[list.findIndex((it) => it.id === from) + 1];
+    if (next) stepRef.current(1);
+  }, [items, loadingMore]);
+
+  // Flechas del teclado mientras el visor está abierto (las de pantalla son para el lector y el ratón)
+  useEffect(() => {
+    if (!viewer.open) return undefined;
+    const onKey = (e) => {
+      if (e.key === 'ArrowLeft') stepRef.current(-1);
+      else if (e.key === 'ArrowRight') stepRef.current(1);
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [viewer.open]);
+
+  // Deslizar con un dedo, sobre todo en horizontal. Un segundo dedo lo convierte en pellizco y el gesto ya no
+  // cuenta (no hay deslizar con zoom); el que empieza en un borde se deja al «atrás» de Safari y de Android
+  function onSwipeStart(e) {
+    const s = swipeRef.current;
+    if (e.touches.length > 1) {
+      if (s) { s.multi = true; slideBack(); }
+      return;
+    }
+    const { clientX: x, clientY: y } = e.touches[0];
+    swipeRef.current = x < SWIPE_EDGE || x > window.innerWidth - SWIPE_EDGE ? null : { x, y, dx: 0, dy: 0, multi: false };
+  }
+
+  function onSwipeMove(e) {
+    const s = swipeRef.current;
+    if (!s || s.multi || e.touches.length !== 1) return;
+    s.dx = e.touches[0].clientX - s.x;
+    s.dy = e.touches[0].clientY - s.y;
+    const el = slideRef.current;
+    if (!el || Math.abs(s.dx) <= Math.abs(s.dy)) return;
+    // Sin foto a ese lado, el dedo arrastra con resistencia
+    const free = s.dx > 0 ? !!prevItem : (!!nextItem || nextOnNextPage);
+    el.style.transition = 'none';
+    el.style.transform = `translateX(${free ? s.dx : s.dx * 0.3}px)`;
+  }
+
+  function onSwipeEnd(e) {
+    const s = swipeRef.current;
+    if (!s || e.touches.length > 0) return; // hasta que se levanten todos los dedos
+    swipeRef.current = null;
+    slideBack();
+    if (s.multi || e.type === 'touchcancel') return;
+    if (Math.abs(s.dx) >= SWIPE_MIN && Math.abs(s.dx) > 1.5 * Math.abs(s.dy)) {
+      swipedAtRef.current = Date.now();
+      step(s.dx < 0 ? 1 : -1);
+    }
+  }
+
+  function slideBack() {
+    const el = slideRef.current;
+    if (!el || !el.style.transform) return;
+    el.style.transition = 'transform 160ms ease-out';
+    el.style.transform = '';
+  }
 
   return (
     // Margen propio de 16 px, salvo la cuadrícula, que va a sangre (§5.00); el hueco de la barra es de la cáscara
@@ -540,7 +646,16 @@ export default function Gallery() {
 
       {/* Visor (R6b): mismo Modal bare, mismo pellizco y misma cadena blob/URL; cambian el fondo y los controles */}
       <Modal isOpen={viewer.open} onClose={closeViewer} bare>
-        <div className="w-full h-full relative" style={{ color: VIEWER_INK }}>
+        {/* touch-action: none, para que el navegador no se quede el gesto (ni desplace, ni amplíe la página) */}
+        <div
+          className="w-full h-full relative"
+          style={{ color: VIEWER_INK, touchAction: 'none' }}
+          onTouchStart={onSwipeStart}
+          onTouchMove={onSwipeMove}
+          onTouchEnd={onSwipeEnd}
+          onTouchCancel={onSwipeEnd}
+          onClick={(e) => { if (Date.now() - swipedAtRef.current < 500) e.stopPropagation(); }}
+        >
           <div className="velo absolute inset-0" style={{ background: VIEWER_BG }} aria-hidden="true" />
           {viewer.loading ? (
             <div className="absolute inset-0 flex items-center justify-center text-[15px] opacity-75">Cargando…</div>
@@ -555,7 +670,7 @@ export default function Gallery() {
                 }}
               >
                 <div className="w-full h-full flex items-center justify-center">
-                  <div className="relative inline-block" onClick={(e) => e.stopPropagation()}>
+                  <div ref={slideRef} className="relative inline-block" onClick={(e) => e.stopPropagation()}>
                     <img 
                       src={viewer.url} 
                       alt="" 
@@ -571,17 +686,18 @@ export default function Gallery() {
                     setViewer((v) => ({ ...v, url: v.fallbackUrl }));
                     return;
                   }
-                  // Si no tenemos fallback aún, intenta la fuente alternativa bajo demanda
+                  // Si no tenemos fallback aún, intenta la fuente alternativa bajo demanda (si sigue siendo esta foto)
                   const isBlob = viewer.url && viewer.url.startsWith('blob:');
-                  if (viewer.id) {
+                  const id = viewer.id;
+                  if (id) {
                     if (isBlob) {
-                      getOriginalUrl(pairId, viewer.id)
-                        .then((remote) => { if (remote) setViewer((v) => ({ ...v, url: remote, fallbackUrl: '' })); })
+                      getOriginalUrl(pairId, id)
+                        .then((remote) => { if (remote) setViewer((v) => (v.id === id ? { ...v, url: remote, fallbackUrl: '' } : v)); })
                         .catch(() => {});
                     } else {
                       // Si falla la URL remota, intenta desde IndexedDB
-                      getOriginal(pairId, viewer.id)
-                        .then((blob) => { if (blob) setViewer((v) => ({ ...v, url: URL.createObjectURL(blob) })); })
+                      getOriginal(pairId, id)
+                        .then((blob) => { if (blob && viewerRef.current.id === id) setViewer((v) => ({ ...v, url: URL.createObjectURL(blob) })); })
                         .catch(() => {});
                     }
                   }
@@ -612,6 +728,24 @@ export default function Gallery() {
               <Icon name="cerrar" size={20} />
             </button>
           </div>
+          {/* Anterior y siguiente (C3) para el teclado, el ratón y el lector; en el móvil solo se ven con el foco */}
+          {[
+            { dir: -1, label: 'Foto anterior', icon: 'atras', side: 'left-2', can: !!prevItem },
+            { dir: 1, label: 'Foto siguiente', icon: 'siguiente', side: 'right-2', can: !!nextItem || nextOnNextPage },
+          ].map((a) => (
+            <button
+              key={a.dir}
+              type="button"
+              onClick={(e) => { e.stopPropagation(); step(a.dir); }}
+              disabled={!a.can || deleting}
+              aria-label={a.label}
+              title={a.label}
+              className={`visor-flecha absolute ${a.side} top-1/2 -translate-y-1/2 w-11 h-11 rounded-full flex items-center justify-center disabled:opacity-30 active:scale-95 transition-transform`}
+              style={{ background: 'oklch(1 0 0 / 0.12)' }}
+            >
+              <Icon name={a.icon} size={20} />
+            </button>
+          ))}
           {!viewer.loading && viewer.url && (
             <div
               className="absolute left-4 right-2 flex items-center gap-3"

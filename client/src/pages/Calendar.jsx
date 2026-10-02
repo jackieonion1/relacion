@@ -66,6 +66,7 @@ export default function CalendarPage() {
   const [showHeartRain, setShowHeartRain] = useState(false);
   const [heartAnimationType, setHeartAnimationType] = useState('rain');
   const [targetDate, setTargetDate] = useState(null);
+  const [linkedEventId, setLinkedEventId] = useState(null); // ?ev deep link: its sheet opens once the list is here
 
   useEffect(() => {
     let cancelled = false;
@@ -90,7 +91,7 @@ export default function CalendarPage() {
     return () => { cancelled = true; };
   }, [pairId, refreshKey]);
 
-  // Handle deep-link: /calendar?y=YYYY&m=MM_0indexed&d=DD
+  // Handle deep-link: /calendar?y=YYYY&m=MM_0indexed&d=DD[&ev=eventId]
   useEffect(() => {
     const params = new URLSearchParams(location.search || '');
     const y = Number(params.get('y'));
@@ -100,8 +101,17 @@ export default function CalendarPage() {
       setView('Calendario');
       openDay(d, m, y);
       setTargetDate(new Date(y, m, d));
+      setLinkedEventId(params.get('ev') || null);
     }
   }, [location.search]);
+
+  // The event of ?ev on top of its day (back goes to the day); if it is not in the list, the day stays open
+  useEffect(() => {
+    if (!linkedEventId || loading) return;
+    const ev = items.find((it) => it.id === linkedEventId);
+    setLinkedEventId(null);
+    if (ev) openEvent(ev);
+  }, [linkedEventId, loading, items]);
 
   const { upcomingEvents, pastEvents } = useMemo(() => {
     const now = new Date();

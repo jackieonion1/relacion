@@ -310,7 +310,14 @@ export default function Dashboard() {
       </div>
 
       {nextMeetEvent && meetDate && (
-        <section aria-label="Próximo encuentro" className="card mx-4 mt-3 rounded-hero py-4 pr-4 pl-[18px] flex items-center gap-4">
+        <section aria-label="Próximo encuentro" className="encuentro card relative mx-4 mt-3 rounded-hero py-4 pr-4 pl-[18px] flex items-center gap-4">
+          {/* The whole card opens that event: its day in the calendar and, on top, its sheet (?ev) */}
+          <button
+            type="button"
+            aria-label={`Abrir «${nextMeetEvent.title}» en el calendario`}
+            onClick={() => navigate(`/calendar?y=${meetDate.getFullYear()}&m=${meetDate.getMonth()}&d=${meetDate.getDate()}${nextMeetEvent.id ? `&ev=${encodeURIComponent(nextMeetEvent.id)}` : ''}`)}
+            className="encuentro-abrir absolute inset-0 rounded-hero"
+          />
           <div className="flex-1 min-w-0 flex flex-col gap-0.5">
             <p className="etiqueta">Nos vemos</p>
             <p className="serif text-[30px] leading-[1.1] text-ink">{whenText(meetDate)}</p>

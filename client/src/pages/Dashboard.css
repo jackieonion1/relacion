@@ -18,6 +18,10 @@
 .foto-dia:focus-visible, .fila-evento:focus-visible { outline: 2px solid var(--lacre); outline-offset: 2px; }
 .fila-evento { -webkit-tap-highlight-color: transparent; transition: background-color var(--dur-fundido) var(--ease-suave); }
 .fila-evento:active { background-color: var(--sunk); }
+.encuentro { transition: transform var(--dur-fundido) var(--ease-suave); }
+.encuentro:has(.encuentro-abrir:active) { transform: scale(0.98); }
+.encuentro-abrir { -webkit-tap-highlight-color: transparent; }
+.encuentro-abrir:focus-visible { outline: 2px solid var(--lacre); outline-offset: 2px; }
 
 /* Latido (C1): local, sends nothing. Each tap swaps beat-a / beat-b so the animation starts again */
 .latido { position: relative; color: var(--lacre); -webkit-tap-highlight-color: transparent; }
