@@ -64,6 +64,42 @@ test('no repite una opción aunque cambien las mayúsculas', () => {
   expect(chips()).toHaveLength(1);
 });
 
+const rain = () => Array.from(document.querySelectorAll('[data-testid="heart-rain"] > div'));
+
+// Each frame jumps 10 s, so the spin (5-8 s) ends on its second frame
+function spinToResult() {
+  let ts = 0;
+  vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb) => { ts += 10000; cb(ts); return ts; });
+  vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => {});
+  add('Pizza'); add('Sushi');
+  fireEvent.click(screen.getByRole('button', { name: /Girar/ }));
+}
+
+test('el resultado lanza los fuegos de siempre, por encima del fondo y por debajo de la tarjeta', () => {
+  render(<Roulette />);
+  spinToResult();
+  expect(screen.queryByText('Resultado')).not.toBeNull();
+  expect(rain().length).toBeGreaterThan(0);
+  expect(document.querySelector('[data-testid="heart-rain"]').style.zIndex).toBe('10045');
+  for (const p of rain()) {
+    expect(p.className).toContain('heart-fireworks');
+    expect(p.style.filter).toBe('opacity(0.55)');
+  }
+});
+
+test('«Parar la fiesta» quita los fuegos y deja el resultado; tocar lo cierra todo', () => {
+  render(<Roulette />);
+  spinToResult();
+  fireEvent.click(screen.getByRole('button', { name: 'Parar la fiesta' }));
+  expect(rain()).toHaveLength(0);
+  expect(screen.queryByText('Resultado')).not.toBeNull();
+  fireEvent.click(screen.getByText('toca para cerrar'));
+  expect(screen.queryByText('Resultado')).toBeNull();
+  // the next result rains again
+  fireEvent.click(screen.getByRole('button', { name: /Girar/ }));
+  expect(rain().length).toBeGreaterThan(0);
+});
+
 test('lo guardado se recorta a 15 al abrir', () => {
   localStorage.setItem('roulette:SEB1998', JSON.stringify(Array.from({ length: 20 }, (_, i) => `x${i}`)));
   render(<Roulette />);
