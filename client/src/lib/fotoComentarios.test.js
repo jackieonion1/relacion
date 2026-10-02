@@ -80,6 +80,20 @@ test('deleteComentario borra el doc y baja el contador de su foto', async () => 
   expect(updateDoc).toHaveBeenCalledWith({ path: 'pairs/SEB1998/photos/F1', id: 'F1' }, { commentCount: '+-1' });
 });
 
+test('deleteComentario no espera al servidor para encolar el contador (offline no se pierde)', async () => {
+  deleteDoc.mockReturnValue(new Promise(() => {})); // offline
+  await deleteComentario('SEB1998', { id: 'C9', photoId: 'F1' });
+  expect(updateDoc).toHaveBeenCalledWith({ path: 'pairs/SEB1998/photos/F1', id: 'F1' }, { commentCount: '+-1' });
+});
+
+test('deleteComentario: con los que quedan a la vista, el contador se fija a ese número y nunca baja de 0', async () => {
+  deleteDoc.mockResolvedValue();
+  await deleteComentario('SEB1998', { id: 'C9', photoId: 'F1' }, 2);
+  expect(updateDoc).toHaveBeenLastCalledWith({ path: 'pairs/SEB1998/photos/F1', id: 'F1' }, { commentCount: 2 });
+  await deleteComentario('SEB1998', { id: 'C9', photoId: 'F1' }, -1);
+  expect(updateDoc).toHaveBeenLastCalledWith({ path: 'pairs/SEB1998/photos/F1', id: 'F1' }, { commentCount: 0 });
+});
+
 test('marcarLeidos solo toca los que esta persona no ha leído, uno a uno', async () => {
   updateDoc.mockRejectedValueOnce(Object.assign(new Error('gone'), { code: 'not-found' }));
   await marcarLeidos('SEB1998', [

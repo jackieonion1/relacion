@@ -785,8 +785,12 @@ export default function Gallery() {
   }
 
   function onDeleteComentario(c) {
-    deleteComentario(pairId, c).catch((e) => console.warn('Comment delete failed', e));
-    patchFoto(c.photoId, (it) => ({ commentCount: Math.max(0, (it.commentCount || 0) - 1) }));
+    // The sheet has all the comments of the photo, so the count is set to what is left
+    const restantes = deLaFoto && comentarios.id === c.photoId ? deLaFoto.filter((x) => x.id !== c.id).length : undefined;
+    deleteComentario(pairId, c, restantes)
+      .then((r) => r?.committed.catch((e) => console.warn('Comment delete failed', e)))
+      .catch((e) => console.warn('Comment delete failed', e));
+    patchFoto(c.photoId, (it) => ({ commentCount: restantes ?? Math.max(0, (it.commentCount || 0) - 1) }));
   }
   const pendingCount = pendingIds.length;
 

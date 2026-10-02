@@ -428,6 +428,10 @@ describe('photoItem y listPhotosBy', () => {
     });
   });
 
+  test('photoItem no deja que commentCount sea negativo', () => {
+    expect(photoItem(snap('A', { createdAt: ts(1), commentCount: -1 })).commentCount).toBe(0);
+  });
+
   test('listPhotosBy ejecuta la consulta sobre las fotos de la pareja y rellena las miniaturas', async () => {
     getDocs.mockResolvedValue({ docs: [snap('D0', { thumbUrl: 'https://t/0?alt=media', createdAt: ts(9) })] });
     getThumb.mockResolvedValue(null);

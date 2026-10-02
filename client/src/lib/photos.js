@@ -178,7 +178,7 @@ export function photoItem(docSnap) {
     reactions: d.reactions || {}, // { yo?: '💖', ella?: '🥹' }
     favBy: Array.isArray(d.favBy) ? d.favBy : [],
     takenAt: d.takenAt?.toMillis?.() ?? null, // the day it was really taken, when set by hand
-    commentCount: d.commentCount || 0,
+    commentCount: Math.max(0, d.commentCount || 0),
     albumIds: Array.isArray(d.albumIds) ? d.albumIds : [],
   };
 }
