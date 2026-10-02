@@ -398,8 +398,6 @@ export default function CalendarPage() {
               <Button variant="txt" size="m" accent icon="nuevo" onClick={addToDay} className="border border-dashed border-line">
                 Añadir a este día
               </Button>
-              {/* Room for «Parar la fiesta», which floats over the bottom of the sheet while it rains */}
-              {showHeartRain && <div aria-hidden="true" className="h-[88px]" />}
             </div>
           )}
         </div>
@@ -443,7 +441,8 @@ export default function CalendarPage() {
         )}
       </Sheet>
 
-      <Sheet isOpen={sheet === 'form'} onClose={back}>
+      {/* Stays open under «¿Borrar?» when that came from here: «Cancelar» finds the form as it was left */}
+      <Sheet isOpen={sheet === 'form' || (sheet === 'delete' && deleteTarget?.from === 'form')} onClose={back}>
         <form key={editingEvent?.id || 'new'} onSubmit={onSave} className="flex flex-col gap-3.5 px-5 pt-2 pb-[34px]">
           <div className="flex items-center justify-between">
             <Button variant="txt" onClick={back} className="px-1 text-base text-ink-2">Cancelar</Button>

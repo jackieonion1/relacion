@@ -2,7 +2,6 @@ import React, { useEffect, useRef, useState } from 'react';
 import Sheet from './Sheet';
 import Field from './Field';
 import Button from './Button';
-import { revealFocused, useKeyboardInset } from '../lib/keyboardInset';
 
 function exec(cmd, value = null) {
   try {
@@ -25,7 +24,6 @@ export default function RichTextEditor({ html, onChange, className = '' }) {
   const savedRangeRef = useRef(null);
   const [linkOpen, setLinkOpen] = useState(false);
   const [linkUrl, setLinkUrl] = useState('');
-  const linkInset = useKeyboardInset(linkOpen);
 
   const updateStates = () => {
     try {
@@ -219,7 +217,7 @@ export default function RichTextEditor({ html, onChange, className = '' }) {
         placeholder="Escribe tu nota…"
       />
       <Sheet isOpen={linkOpen} onClose={() => setLinkOpen(false)}>
-        <form onSubmit={onLinkSubmit} className="flex flex-col gap-3.5 px-5 pt-2 pb-[34px]" style={{ marginBottom: linkInset }}>
+        <form onSubmit={onLinkSubmit} className="flex flex-col gap-3.5 px-5 pt-2 pb-[34px]">
           <h2 className="serif text-[26px] leading-[1.15] font-normal">Añadir enlace</h2>
           <Field
             label="Dirección"
@@ -230,7 +228,6 @@ export default function RichTextEditor({ html, onChange, className = '' }) {
             spellCheck={false}
             value={linkUrl}
             onChange={(e) => setLinkUrl(e.target.value)}
-            onFocus={(e) => revealFocused(e.target)}
           />
           <Button type="submit" size="l" disabled={!linkUrl.trim()}>Añadir enlace</Button>
           <Button variant="txt" size="l" onClick={() => setLinkOpen(false)}>Cancelar</Button>

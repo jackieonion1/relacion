@@ -8,7 +8,6 @@ import RichTextEditor from '../components/RichTextEditor';
 import { addNote, deleteNote, listenNotes, deleteThread, markThreadRead } from '../lib/notes';
 import { sanitizeHtml, htmlToPlain } from '../lib/sanitize';
 import { authorEmoji, noteMillis, noteWhen } from '../lib/noteText';
-import { revealFocused, useKeyboardInset } from '../lib/keyboardInset';
 
 export default function Notes() {
   const pairId = useMemo(() => localStorage.getItem('pairId') || '', []);
@@ -33,9 +32,6 @@ export default function Notes() {
   const [isMessageModalOpen, setIsMessageModalOpen] = useState(false);
   const [optionsOpen, setOptionsOpen] = useState(false);
   const titleId = useId();
-  const formRef = useRef(null);
-  // The editor grows by what the keyboard covers, so «Título» can scroll above it on iPhone
-  const keyboard = useKeyboardInset(isModalOpen && isEditing);
 
   useEffect(() => {
     // Sync unsubscribe; without a session yet it reports an error but still subscribes when the session arrives
@@ -61,12 +57,6 @@ export default function Notes() {
     const tid = readingRef.current;
     if (tid) { try { markThreadRead(pairId, tid, identity); } catch {} }
   }, [pairId, identity]);
-
-  useEffect(() => {
-    if (!keyboard) return;
-    const el = document.activeElement;
-    if (formRef.current && formRef.current.contains(el)) el.scrollIntoView?.({ block: 'center' });
-  }, [keyboard]);
 
   async function onSave(e) {
     e.preventDefault();
@@ -232,7 +222,7 @@ export default function Notes() {
     <div className="flex flex-col gap-4 px-4 pb-6">
       <header className="flex items-end justify-between gap-3 pt-1.5 pl-1">
         <h1 className="serif text-4xl leading-[1.05] font-normal tracking-[-0.01em]">Notas</h1>
-        <Button icon="editar" onClick={startNewNote} aria-label="Nueva nota">Escribir</Button>
+        <Button icon="editar" onClick={startNewNote}>Escribir</Button>
       </header>
 
       {notice && (
@@ -323,13 +313,7 @@ export default function Notes() {
 
         {/* Editor: new note or reply, both with the optional title */}
         {isEditing && (
-          <form
-            ref={formRef}
-            onSubmit={onSave}
-            onFocus={(e) => revealFocused(e.target)}
-            className="flex flex-col gap-3 px-5 pt-1 pb-[34px]"
-            style={{ marginBottom: keyboard }}
-          >
+          <form onSubmit={onSave} className="flex flex-col gap-3 px-5 pt-1 pb-[34px]">
             <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
               <Button
                 variant="txt"
