@@ -30,6 +30,48 @@
 }
 .visor-flecha:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
 
+/* Unread comments on a photo (3.1): the tab bar's lacre dot, ringed so it reads over any photo */
+.galeria-punto {
+  width: 10px; height: 10px; border-radius: 50%;
+  background-color: var(--lacre); box-shadow: 0 0 0 2px var(--paper);
+}
+
+/* Favourite in «Favoritas»: lacre hearts on a paper pill, readable over any photo */
+.galeria-fav {
+  display: inline-flex; align-items: center; gap: 1px; height: 22px; padding: 0 5px; border-radius: 11px;
+  background-color: var(--paper); color: var(--lacre); box-shadow: var(--sh-1);
+}
+
+/* Selection mode (3.1). The bar is the notice's ink card (index.css .aviso), on --shell-bottom so a notice never
+   covers it; the result of a bulk change shows in the same place */
+.seleccion-barra {
+  position: fixed; z-index: 50; left: 12px; right: 12px; max-width: calc(48rem - 24px); margin: 0 auto;
+  bottom: calc(var(--shell-bottom) + 12px);
+  display: flex; align-items: center; gap: 4px; min-height: 56px; padding: 6px 6px 6px 12px;
+  border-radius: 20px; background-color: var(--ink); color: var(--paper); box-shadow: var(--sh-2);
+  animation: aviso-in var(--dur-hoja) var(--ease-hoja) backwards;
+}
+.seleccion-accion {
+  height: 44px; padding: 0 14px; border-radius: 22px; flex: none;
+  font-size: 15px; font-weight: 600; color: var(--paper);
+  transition: transform var(--dur-toque) var(--ease-suave), opacity var(--dur-fundido);
+}
+.seleccion-icono { width: 44px; padding: 0; display: flex; align-items: center; justify-content: center; }
+.seleccion-accion:active:not(:disabled) { transform: scale(0.95); background-color: color-mix(in oklab, var(--paper) 14%, transparent); }
+.seleccion-accion:disabled { opacity: 0.4; }
+.seleccion-accion:focus-visible { outline: 2px solid var(--paper); outline-offset: -2px; }
+
+/* A photo in selection mode: the round mark on its corner, filled in lacre once picked, and the photo a little in */
+.galeria-marca {
+  position: absolute; top: 6px; right: 6px; width: 24px; height: 24px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  border: 2px solid oklch(1 0 0 / 0.95); background-color: oklch(0 0 0 / 0.18); color: var(--on-lacre);
+  box-shadow: 0 1px 3px oklch(0 0 0 / 0.3);
+}
+.galeria-celda[aria-pressed='true'] .galeria-marca { background-color: var(--lacre); border-color: var(--on-lacre); }
+.galeria-celda[aria-pressed='true'] img { transform: scale(0.9); border-radius: 6px; }
+.galeria-celda img { transition: transform var(--dur-toque) var(--ease-suave), border-radius var(--dur-toque); }
+
 /* uploadBytes reports no progress: the ring only turns (plan A9) */
 .galeria-anillo { animation: galeria-giro 1100ms linear infinite; }
 @keyframes galeria-giro { to { transform: rotate(360deg); } }
