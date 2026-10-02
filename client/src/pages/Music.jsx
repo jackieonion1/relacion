@@ -739,7 +739,7 @@ export default function Music() {
       )}
 
       {isMusicRoute && uploading && (
-        <div className="fixed bottom-40 right-5 z-40 text-xs text-gray-700 bg-white/80 px-2 py-1 rounded-md shadow">
+        <div className="fixed bottom-40 right-5 z-40 text-xs text-gray-700 bg-white/80 px-2 py-1 rounded-md shadow-sm">
           Subiendo…
         </div>
       )}
@@ -777,7 +777,7 @@ export default function Music() {
                 {menu?.id === it.id && (
                   <>
                     {createPortal(
-                      <button className="fixed inset-0 z-[95] cursor-default" onClick={() => setMenu(null)} aria-hidden="true" />, document.body
+                      <button className="fixed inset-0 z-95 cursor-default" onClick={() => setMenu(null)} aria-hidden="true" />, document.body
                     )}
                     {createPortal(
                       (() => {
@@ -790,7 +790,7 @@ export default function Music() {
                         const left = Math.min(window.innerWidth - width - 8, Math.max(8, rect.right - width));
                         return (
                           <div
-                            className="z-[100] w-44 bg-white border border-rose-100 rounded-lg shadow-lg overflow-hidden fixed"
+                            className="z-100 w-44 bg-white border border-rose-100 rounded-lg shadow-lg overflow-hidden fixed"
                             style={{ top, left }}
                           >
                             <button
@@ -828,8 +828,8 @@ export default function Music() {
       {/* Rename modal */}
       {isMusicRoute && renaming && createPortal(
         <>
-          <div className="fixed inset-0 z-[80] bg-black/20" onClick={() => setRenaming(null)} />
-          <div className="fixed inset-0 z-[90] flex items-center justify-center p-6">
+          <div className="fixed inset-0 z-80 bg-black/20" onClick={() => setRenaming(null)} />
+          <div className="fixed inset-0 z-90 flex items-center justify-center p-6">
             <div className="w-full max-w-sm bg-white rounded-xl shadow-xl border border-rose-100 p-4 space-y-3">
               <h3 className="text-sm font-semibold text-gray-900">Cambiar nombre</h3>
               <input
@@ -838,7 +838,7 @@ export default function Music() {
                 value={renaming.name}
                 onChange={(e) => setRenaming(r => ({ ...r, name: e.target.value }))}
                 onKeyDown={(e) => { if (e.key === 'Enter') onConfirmRename(); }}
-                className="w-full border rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-rose-300"
+                className="w-full border rounded-lg px-3 py-2 text-sm outline-hidden focus:ring-2 focus:ring-rose-300"
                 placeholder="Nuevo nombre"
               />
               <div className="flex justify-end gap-2 pt-1">
@@ -874,7 +874,7 @@ export default function Music() {
           style={{ bottom: `calc(4rem + env(safe-area-inset-bottom))` }}
         >
           <div
-            className="mx-3 mb-3 rounded-xl border border-rose-100 shadow-lg bg-white/95 backdrop-blur px-3 py-2 flex items-center gap-3"
+            className="mx-3 mb-3 rounded-xl border border-rose-100 shadow-lg bg-white/95 backdrop-blur-sm px-3 py-2 flex items-center gap-3"
             onClick={openSheet}
           >
             <span className="text-rose-600 shrink-0">
@@ -903,7 +903,7 @@ export default function Music() {
       {!isMusicRoute && player.id && createPortal(
         <button
           onClick={() => navigate('/music')}
-          className="fixed z-30 top-[calc(env(safe-area-inset-top)+8px)] right-16 px-3 py-1.5 rounded-full border border-rose-100 bg-white/90 backdrop-blur text-xs text-gray-800 shadow hover:bg-white"
+          className="fixed z-30 top-[calc(env(safe-area-inset-top)+8px)] right-16 px-3 py-1.5 rounded-full border border-rose-100 bg-white/90 backdrop-blur-sm text-xs text-gray-800 shadow-sm hover:bg-white"
           style={{ maxWidth: '48vw' }}
           aria-label="Ir a Música"
           title="Ir a Música"
@@ -969,7 +969,7 @@ export default function Music() {
                         key={`${c.start}-${i}`}
                         ref={(el) => { cueRefs.current[i] = el; }}
                         onClick={() => seekTo(c.start)}
-                        className={`text-sm cursor-pointer select-none transition-colors ${isActive ? 'bg-rose-50 text-rose-800 rounded px-2 py-1' : 'text-gray-800 hover:text-gray-900'}`}
+                        className={`text-sm cursor-pointer select-none transition-colors ${isActive ? 'bg-rose-50 text-rose-800 rounded-sm px-2 py-1' : 'text-gray-800 hover:text-gray-900'}`}
                       >
                         {c.tokens && c.tokens.length > 0 ? (
                           c.tokens.map((t, j) => {

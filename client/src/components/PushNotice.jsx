@@ -48,7 +48,7 @@ export default function PushNotice() {
   const later = () => { try { dismissNotice(localStorage); } catch {} setShow(false); };
 
   return (
-    <div className="mx-auto w-full max-w-screen-md px-4 pt-3">
+    <div className="mx-auto w-full max-w-(--breakpoint-md) px-4 pt-3">
       <div role="status" className="rounded-xl border border-rose-200 bg-rose-50 text-rose-900 px-4 py-3 text-sm flex items-center gap-3">
         <div className="flex-1">
           {failed ? 'No se pudo activar. Prueba en Ajustes.' : 'Activa las notificaciones para enterarte de lo nuevo'}

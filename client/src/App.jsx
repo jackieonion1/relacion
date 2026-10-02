@@ -60,7 +60,7 @@ function PairGate({ children }) {
 
   if (!pairId) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-b from-rose-50 to-white p-6">
+      <div className="min-h-screen flex items-center justify-center bg-linear-to-b/srgb from-rose-50 to-white p-6">
         <div className="w-full max-w-sm card text-center">
           <h1 className="text-2xl font-semibold text-rose-600 mb-1">Bienvenid@</h1>
           <p className="text-gray-600 mb-4">Introduce el código de pareja para continuar</p>
@@ -88,7 +88,7 @@ function IdentityGate({ children }) {
 
   if (!identity) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-b from-rose-50 to-white p-6">
+      <div className="min-h-screen flex items-center justify-center bg-linear-to-b/srgb from-rose-50 to-white p-6">
         <div className="w-full max-w-sm card text-center">
           <h1 className="text-2xl font-semibold text-rose-600 mb-1">Hola ✨</h1>
           <p className="text-gray-600 mb-4">¿Quién eres?</p>
@@ -147,15 +147,15 @@ export default function App() {
       <IdentityGate>
         <div className="app-shell">
           <div className={`app-scroll ${isRoulette ? 'no-scroll' : ''}`}>
-            <div className="min-h-[100dvh] bg-rose-50/50 text-gray-900 flex flex-col">
+            <div className="min-h-dvh bg-rose-50/50 text-gray-900 flex flex-col">
               <header
-                className="fixed top-0 inset-x-0 z-20 backdrop-blur border-b border-rose-100 transition-all duration-300"
+                className="fixed top-0 inset-x-0 z-20 backdrop-blur-sm border-b border-rose-100 transition-all duration-300"
                 style={{
                   background: 'linear-gradient(to bottom, rgba(255,255,255,1) 0%, rgba(255,255,255,0.7) 100%)',
                   paddingTop: 'env(safe-area-inset-top, 0px)'
                 }}
               >
-                <div className="max-w-screen-md mx-auto px-4 h-14 grid grid-cols-3 items-center">
+                <div className="max-w-(--breakpoint-md) mx-auto px-4 h-14 grid grid-cols-3 items-center">
                   <span className="font-semibold text-rose-600 transition-all duration-200">🍪🫒</span>
                   <span className="text-sm text-gray-500 transition-all duration-200 text-center">{title}</span>
                   <Link to="/settings" className="justify-self-end text-gray-500 hover:text-rose-600 transition-colors duration-200 transform hover:scale-110">
@@ -170,7 +170,7 @@ export default function App() {
               <UpdateBanner />
               <PushNotice />
 
-              <main className={`flex-1 max-w-screen-md mx-auto w-full px-4 ${isRoulette ? 'pb-2' : 'pb-safe-content'} pt-4 transition-all duration-300 ease-out ${
+              <main className={`flex-1 max-w-(--breakpoint-md) mx-auto w-full px-4 ${isRoulette ? 'pb-2' : 'pb-safe-content'} pt-4 transition-all duration-300 ease-out ${
                 isTransitioning 
                   ? 'opacity-0 transform translate-y-1 scale-[0.98]'
                   : 'opacity-100'

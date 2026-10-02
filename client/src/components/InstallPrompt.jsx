@@ -77,7 +77,7 @@ export default function InstallPrompt() {
   };
 
   return (
-    <div className="mx-auto w-full max-w-screen-md px-4 pt-3">
+    <div className="mx-auto w-full max-w-(--breakpoint-md) px-4 pt-3">
       {mode === 'ios' ? (
         <div className="rounded-xl border border-rose-200 bg-rose-50 text-rose-900 px-4 py-3 text-sm flex items-start gap-3">
           <div>

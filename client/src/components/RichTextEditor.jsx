@@ -167,7 +167,7 @@ export default function RichTextEditor({ html, onChange, className = '' }) {
         <button
           type="button"
           aria-label="Negrita"
-          className={`px-3 py-1.5 rounded text-sm ${states.bold ? 'bg-rose-100 text-rose-700' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+          className={`px-3 py-1.5 rounded-sm text-sm ${states.bold ? 'bg-rose-100 text-rose-700' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
           onMouseDown={(e) => e.preventDefault()}
           onClick={() => applyInline('bold')}
         >
@@ -176,7 +176,7 @@ export default function RichTextEditor({ html, onChange, className = '' }) {
         <button
           type="button"
           aria-label="Cursiva"
-          className={`px-3 py-1.5 rounded text-sm ${states.italic ? 'bg-rose-100 text-rose-700' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+          className={`px-3 py-1.5 rounded-sm text-sm ${states.italic ? 'bg-rose-100 text-rose-700' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
           onMouseDown={(e) => e.preventDefault()}
           onClick={() => applyInline('italic')}
         >
@@ -185,7 +185,7 @@ export default function RichTextEditor({ html, onChange, className = '' }) {
         <button
           type="button"
           aria-label="Lista de puntos"
-          className={`px-3 py-1.5 rounded text-sm bg-gray-100 text-gray-700 hover:bg-gray-200`}
+          className={`px-3 py-1.5 rounded-sm text-sm bg-gray-100 text-gray-700 hover:bg-gray-200`}
           onMouseDown={(e) => e.preventDefault()}
           onClick={() => listify(false)}
         >
@@ -194,7 +194,7 @@ export default function RichTextEditor({ html, onChange, className = '' }) {
         <button
           type="button"
           aria-label="Lista numerada"
-          className={`px-3 py-1.5 rounded text-sm bg-gray-100 text-gray-700 hover:bg-gray-200`}
+          className={`px-3 py-1.5 rounded-sm text-sm bg-gray-100 text-gray-700 hover:bg-gray-200`}
           onMouseDown={(e) => e.preventDefault()}
           onClick={() => listify(true)}
         >
@@ -203,7 +203,7 @@ export default function RichTextEditor({ html, onChange, className = '' }) {
         <button
           type="button"
           aria-label="Enlace"
-          className={`px-3 py-1.5 rounded text-sm bg-gray-100 text-gray-700 hover:bg-gray-200`}
+          className={`px-3 py-1.5 rounded-sm text-sm bg-gray-100 text-gray-700 hover:bg-gray-200`}
           onMouseDown={(e) => e.preventDefault()}
           onClick={createLink}
         >
@@ -212,7 +212,7 @@ export default function RichTextEditor({ html, onChange, className = '' }) {
       </div>
       <div
         ref={editorRef}
-        className="input rte w-full min-h-[10rem] max-h-[50vh] overflow-auto leading-relaxed"
+        className="input rte w-full min-h-40 max-h-[50vh] overflow-auto leading-relaxed"
         contentEditable
         suppressContentEditableWarning
         onInput={onInput}

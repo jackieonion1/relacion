@@ -147,11 +147,11 @@ export default function SimpleMap({ onDistanceChange }) {
 
   return (
     <div className="mt-2 p-2 bg-gray-50 rounded-xl">
-      <div className="relative h-32 bg-gradient-to-br from-blue-100 to-green-100 rounded-lg overflow-hidden">
+      <div className="relative h-32 bg-linear-to-br/srgb from-blue-100 to-green-100 rounded-lg overflow-hidden">
         {/* Novio marker (left side) */}
         <div className="absolute left-4 top-1/2 -translate-y-1/2 text-center">
           <div className="text-2xl mb-1">📍</div>
-          <div className="text-xs font-medium text-gray-700 bg-white px-2 py-1 rounded shadow-sm">
+          <div className="text-xs font-medium text-gray-700 bg-white px-2 py-1 rounded-sm shadow-xs">
             {ROLE_LABELS.novio}
           </div>
         </div>
@@ -159,7 +159,7 @@ export default function SimpleMap({ onDistanceChange }) {
         {/* Novia marker (right side) */}
         <div className="absolute right-4 top-1/2 -translate-y-1/2 text-center">
           <div className="text-2xl mb-1">📍</div>
-          <div className="text-xs font-medium text-gray-700 bg-white px-2 py-1 rounded shadow-sm">
+          <div className="text-xs font-medium text-gray-700 bg-white px-2 py-1 rounded-sm shadow-xs">
             {ROLE_LABELS.novia}
           </div>
         </div>
@@ -175,7 +175,7 @@ export default function SimpleMap({ onDistanceChange }) {
 
         {/* Distance label */}
         <div className="absolute top-2 left-1/2 -translate-x-1/2">
-          <div className="text-xs font-medium text-gray-600 bg-white px-2 py-1 rounded shadow-sm">
+          <div className="text-xs font-medium text-gray-600 bg-white px-2 py-1 rounded-sm shadow-xs">
             {loadingDist ? 'Calculando…' : (distanceKm != null ? `${distanceKm} km` : '— km')}
           </div>
         </div>

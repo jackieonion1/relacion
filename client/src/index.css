@@ -1,6 +1,122 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import 'tailwindcss';
+
+/* Tailwind 3.4 values for what v4 changed (font stack, drop shadows) and the hex for every colour the code uses:
+   v4's defaults (oklch) are more saturated at 500-700. R1 swaps them for the canvas tokens */
+@theme {
+  --font-sans: ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+  --drop-shadow-sm: 0 1px 2px rgb(0 0 0 / 0.1), 0 1px 1px rgb(0 0 0 / 0.06);
+  --drop-shadow-lg: 0 10px 8px rgb(0 0 0 / 0.04), 0 4px 3px rgb(0 0 0 / 0.1);
+
+  --color-gray-50: #f9fafb;
+  --color-gray-100: #f3f4f6;
+  --color-gray-200: #e5e7eb;
+  --color-gray-300: #d1d5db;
+  --color-gray-400: #9ca3af;
+  --color-gray-500: #6b7280;
+  --color-gray-600: #4b5563;
+  --color-gray-700: #374151;
+  --color-gray-800: #1f2937;
+  --color-gray-900: #111827;
+
+  --color-rose-50: #fff1f2;
+  --color-rose-100: #ffe4e6;
+  --color-rose-200: #fecdd3;
+  --color-rose-300: #fda4af;
+  --color-rose-500: #f43f5e;
+  --color-rose-600: #e11d48;
+  --color-rose-700: #be123c;
+  --color-rose-800: #9f1239;
+  --color-rose-900: #881337;
+
+  --color-red-600: #dc2626;
+  --color-red-700: #b91c1c;
+
+  --color-yellow-50: #fefce8;
+  --color-yellow-100: #fef9c3;
+  --color-yellow-500: #eab308;
+
+  --color-purple-50: #faf5ff;
+  --color-purple-100: #f3e8ff;
+  --color-purple-200: #e9d5ff;
+  --color-purple-300: #d8b4fe;
+  --color-purple-400: #c084fc;
+  --color-purple-500: #a855f7;
+  --color-purple-600: #9333ea;
+  --color-purple-800: #6b21a8;
+
+  --color-blue-50: #eff6ff;
+  --color-blue-100: #dbeafe;
+  --color-blue-200: #bfdbfe;
+  --color-blue-500: #3b82f6;
+  --color-blue-600: #2563eb;
+  --color-blue-900: #1e3a8a;
+
+  --color-green-100: #dcfce7;
+
+  --color-pink-50: #fdf2f8;
+  --color-pink-200: #fbcfe8;
+  --color-pink-500: #ec4899;
+  --color-pink-600: #db2777;
+
+  --color-cyan-50: #ecfeff;
+  --color-cyan-900: #164e63;
+
+  --color-amber-100: #fef3c7;
+  --color-amber-200: #fde68a;
+
+  --color-sky-100: #e0f2fe;
+  --color-sky-200: #bae6fd;
+  --color-sky-300: #7dd3fc;
+
+  --color-orange-200: #fed7aa;
+
+  --color-violet-200: #ddd6fe;
+  --color-violet-700: #6d28d9;
+
+  --color-indigo-800: #3730a3;
+  --color-indigo-900: #312e81;
+
+  --color-stone-200: #e7e5e4;
+
+  --color-slate-50: #f8fafc;
+  --color-slate-100: #f1f5f9;
+  --color-slate-200: #e2e8f0;
+  --color-slate-300: #cbd5e1;
+  --color-slate-400: #94a3b8;
+  --color-slate-600: #475569;
+  --color-slate-800: #1e293b;
+  --color-slate-900: #0f172a;
+
+  --color-teal-200: #99f6e4;
+  --color-emerald-100: #d1fae5;
+  --color-zinc-100: #f4f4f5;
+}
+
+/* Preflight as in v3: v4 changed the default border colour to currentcolor, the placeholder to 50% of the text
+   colour, the pointer cursor on buttons, and resets the background, radius and opacity of form controls */
+@layer base {
+  *,
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: var(--color-gray-200, currentcolor);
+  }
+  ::placeholder {
+    color: var(--color-gray-400);
+  }
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+  button, input, select, optgroup, textarea, ::file-selector-button {
+    border-radius: revert;
+    opacity: revert;
+  }
+  input:where(:not([type="button"], [type="reset"], [type="submit"])), select, optgroup, textarea {
+    background-color: revert;
+  }
+}
 
 /* Fix iOS overscroll background color: match app rose tint */
 html, body {
@@ -16,8 +132,8 @@ body {
   background-color: rgba(255, 241, 242, 0.5);
 }
 
-:root { 
-  color-scheme: light; 
+:root {
+  color-scheme: light;
   --navbar-height: 4rem; /* 64px */
 }
 
@@ -33,8 +149,8 @@ body { @apply bg-rose-50/50; }
 
 /* Componentes reutilizables para visual más profesional */
 @layer components {
-  .card { @apply bg-white/90 rounded-2xl p-4 border border-rose-100 shadow-sm; }
-  .input { @apply rounded-xl border border-rose-200 px-3 py-2 outline-none focus:ring-2 focus:ring-rose-300; }
+  .card { @apply bg-white/90 rounded-2xl p-4 border border-rose-100 shadow-xs; }
+  .input { @apply rounded-xl border border-rose-200 px-3 py-2 outline-hidden focus:ring-2 focus:ring-rose-300; }
   .btn-primary { @apply inline-flex items-center justify-center px-3 py-2 rounded-lg bg-rose-600 text-white hover:bg-rose-500 active:scale-[0.99] transition; }
   .btn-ghost { @apply inline-flex items-center justify-center px-3 py-2 rounded-lg bg-rose-50 text-rose-700 hover:bg-rose-100; }
   .btn-link { @apply text-rose-600 hover:underline; }
@@ -73,9 +189,9 @@ body { @apply bg-rose-50/50; }
     min-width: 0;
   }
   /* Let previews grow naturally (no gradient/clamp) */
-  .note-snippet { 
-    font-size: 0.875rem; 
-    line-height: 1.25rem; 
+  .note-snippet {
+    font-size: 0.875rem;
+    line-height: 1.25rem;
   }
   /* Flex-based masonry grid (stable reflow) */
   .masonry-grid { display: flex; gap: 12px; align-items: flex-start; }

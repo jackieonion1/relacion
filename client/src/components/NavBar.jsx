@@ -137,8 +137,8 @@ export default function NavBar() {
         document.body
       )}
 
-      <nav className="fixed bottom-0 inset-x-0 z-[70] border-t border-rose-100 bg-white/90 backdrop-blur navbar-safe">
-        <div className="max-w-screen-md mx-auto grid grid-cols-5 relative">
+      <nav className="fixed bottom-0 inset-x-0 z-70 border-t border-rose-100 bg-white/90 backdrop-blur-sm navbar-safe">
+        <div className="max-w-(--breakpoint-md) mx-auto grid grid-cols-5 relative">
           {tabs.map(t => {
             const active = loc.pathname === t.to;
             const Icon = t.icon;
@@ -154,7 +154,7 @@ export default function NavBar() {
                 }`}
                 onClick={() => setOpenMore(false)}
               >
-                <Icon className={`w-6 h-6 transition-all duration-200 ${active ? 'drop-shadow-sm' : ''}`} />
+                <Icon className={`w-6 h-6 transition-all duration-200 ${active ? 'drop-shadow-xs' : ''}`} />
                 <span className="text-[11px] mt-1 transition-all duration-200">{t.label}</span>
               </Link>
             );
@@ -180,7 +180,7 @@ export default function NavBar() {
                 return next;
               })}
             >
-              <PlusCircleIcon className={`w-6 h-6 transition-all duration-200 ${othersActive ? 'drop-shadow-sm' : ''}`} />
+              <PlusCircleIcon className={`w-6 h-6 transition-all duration-200 ${othersActive ? 'drop-shadow-xs' : ''}`} />
               <span className="text-[11px] mt-1 transition-all duration-200">Otros</span>
             </button>
           </div>
