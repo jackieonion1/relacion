@@ -33,10 +33,11 @@ const backdrop = () => screen.getByTestId('sheet-scrim');
 const button = (name) => screen.getAllByRole('button', { name }).find((b) => b.closest('[role="dialog"]'));
 
 describe('las salidas que marcan leído', () => {
+  // «Cerrar» is now the «‹ Notas» back button of the sheet
   test('hilo: Cerrar', async () => {
     await open('respuesta del hilo');
     expect(screen.queryByText('2 notas')).not.toBeNull();
-    fireEvent.click(button('Cerrar'));
+    fireEvent.click(button('Notas'));
     expect(markThreadRead.mock.calls).toEqual([['SEB1998', 'T1', 'ella']]);
     expect(screen.queryByText('2 notas')).toBeNull();
   });
@@ -57,7 +58,7 @@ describe('las salidas que marcan leído', () => {
 
   test('nota suelta: Cerrar', async () => {
     await open('nota suelta');
-    fireEvent.click(button('Cerrar'));
+    fireEvent.click(button('Notas'));
     expect(markThreadRead.mock.calls).toEqual([['SEB1998', 'S1', 'ella']]);
   });
 
@@ -78,6 +79,13 @@ describe('las salidas que marcan leído', () => {
 test('abrir una nota no la marca leída hasta salir', async () => {
   await open('nota suelta');
   expect(markThreadRead).not.toHaveBeenCalled();
+});
+
+test('salir de Notas con una nota abierta (atrás) la marca leída al desmontar', async () => {
+  const { unmount } = render(<Notes />);
+  await act(async () => { fireEvent.click(screen.getByText('nota suelta')); });
+  unmount();
+  expect(markThreadRead.mock.calls).toEqual([['SEB1998', 'S1', 'ella']]);
 });
 
 test('una nota nueva cerrada tocando fuera no marca nada', async () => {
