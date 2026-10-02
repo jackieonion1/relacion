@@ -15,7 +15,7 @@ const tabs = [
 export const MORE = [
   { to: '/map', label: 'Mapa', sub: 'Dónde está cada uno', icon: 'mapa' },
   { to: '/music', label: 'Música', sub: 'Vuestra lista', icon: 'musica' },
-  { to: '/roulette', label: 'Ruleta', sub: 'Para decidir entre varias', icon: 'ruleta' },
+  { to: '/roulette', label: 'Ruleta', sub: 'Para decidir', icon: 'ruleta' },
   { to: '/coin', label: 'Moneda', sub: '🍪 o 🫒', icon: 'moneda' },
   { to: '/recuerdos', label: 'Recuerdos', sub: 'Álbumes, sellos y cápsulas', icon: 'recuerdos', wide: true },
 ];
