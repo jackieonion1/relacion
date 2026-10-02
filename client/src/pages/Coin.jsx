@@ -14,6 +14,7 @@ export default function Coin() {
   const shadowRef = useRef(null);
   const [flipping, setFlipping] = useState(false);
   const [result, setResult] = useState(null); // 'galleta' | 'aceituna' | null
+  const [streak, setStreak] = useState(0); // same face in a row, only counted with reduced motion
 
   function flip() {
     if (flipping) return;
@@ -31,9 +32,12 @@ export default function Coin() {
 
     if (prefersReducedMotion()) {
       coin.style.transform = `rotateY(${heads ? 0 : 180}deg)`;
+      // Without the flip, the same face twice changes nothing on screen nor in the status: say it repeats
+      setStreak(result === outcome ? streak + 1 : 1);
       setResult(outcome);
       return;
     }
+    setStreak(1);
 
     // Normalize starting transform at home
     coin.style.transform = 'rotateY(0deg) scale(1)';
@@ -104,7 +108,7 @@ export default function Coin() {
         className="serif h-10 text-[30px] text-ink transition-opacity duration-240 ease-suave"
         style={{ opacity: result ? 1 : 0 }}
       >
-        {result ? `Sale ${FACES[result]}` : ' '}
+        {result ? `Sale ${FACES[result]}${streak > 2 ? ` ${streak} veces seguidas` : streak === 2 ? ' otra vez' : ''}` : ' '}
       </p>
 
       <Button size="xl" busy={flipping} busyText="Lanzando…" onClick={flip} className="min-w-[200px]">Lanzar</Button>

@@ -10,9 +10,14 @@
   }
 }
 
+/* While an explosion waits for its animation-delay, fill-mode both holds it on 0%: hidden there, so the burst does
+   not sit visible in a heap at its centre before going off */
 @keyframes heartFireworks {
   0% {
     transform: translate(0, 0) scale(0.5) rotate(0deg);
+    opacity: 0;
+  }
+  1% {
     opacity: 1;
   }
   50% {
@@ -52,19 +57,20 @@
   min-width: 44px;
   padding: 0 1.25rem;
   border-radius: 9999px;
-  border: 1px solid #fecdd3;
-  background: rgba(255, 255, 255, 0.92);
-  color: #e11d48;
+  /* Carta tokens, so it reads in light and dark */
+  border: 1px solid color-mix(in oklab, var(--lacre) 35%, var(--line));
+  background: color-mix(in oklab, var(--card) 92%, transparent);
+  color: var(--accent-ink);
   font-weight: 600;
   font-size: 0.95rem;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.15);
+  box-shadow: var(--sh-2);
   -webkit-backdrop-filter: blur(6px);
   backdrop-filter: blur(6px);
   -webkit-tap-highlight-color: transparent;
 }
 
 .heart-rain-stop:focus-visible {
-  outline: 3px solid #fb7185;
+  outline: 3px solid var(--lacre);
   outline-offset: 2px;
 }
 
