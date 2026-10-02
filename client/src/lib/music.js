@@ -179,14 +179,14 @@ export async function listMusic(pairId, max = 100) {
       for (const docSnap of snap.docs) {
         const id = docSnap.id;
         const data = docSnap.data();
-        items.push({ id, name: data?.name || id, createdAt: data?.createdAt?.toMillis?.() || Date.now(), duration: data?.duration || 0 });
+        items.push({ id, name: data?.name || id, createdAt: data?.createdAt?.toMillis?.() || Date.now(), duration: data?.duration || 0, identity: data?.identity });
       }
       // Merge with local meta (to show unsynced uploads if remote write failed)
       const local = readLocalMeta(pairId);
       const byId = new Map(items.map((x) => [x.id, x]));
       for (const m of local) {
         if (!byId.has(m.id)) {
-          byId.set(m.id, { id: m.id, name: m.name || m.id, createdAt: m.createdAt, duration: m.duration || 0 });
+          byId.set(m.id, { id: m.id, name: m.name || m.id, createdAt: m.createdAt, duration: m.duration || 0, identity: m.identity });
         }
       }
       const merged = Array.from(byId.values());
@@ -199,7 +199,7 @@ export async function listMusic(pairId, max = 100) {
   // Local-only
   const meta = readLocalMeta(pairId);
   for (const m of meta) {
-    items.push({ id: m.id, name: m.name || m.id, createdAt: m.createdAt, duration: m.duration || 0 });
+    items.push({ id: m.id, name: m.name || m.id, createdAt: m.createdAt, duration: m.duration || 0, identity: m.identity });
   }
   items.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
   return items.slice(0, max);

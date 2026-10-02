@@ -2,7 +2,7 @@ import React from 'react';
 import { render, screen, fireEvent, act } from '@testing-library/react';
 import { MemoryRouter, useLocation, useNavigate } from 'react-router';
 import Music from './Music';
-import { listMusic, getOriginal, getSubtitles } from '../lib/music';
+import { listMusic, getOriginal, getSubtitles, renameMusic, deleteMusic } from '../lib/music';
 
 vi.mock('../lib/music', () => ({
   listMusic: vi.fn(),
@@ -92,6 +92,34 @@ test('al acabar una canción pasa a la siguiente, también fuera de /music', asy
   expect(getOriginal).toHaveBeenLastCalledWith('SEB1998', 'B');
   expect(play).toHaveBeenCalledTimes(2);
   expect(pill().textContent).toContain('Canción B');
+});
+
+test('C18: si la lista no carga, «Reintentar» la vuelve a pedir', async () => {
+  listMusic.mockRejectedValueOnce(new Error('red'));
+  render(<MemoryRouter initialEntries={['/music']}><Music /></MemoryRouter>);
+  await act(flush);
+  expect(screen.getByRole('alert').textContent).toContain('No se pudieron cargar las canciones');
+  await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Reintentar' })); await flush(); });
+  expect(listMusic).toHaveBeenCalledTimes(2);
+  expect(screen.getByText('Canción B')).toBeTruthy();
+});
+
+test('el menú ⋯ cambia el nombre y borra con confirmación', async () => {
+  render(<MemoryRouter initialEntries={['/music']}><Music /></MemoryRouter>);
+  await act(flush);
+  fireEvent.click(screen.getAllByRole('button', { name: 'Más opciones' })[0]);
+  fireEvent.click(screen.getByRole('button', { name: 'Cambiar nombre' }));
+  fireEvent.change(screen.getByLabelText('Nombre'), { target: { value: 'La nuestra' } });
+  await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Guardar' })); await flush(); });
+  expect(renameMusic).toHaveBeenCalledWith('SEB1998', 'A', 'La nuestra');
+  expect(screen.getByText('La nuestra')).toBeTruthy();
+
+  fireEvent.click(screen.getAllByRole('button', { name: 'Más opciones' })[1]);
+  fireEvent.click(screen.getByRole('button', { name: 'Borrar canción' }));
+  expect(deleteMusic).not.toHaveBeenCalled();
+  await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Borrar canción' })); await flush(); });
+  expect(deleteMusic).toHaveBeenCalledWith('SEB1998', 'B');
+  expect(screen.queryByText('Canción B')).toBeNull();
 });
 
 test('tras la última vuelve a la primera', async () => {
