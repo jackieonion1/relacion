@@ -1,17 +1,30 @@
-import React from 'react';
+import React, { lazy, Suspense } from 'react';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter } from 'react-router';
 import App from './App';
 import './index.css';
 import './lib/firebase';
 import { guardShell } from './lib/shellGuard';
+import { applyTheme, watchSystemTheme } from './lib/theme';
+
+applyTheme(); // index.html already painted it; this also covers the theme-color
+watchSystemTheme();
+
+// Component sample page, development only and outside the pair/identity gates; the build drops it
+const Muestra = import.meta.env.DEV && window.location.pathname === '/dev/componentes'
+  ? lazy(() => import('./pages/Muestra'))
+  : null;
 
 const root = createRoot(document.getElementById('root'));
 root.render(
   <React.StrictMode>
-    <BrowserRouter>
-      <App />
-    </BrowserRouter>
+    {Muestra ? (
+      <Suspense fallback={null}><Muestra /></Suspense>
+    ) : (
+      <BrowserRouter>
+        <App />
+      </BrowserRouter>
+    )}
   </React.StrictMode>
 );
 

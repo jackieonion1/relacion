@@ -1,10 +1,13 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { createPortal } from 'react-dom';
-import Modal from '../components/Modal';
+import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
+import Sheet from '../components/Sheet';
+import Button from '../components/Button';
+import Icon from '../components/Icon';
+import NoteCard from '../components/NoteCard';
+import NoteThread, { NoteBody } from '../components/NoteThread';
 import RichTextEditor from '../components/RichTextEditor';
-import MarkdownRenderer from '../components/MarkdownRenderer';
 import { addNote, deleteNote, listenNotes, deleteThread, markThreadRead } from '../lib/notes';
 import { sanitizeHtml, htmlToPlain } from '../lib/sanitize';
+import { authorEmoji, noteMillis, noteWhen } from '../lib/noteText';
 
 export default function Notes() {
   const pairId = useMemo(() => localStorage.getItem('pairId') || '', []);
@@ -17,7 +20,7 @@ export default function Notes() {
   const [html, setHtml] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
-  const [saveError, setSaveError] = useState(''); // write rejected after the modal was closed
+  const [notice, setNotice] = useState(''); // write rejected after the sheet was closed, or a delete that failed
   const [deleteConfirmation, setDeleteConfirmation] = useState({ isOpen: false, id: '', preview: '' });
   const [selectedNote, setSelectedNote] = useState(null); // note object when viewing/editing existente
   const [isEditing, setIsEditing] = useState(false); // controls modal mode
@@ -27,6 +30,8 @@ export default function Notes() {
   const [selectedThreadId, setSelectedThreadId] = useState('');
   const [deleteThreadConfirmation, setDeleteThreadConfirmation] = useState({ isOpen: false, threadId: '' });
   const [isMessageModalOpen, setIsMessageModalOpen] = useState(false);
+  const [optionsOpen, setOptionsOpen] = useState(false);
+  const titleId = useId();
 
   useEffect(() => {
     // Sync unsubscribe; without a session yet it reports an error but still subscribes when the session arrives
@@ -41,6 +46,18 @@ export default function Notes() {
     return () => { try { unsub(); } catch {} };
   }, [pairId, listenKey]);
 
+  // Leaving Notas with the sheet open (back, another tab, a notification) unmounts the page without any of the
+  // five exits: the thread being read is marked read on the way out too
+  const readingThreadId = isModalOpen && !isEditing
+    ? (isThreadView ? selectedThreadId : (selectedNote?.threadId || selectedNote?.id || ''))
+    : '';
+  const readingRef = useRef('');
+  useEffect(() => { readingRef.current = readingThreadId; }, [readingThreadId]);
+  useEffect(() => () => {
+    const tid = readingRef.current;
+    if (tid) { try { markThreadRead(pairId, tid, identity); } catch {} }
+  }, [pairId, identity]);
+
   async function onSave(e) {
     e.preventDefault();
     if (!html || !html.replace(/<[^>]*>/g, '').trim()) {
@@ -49,7 +66,7 @@ export default function Notes() {
     }
     setSaving(true);
     setError('');
-    setSaveError('');
+    setNotice('');
     try {
       const clean = sanitizeHtml(html);
       const plain = htmlToPlain(clean);
@@ -58,7 +75,7 @@ export default function Notes() {
       const { committed } = await addNote(pairId, { html: clean, plain, title: titleTrim }, identity, { threadId: replyThreadId || '' });
       // If the server ends up rejecting it the listener drops the note: say so instead of losing it silently
       committed.catch(() => {
-        setSaveError(`No se pudo guardar la nota${titleTrim ? ` "${titleTrim}"` : ''}.`);
+        setNotice(`No se pudo guardar la nota${titleTrim ? ` "${titleTrim}"` : ''}.`);
       });
       setHtml('');
       setSelectedNote(null);
@@ -103,7 +120,7 @@ export default function Notes() {
       }
       setDeleteConfirmation({ isOpen: false, id: '', preview: '' });
     } catch (e) {
-      alert('Error al borrar');
+      setNotice('No se pudo borrar la nota.');
       setDeleteConfirmation({ isOpen: false, id: '', preview: '' });
     }
   }
@@ -123,13 +140,12 @@ export default function Notes() {
     setIsModalOpen(true);
   }
 
-  function replyToThread(threadId) {
-    setSelectedNote(null);
+  function openSingle(only) {
+    setSelectedNote(only);
+    setIsThreadView(false);
+    setIsEditing(false);
     setHtml('');
-    setIsEditing(true);
-    setError('');
-    setTitle('');
-    setReplyThreadId(threadId);
+    setTitle(only?.title || '');
     setIsModalOpen(true);
   }
 
@@ -149,18 +165,38 @@ export default function Notes() {
     setIsEditing(true);
     setError('');
     setTitle('');
+    // A reply cancelled with «Cancelar» left these set, and the next new note went into that thread
+    setReplyThreadId('');
+    setIsThreadView(false);
+    setSelectedThreadId('');
     setIsModalOpen(true);
+  }
+
+  // Exit: scrim or Escape. Marks read whatever was open (thread or single note)
+  function closeNoteSheet() {
+    try {
+      if (isThreadView && selectedThreadId) {
+        markThreadRead(pairId, selectedThreadId, identity);
+      } else if (selectedNote) {
+        const tid = selectedNote.threadId || selectedNote.id || '';
+        if (tid) markThreadRead(pairId, tid, identity);
+      }
+    } catch {}
+    setIsModalOpen(false); setHtml(''); setError(''); setSelectedNote(null); setIsEditing(false); setTitle('');
+    setReplyThreadId(''); setIsThreadView(false); setSelectedThreadId(''); setIsMessageModalOpen(false);
+  }
+
+  function askDeleteOpen() {
+    setOptionsOpen(false);
+    if (isThreadView) {
+      setDeleteThreadConfirmation({ isOpen: true, threadId: selectedThreadId });
+    } else if (selectedNote) {
+      onDelete(selectedNote.id, selectedNote.body || '', selectedNote.html || '', selectedNote.plain || '');
+    }
   }
 
   // Group notes by threadId and compute ordering/unread
   const threads = useMemo(() => {
-    const getMs = (x) => {
-      const t = x?.createdAt;
-      if (!t) return 0;
-      if (typeof t.toMillis === 'function') return t.toMillis();
-      if (t.seconds) return t.seconds * 1000;
-      return 0;
-    };
     const map = new Map();
     for (const n of notes) {
       const tid = n.threadId || n.id;
@@ -168,453 +204,197 @@ export default function Notes() {
       map.get(tid).push(n);
     }
     const list = Array.from(map.entries()).map(([threadId, items]) => {
-      items.sort((a, b) => getMs(a) - getMs(b));
+      items.sort((a, b) => noteMillis(a) - noteMillis(b));
       const latest = items[items.length - 1];
       const unread = items.some((it) => Array.isArray(it.unreadFor) && it.unreadFor.includes(identity));
       return { threadId, items, latest, unread };
     });
-    list.sort((a, b) => {
-      const am = (a.latest && (a.latest.createdAt?.toMillis?.() || (a.latest.createdAt?.seconds || 0) * 1000)) || 0;
-      const bm = (b.latest && (b.latest.createdAt?.toMillis?.() || (b.latest.createdAt?.seconds || 0) * 1000)) || 0;
-      return bm - am;
-    });
+    list.sort((a, b) => noteMillis(b.latest) - noteMillis(a.latest));
     return list;
   }, [notes, identity]);
 
-  // Estimate card height (rough) to balance columns without measuring DOM
-  const estimateHeight = (t) => {
-    const n = t.latest || {};
-    const titleLen = (n.title || '').length;
-    const textLen = n.html ? n.html.length : ((n.body || '').length);
-    const itemsFactor = (t.items?.length || 1) * 8;
-    return 120 + Math.min(600, Math.ceil((titleLen * 1.2 + textLen * 0.45) / 3)) + itemsFactor;
-  };
-
-  // Synchronous greedy split into two columns (avoids piling on the left)
-  const splitThreads = useMemo(() => {
-    const left = [];
-    const right = [];
-    let leftH = 0;
-    let rightH = 0;
-    for (const t of threads) {
-      const h = estimateHeight(t);
-      if (leftH <= rightH) { left.push(t); leftH += h; } else { right.push(t); rightH += h; }
-    }
-    return { left, right };
-  }, [threads]);
+  const openThreadData = isThreadView ? threads.find((x) => x.threadId === selectedThreadId) : null;
+  const threadCount = openThreadData ? openThreadData.items.length : 0;
+  const readingTitle = isThreadView ? openThreadData?.items[0]?.title : selectedNote?.title;
 
   return (
-    <div className="space-y-4">
-      <h2 className="text-lg font-semibold text-rose-600">Notas</h2>
+    // Own 16 px gutter: with R2 the shell's <main> has no padding on this route (bottom room for the bar is the shell's)
+    <div className="flex flex-col gap-4 px-4 pb-6">
+      <header className="flex items-end justify-between gap-3 pt-1.5 pl-1">
+        <h1 className="serif text-4xl leading-[1.05] font-normal tracking-[-0.01em]">Notas</h1>
+        <Button icon="editar" onClick={startNewNote}>Escribir</Button>
+      </header>
 
-      {saveError && (
-        <div className="card flex items-center justify-between gap-3 text-sm text-rose-600">
-          <span>{saveError}</span>
-          <button type="button" onClick={() => setSaveError('')} className="btn-link" aria-label="Cerrar aviso">×</button>
+      {notice && (
+        <div role="status" className="card flex items-center justify-between gap-3 py-2 pr-2 text-[15px] text-ink">
+          <span>{notice}</span>
+          <Button icon="cerrar" label="Cerrar aviso" onClick={() => setNotice('')} />
         </div>
       )}
       {loadError && (
-        <div className="card flex items-center justify-between gap-3 text-sm text-rose-600">
-          <span>No se pudo cargar.</span>
-          <button type="button" onClick={() => { setLoadError(false); setListenKey((k) => k + 1); }} className="btn-link">Reintentar</button>
-        </div>
+        <section role="alert" className="flex items-center justify-between gap-3 py-3 pl-4 pr-3 rounded-hero bg-sunk">
+          <p className="text-[15px] text-ink">No se pudieron cargar las notas.</p>
+          <Button variant="sec" onClick={() => { setLoadError(false); setListenKey((k) => k + 1); }}>Reintentar</Button>
+        </section>
       )}
 
-      {/* Grid 2 x n */}
       {loading ? (
-        <div className="card text-gray-500 text-sm">Cargando…</div>
+        <div aria-label="Cargando notas" className="flex flex-col gap-2.5">
+          <span className="block h-[142px] rounded-tarjeta bg-sunk animate-pulse" />
+          <span className="block h-[142px] rounded-tarjeta bg-sunk animate-pulse" />
+          <span className="block h-[142px] rounded-tarjeta bg-sunk animate-pulse" />
+        </div>
       ) : notes.length === 0 ? (
-        !loadError && <div className="card text-gray-500 text-sm">Aún no hay notas.</div>
+        !loadError && (
+          <section className="flex flex-col items-center gap-2.5 py-9 px-6 rounded-hero border-[1.5px] border-dashed border-line text-center">
+            <h2 className="serif text-[26px] font-normal">Ninguna nota todavía</h2>
+            <p className="max-w-[260px] text-[15px] text-ink-2 text-pretty">Una lista, una receta, algo que no quieres que se te olvide decir.</p>
+            <Button size="m" onClick={startNewNote}>Escribir la primera</Button>
+          </section>
+        )
       ) : (
-        <div className="masonry-grid pb-20">
-          <div className="masonry-col">
-            {splitThreads.left.map((t) => {
-              const n = t.latest;
-              return (
-                <div key={t.threadId} className="stack-wrapper relative">
-                  <div
-                    className="card p-4 flex flex-col relative cursor-pointer"
-                    onClick={() => {
-                      if (t.items.length > 1) {
-                        openThread(t);
-                      } else {
-                        const only = t.items[0];
-                        setSelectedNote(only);
-                        setIsThreadView(false);
-                        setIsEditing(false);
-                        setHtml('');
-                        setTitle(only?.title || '');
-                        setIsModalOpen(true);
-                      }
-                    }}
-                  >
-                    {/* title + author */}
-                    {n.title ? (
-                      <div className="title-sm mb-1 flex items-center justify-between">
-                        <div className="flex items-center gap-2 min-w-0">
-                          <span className="truncate">{n.title}</span>
-                          {t.unread && <span className="inline-block w-2 h-2 bg-rose-500 rounded-full" title="Sin leer"></span>}
-                        </div>
-                        <div className="flex items-center gap-1">
-                          {n.identity === 'yo' || n.identity === 'ella' ? (
-                            <span className="text-base" title="Autor">{n.identity === 'yo' ? '🫒' : '🍪'}</span>
-                          ) : null}
-                          {t.items.length > 1 && (
-                            <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-rose-100 text-rose-700 text-[10px] leading-none border border-rose-200" title="Mensajes en el hilo">{t.items.length}</span>
-                          )}
-                        </div>
-                      </div>
-                    ) : (
-                      (n.identity === 'yo' || n.identity === 'ella') ? (
-                        <div className="title-sm mb-1 flex items-center justify-between">
-                          <div className="flex items-center gap-2 min-w-0">
-                            <span />
-                            {t.unread && <span className="inline-block w-2 h-2 bg-rose-500 rounded-full" title="Sin leer"></span>}
-                          </div>
-                          <div className="flex items-center gap-1">
-                            <span className="text-base" title="Autor">{n.identity === 'yo' ? '🫒' : '🍪'}</span>
-                            {t.items.length > 1 && (
-                              <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-rose-100 text-rose-700 text-[10px] leading-none border border-rose-200" title="Mensajes en el hilo">{t.items.length}</span>
-                            )}
-                          </div>
-                        </div>
-                      ) : null
-                    )}
-                    {/* content snippet of latest */}
-                    <div className="note-snippet note-card">
-                      {n.html ? (
-                        <div dangerouslySetInnerHTML={{ __html: sanitizeHtml(n.html) }} />
-                      ) : (
-                        <MarkdownRenderer markdown={n.body || ''} />
-                      )}
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-          <div className="masonry-col">
-            {splitThreads.right.map((t) => {
-              const n = t.latest;
-              return (
-                <div key={t.threadId} className="stack-wrapper relative">
-                  <div
-                    className="card p-4 flex flex-col relative cursor-pointer"
-                    onClick={() => {
-                      if (t.items.length > 1) {
-                        openThread(t);
-                      } else {
-                        const only = t.items[0];
-                        setSelectedNote(only);
-                        setIsThreadView(false);
-                        setIsEditing(false);
-                        setHtml('');
-                        setTitle(only?.title || '');
-                        setIsModalOpen(true);
-                      }
-                    }}
-                  >
-                    {/* title + author */}
-                    {n.title ? (
-                      <div className="title-sm mb-1 flex items-center justify-between">
-                        <div className="flex items-center gap-2 min-w-0">
-                          <span className="truncate">{n.title}</span>
-                          {t.unread && <span className="inline-block w-2 h-2 bg-rose-500 rounded-full" title="Sin leer"></span>}
-                        </div>
-                        <div className="flex items-center gap-1">
-                          {n.identity === 'yo' || n.identity === 'ella' ? (
-                            <span className="text-base" title="Autor">{n.identity === 'yo' ? '🫒' : '🍪'}</span>
-                          ) : null}
-                          {t.items.length > 1 && (
-                            <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-rose-100 text-rose-700 text-[10px] leading-none border border-rose-200" title="Mensajes en el hilo">{t.items.length}</span>
-                          )}
-                        </div>
-                      </div>
-                    ) : (
-                      (n.identity === 'yo' || n.identity === 'ella') ? (
-                        <div className="title-sm mb-1 flex items-center justify-between">
-                          <div className="flex items-center gap-2 min-w-0">
-                            <span />
-                            {t.unread && <span className="inline-block w-2 h-2 bg-rose-500 rounded-full" title="Sin leer"></span>}
-                          </div>
-                          <div className="flex items-center gap-1">
-                            <span className="text-base" title="Autor">{n.identity === 'yo' ? '🫒' : '🍪'}</span>
-                            {t.items.length > 1 && (
-                              <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-rose-100 text-rose-700 text-[10px] leading-none border border-rose-200" title="Mensajes en el hilo">{t.items.length}</span>
-                            )}
-                          </div>
-                        </div>
-                      ) : null
-                    )}
-                    {/* content snippet of latest */}
-                    <div className="note-snippet note-card">
-                      {n.html ? (
-                        <div dangerouslySetInnerHTML={{ __html: sanitizeHtml(n.html) }} />
-                      ) : (
-                        <MarkdownRenderer markdown={n.body || ''} />
-                      )}
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+        <div className="flex flex-col gap-2.5">
+          {threads.map((t) => (
+            <NoteCard key={t.threadId} thread={t} onOpen={() => (t.items.length > 1 ? openThread(t) : openSingle(t.items[0]))} />
+          ))}
         </div>
       )}
 
-      {/* FAB Nueva nota: render fuera del contenedor con scroll */}
-      {createPortal(
-        <button
-          className="fab btn-primary shadow-lg rounded-full px-5 py-3 font-semibold"
-          onClick={startNewNote}
-          aria-label="Nueva nota"
-          title="Nueva nota"
-        >
-          Nueva nota
-        </button>,
-        document.body
-      )}
+      {/* The note sheet: thread, single note or editor. Its five exits mark the thread read (plan F10) */}
+      <Sheet isOpen={isModalOpen} onClose={closeNoteSheet} label={!isEditing && !readingTitle ? 'Nota' : undefined}>
+        {/* Thread view */}
+        {!isEditing && isThreadView && (
+          <NoteThread
+            items={openThreadData ? openThreadData.items : []}
+            identity={identity}
+            countLabel={`${threadCount} ${threadCount === 1 ? 'nota' : 'notas'}`}
+            unread={!!openThreadData?.unread}
+            onOptions={() => setOptionsOpen(true)}
+            onOpenMessage={openNoteMessage}
+            onReply={() => {
+              try { markThreadRead(pairId, selectedThreadId, identity); } catch {}
+              setIsEditing(true);
+              setReplyThreadId(selectedThreadId);
+              setHtml('');
+              setTitle('');
+            }}
+            onBack={() => {
+              try { markThreadRead(pairId, selectedThreadId, identity); } catch {}
+              setIsModalOpen(false);
+              setIsThreadView(false);
+              setSelectedThreadId('');
+            }}
+          />
+        )}
 
-      {/* Modal Nueva Nota */}
-      <Modal isOpen={isModalOpen} onClose={() => { try { if (isThreadView && selectedThreadId) { markThreadRead(pairId, selectedThreadId, identity); } else if (selectedNote) { const tid = selectedNote.threadId || selectedNote.id || ''; if (tid) markThreadRead(pairId, tid, identity); } } catch {}; setIsModalOpen(false); setHtml(''); setError(''); setSelectedNote(null); setIsEditing(false); setTitle(''); setReplyThreadId(''); setIsThreadView(false); setSelectedThreadId(''); setIsMessageModalOpen(false); }}>
-        <div className="p-6 flex flex-col gap-4" style={{ maxHeight: '75vh' }}>
-          {/* Thread view */}
-          {!isEditing && isThreadView && (
-            <>
-              {(() => {
-                const th = threads.find((x) => x.threadId === selectedThreadId);
-                const count = th ? th.items.length : 0;
-                const hasUnread = th && th.unread;
-                return (
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <h3 className="font-semibold text-lg truncate">{count} {count === 1 ? 'nota' : 'notas'}</h3>
-                      {hasUnread && <span className="inline-block w-2 h-2 bg-rose-500 rounded-full" title="Sin leer"></span>}
-                    </div>
-                    <span />
-                  </div>
-                );
-              })()}
-              {/* List of mensajes en thread */}
-              <div className="space-y-3 flex-1 overflow-y-auto pr-1">
-                {(() => {
-                  const th = threads.find((x) => x.threadId === selectedThreadId);
-                  const items = th ? th.items : [];
-                  return items.map((it) => {
-                    const isUnread = Array.isArray(it.unreadFor) && it.unreadFor.includes(identity);
-                    return (
-                      <button
-                        key={it.id}
-                        className="text-left w-full note-content card p-3 hover:bg-rose-50 transition-colors"
-                        onClick={() => { openNoteMessage(it); }}
-                      >
-                        <div className="mb-1 flex items-center justify-between">
-                          <div className="flex items-center gap-2 min-w-0">
-                            {it.title ? <span className="title-sm truncate">{it.title}</span> : <span />}
-                            {isUnread && <span className="inline-block w-2 h-2 bg-rose-500 rounded-full" title="Sin leer"></span>}
-                          </div>
-                          <span className="text-base" title="Autor">{it.identity === 'yo' ? '🫒' : '🍪'}</span>
-                        </div>
-                        {it.html ? (
-                          <div className="text-sm" dangerouslySetInnerHTML={{ __html: sanitizeHtml(it.html || '') }} />
-                        ) : (
-                          <MarkdownRenderer markdown={it.body || ''} />
-                        )}
-                      </button>
-                    );
-                  });
-                })()}
-              </div>
-              <div className="flex items-center justify-between">
-                <button type="button" onClick={() => setDeleteThreadConfirmation({ isOpen: true, threadId: selectedThreadId })} className="btn-link">Borrar hilo</button>
-                <div className="flex justify-end gap-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      try { markThreadRead(pairId, selectedThreadId, identity); } catch {}
-                      setIsEditing(true);
-                      setReplyThreadId(selectedThreadId);
-                      setHtml('');
-                      setTitle('');
-                    }}
-                    className="btn-primary"
-                  >Responder</button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      try { markThreadRead(pairId, selectedThreadId, identity); } catch {}
-                      setIsModalOpen(false);
-                      setIsThreadView(false);
-                      setSelectedThreadId('');
-                    }}
-                    className="btn-ghost"
-                  >Cerrar</button>
-                </div>
-              </div>
-            </>
-          )}
+        {/* Single note view (detalle) */}
+        {!isEditing && !isThreadView && selectedNote && (
+          <NoteThread
+            items={[selectedNote]}
+            identity={identity}
+            countLabel=""
+            unread={false}
+            onOptions={() => setOptionsOpen(true)}
+            onOpenMessage={openNoteMessage}
+            onBack={() => {
+              try { markThreadRead(pairId, (selectedNote?.threadId || selectedNote?.id || ''), identity); } catch {}
+              setIsModalOpen(false);
+              setSelectedNote(null);
+            }}
+            onReply={() => {
+              try { markThreadRead(pairId, (selectedNote?.threadId || selectedNote?.id || ''), identity); } catch {}
+              setIsEditing(true);
+              setReplyThreadId(selectedNote?.threadId || selectedNote?.id || '');
+              setHtml('');
+              setTitle('');
+            }}
+          />
+        )}
 
-          {/* Single note view (detalle) */}
-          {!isEditing && !isThreadView && selectedNote && (
-            <>
-              {selectedNote.title ? (
-                <h3 className="font-semibold text-lg">{selectedNote.title}</h3>
-              ) : null}
-              <div className="note-content">
-                {selectedNote.html ? (
-                  <div dangerouslySetInnerHTML={{ __html: sanitizeHtml(selectedNote.html || '') }} />
-                ) : (
-                  <MarkdownRenderer markdown={selectedNote.body || ''} />
-                )}
-              </div>
-              <div className="flex items-center justify-between">
-                <button
-                  type="button"
-                  onClick={() => onDelete(selectedNote.id, selectedNote.body || '', selectedNote.html || '', selectedNote.plain || '')}
-                  className="btn-link"
-                >
-                  Borrar
-                </button>
-                <div className="flex justify-end gap-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      try { markThreadRead(pairId, (selectedNote?.threadId || selectedNote?.id || ''), identity); } catch {}
-                      setIsModalOpen(false);
-                      setSelectedNote(null);
-                    }}
-                    className="btn-ghost"
-                  >Cerrar</button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      try { markThreadRead(pairId, (selectedNote?.threadId || selectedNote?.id || ''), identity); } catch {}
-                      setIsEditing(true);
-                      setReplyThreadId(selectedNote?.threadId || selectedNote?.id || '');
-                      setHtml('');
-                      setTitle('');
-                    }}
-                    className="btn-primary"
-                  >Responder</button>
-                </div>
-              </div>
-            </>
-          )}
+        {/* Editor: new note or reply, both with the optional title */}
+        {isEditing && (
+          <form onSubmit={onSave} className="flex flex-col gap-3 px-5 pt-1 pb-[34px]">
+            <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
+              <Button
+                variant="txt"
+                onClick={() => { if (selectedNote) { setIsEditing(false); } else { setIsModalOpen(false); } }}
+                className="justify-self-start px-1 text-base text-ink-2"
+              >Cancelar</Button>
+              <h2 className="etiqueta">{replyThreadId ? 'Respuesta' : 'Nueva nota'}</h2>
+              <Button type="submit" busy={saving} busyText="Publicando…" className="justify-self-end">Publicar</Button>
+            </div>
+            <p className="flex items-center gap-2 text-[13px] text-ink-2">
+              <span className="inline-flex items-center justify-center size-7 rounded-full bg-sunk text-[15px] leading-none">{authorEmoji(identity)}</span>
+              Escribes tú
+            </p>
+            <label htmlFor={titleId} className="sr-only">Título (opcional)</label>
+            <input
+              id={titleId}
+              type="text"
+              placeholder="Título"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              className="serif w-full p-0 border-0 bg-transparent text-[32px] leading-[1.15] text-ink outline-hidden placeholder:text-ink-2"
+            />
+            <RichTextEditor html={html} onChange={setHtml} />
+            {error && <p role="alert" className="text-sm text-danger">{error}</p>}
+          </form>
+        )}
+      </Sheet>
 
-          {/* Edit mode (crear/editar) */}
-          {isEditing && (
-            <form onSubmit={onSave} className="space-y-4">
-              <input
-                type="text"
-                className="input w-full"
-                placeholder="Título"
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-              />
-              <RichTextEditor html={html} onChange={setHtml} />
-              {error && <p className="text-xs text-rose-600">{error}</p>}
-              <div className="flex justify-end gap-2">
-                <button type="button" onClick={() => { if (selectedNote) { setIsEditing(false); } else { setIsModalOpen(false); } }} className="btn-ghost">Cancelar</button>
-                <button disabled={saving} className="btn-primary disabled:opacity-60">{saving ? 'Guardando…' : 'Guardar'}</button>
-              </div>
-            </form>
-          )}
-        </div>
-      </Modal>
-
-      {/* Overlay modal for single message detail */}
-      <Modal isOpen={isMessageModalOpen} onClose={() => { setIsMessageModalOpen(false); setSelectedNote(null); setIsEditing(false); setHtml(''); setTitle(''); }}>
-        <div className="p-6 space-y-4">
-          {/* Single note view (detalle) */}
-          {!isEditing && selectedNote && (
-            <>
-              {selectedNote.title ? (
-                <h3 className="font-semibold text-lg">{selectedNote.title}</h3>
-              ) : null}
-              <div className="note-content">
-                {selectedNote.html ? (
-                  <div dangerouslySetInnerHTML={{ __html: sanitizeHtml(selectedNote.html || '') }} />
-                ) : (
-                  <MarkdownRenderer markdown={selectedNote.body || ''} />
-                )}
-              </div>
-              <div className="flex justify-end">
-                <button type="button" onClick={() => { setIsMessageModalOpen(false); setSelectedNote(null); }} className="btn-ghost">Cerrar</button>
-              </div>
-            </>
-          )}
-
-          {/* Edit mode (crear/editar) within overlay */}
-          {isEditing && (
-            <form onSubmit={onSave} className="space-y-4">
-              <input
-                type="text"
-                className="input w-full"
-                placeholder="Título"
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-              />
-              <RichTextEditor html={html} onChange={setHtml} />
-              {error && <p className="text-xs text-rose-600">{error}</p>}
-              <div className="flex justify-end gap-2">
-                <button type="button" onClick={() => { setIsEditing(false); }} className="btn-ghost">Cancelar</button>
-                <button disabled={saving} className="btn-primary disabled:opacity-60">{saving ? 'Guardando…' : 'Guardar'}</button>
-              </div>
-            </form>
-          )}
-        </div>
-      </Modal>
-
-      {/* Delete thread confirmation modal */}
-      <Modal isOpen={deleteThreadConfirmation.isOpen} onClose={() => setDeleteThreadConfirmation({ isOpen: false, threadId: '' })}>
-        <div className="p-6 text-center">
-          <div className="text-4xl mb-4">🗑️</div>
-          <h3 className="text-lg font-semibold mb-2">Borrar hilo</h3>
-          <p className="text-gray-600 mb-6">Se borrarán todas las notas de este hilo. ¿Seguro?</p>
-          <div className="flex gap-3 justify-center">
-            <button 
-              onClick={() => setDeleteThreadConfirmation({ isOpen: false, threadId: '' })}
-              className="px-4 py-2 text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
-            >
-              Cancelar
-            </button>
-            <button 
-              onClick={async () => { try { await deleteThread(pairId, deleteThreadConfirmation.threadId); } catch {}; setDeleteThreadConfirmation({ isOpen: false, threadId: '' }); setIsModalOpen(false); setIsThreadView(false); setSelectedThreadId(''); }}
-              className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
-            >
-              Borrar hilo
-            </button>
+      {/* One reply on its own, above the thread: only «Cerrar» */}
+      <Sheet isOpen={isMessageModalOpen} onClose={() => { setIsMessageModalOpen(false); setSelectedNote(null); setIsEditing(false); setHtml(''); setTitle(''); }}>
+        {!isEditing && selectedNote && (
+          <div className="flex flex-col gap-3 px-5 pt-2 pb-[34px]">
+            <p className="text-[13px] text-ink-2">
+              {authorEmoji(selectedNote.identity) && <>{authorEmoji(selectedNote.identity)} · </>}{noteWhen(selectedNote)}
+            </p>
+            {selectedNote.title && <h2 className="serif text-[26px] leading-[1.15] font-normal break-words">{selectedNote.title}</h2>}
+            <NoteBody note={selectedNote} className="pb-2 text-[17px] leading-[1.55]" />
+            <Button variant="sec" size="l" onClick={() => { setIsMessageModalOpen(false); setSelectedNote(null); }}>Cerrar</Button>
           </div>
-        </div>
-      </Modal>
+        )}
+      </Sheet>
 
-      {/* Delete confirmation modal */}
-      <Modal isOpen={deleteConfirmation.isOpen} onClose={cancelDelete}>
-        <div className="p-6 text-center">
-          <div className="text-4xl mb-4">🗑️</div>
-          <h3 className="text-lg font-semibold mb-2">Borrar nota</h3>
-          <p className="text-gray-600 mb-6">
-            ¿Seguro que quieres borrar esta nota?
-          </p>
+      {/* Nota-opciones: only «Borrar» (Q4: no editing, no deleting a single reply) */}
+      <Sheet isOpen={optionsOpen} onClose={() => setOptionsOpen(false)} label="Opciones de la nota">
+        <div className="flex flex-col px-3 pt-2 pb-[34px]">
+          <button
+            type="button"
+            onClick={askDeleteOpen}
+            className="flex items-center gap-3.5 min-h-14 px-3 rounded-control text-base font-semibold text-danger active:bg-sunk"
+          >
+            <Icon name="borrar" />Borrar nota
+          </button>
+        </div>
+      </Sheet>
+
+      {/* Delete thread confirmation */}
+      <Sheet isOpen={deleteThreadConfirmation.isOpen} onClose={() => setDeleteThreadConfirmation({ isOpen: false, threadId: '' })}>
+        <div className="flex flex-col gap-1.5 px-5 pt-2 pb-[34px]">
+          <h2 className="serif text-[26px] leading-[1.15] font-normal">¿Borrar esta nota?</h2>
+          <p className="pb-3.5 text-[15px] text-ink-2">Se borra con sus respuestas, para los dos. No se puede deshacer.</p>
+          <Button
+            variant="dan"
+            size="l"
+            onClick={async () => { try { await deleteThread(pairId, deleteThreadConfirmation.threadId); } catch {}; setDeleteThreadConfirmation({ isOpen: false, threadId: '' }); setIsModalOpen(false); setIsThreadView(false); setSelectedThreadId(''); }}
+          >Borrar nota</Button>
+          <Button variant="txt" size="l" onClick={() => setDeleteThreadConfirmation({ isOpen: false, threadId: '' })}>Cancelar</Button>
+        </div>
+      </Sheet>
+
+      {/* Delete single note confirmation */}
+      <Sheet isOpen={deleteConfirmation.isOpen} onClose={cancelDelete}>
+        <div className="flex flex-col gap-1.5 px-5 pt-2 pb-[34px]">
+          <h2 className="serif text-[26px] leading-[1.15] font-normal">¿Borrar esta nota?</h2>
           {deleteConfirmation.preview && (
-            <div className="text-xs text-gray-500 mb-6 line-clamp-3">“{deleteConfirmation.preview}”</div>
+            <p className="py-1 text-[15px] text-ink line-clamp-3 break-words">“{deleteConfirmation.preview}”</p>
           )}
-          <div className="flex gap-3 justify-center">
-            <button 
-              onClick={cancelDelete}
-              className="px-4 py-2 text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
-            >
-              Cancelar
-            </button>
-            <button 
-              onClick={confirmDelete}
-              className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
-            >
-              Borrar
-            </button>
-          </div>
+          <p className="pb-3.5 text-[15px] text-ink-2">Se borra para los dos. No se puede deshacer.</p>
+          <Button variant="dan" size="l" onClick={confirmDelete}>Borrar nota</Button>
+          <Button variant="txt" size="l" onClick={cancelDelete}>Cancelar</Button>
         </div>
-      </Modal>
+      </Sheet>
     </div>
   );
 }

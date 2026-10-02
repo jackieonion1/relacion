@@ -1,0 +1,66 @@
+/* Music (Music.jsx). List cascade, loading slots, the "now playing" bars, karaoke word and the player's progress bar
+   (Prototipo.dc.html, "MÚSICA" and "Reproductor"). With "Reducir movimiento" the global rule in index.css ends them */
+.musica-fila { animation: musica-fila-in 320ms var(--ease-suave) backwards; }
+@keyframes musica-fila-in {
+  from { opacity: 0; transform: scale(0.94); }
+  to { opacity: 1; transform: none; }
+}
+
+.musica-hueco { position: relative; display: block; height: 56px; border-radius: 12px; background-color: var(--sunk); overflow: hidden; }
+.musica-hueco::after {
+  content: ""; position: absolute; inset: 0;
+  background: linear-gradient(100deg, transparent 30%, var(--shine) 50%, transparent 70%);
+  transform: translateX(-100%);
+  animation: musica-brillo 1500ms var(--ease-suave) infinite;
+}
+@keyframes musica-brillo { to { transform: translateX(100%); } }
+
+/* Generated cover: the gradient comes from the song id, the grain is the prototype's .ph */
+.musica-portada { position: relative; overflow: hidden; flex: none; }
+.musica-portada::after {
+  content: ""; position: absolute; inset: 0; pointer-events: none; opacity: 0.28; mix-blend-mode: soft-light;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* Three bars next to the song that is loaded; they only move while it plays */
+.musica-eq { display: inline-flex; gap: 2px; align-items: flex-end; height: 12px; flex: none; }
+.musica-eq span { width: 3px; height: 4px; border-radius: 2px; background-color: var(--lacre); }
+.musica-eq.on span { animation: musica-eq 820ms ease-in-out infinite alternate; }
+.musica-eq.on span:nth-child(2) { animation-delay: -280ms; }
+.musica-eq.on span:nth-child(3) { animation-delay: -560ms; }
+@keyframes musica-eq { 0% { height: 3px; } 100% { height: 12px; } }
+
+/* Karaoke: the word that sounds now */
+.musica-kw { transition: color 160ms var(--ease-suave); }
+.musica-kw.now {
+  color: var(--accent-ink);
+  background-image: linear-gradient(var(--lacre-soft), var(--lacre-soft));
+  background-repeat: no-repeat; background-position: 0 90%; background-size: 100% 40%;
+}
+
+/* Progress bar (A6): the same <input type="range"> and handlers, restyled as the prototype (4 px track, 14 px dot).
+   The input stays 24 px tall so the finger has room */
+.reproductor .progress-range {
+  --prg: var(--lacre);
+  --trk: var(--sunk);
+  height: 24px;
+}
+.reproductor .progress-range::-webkit-slider-runnable-track {
+  height: 4px;
+  background:
+    linear-gradient(to right, var(--prg) 0 var(--pct), rgba(0,0,0,0) var(--pct) 100%),
+    linear-gradient(var(--trk), var(--trk));
+}
+.reproductor .progress-range::-webkit-slider-thumb {
+  /* autoprefixer: ignore next */
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  margin-top: -5px; /* (4 - 14) / 2 */
+  border-radius: 7px;
+  background: var(--prg);
+}
+.reproductor .progress-range::-moz-range-track { height: 4px; }
+.reproductor .progress-range::-moz-range-progress { height: 4px; }
+.reproductor .progress-range::-moz-range-thumb { width: 14px; height: 14px; border-radius: 7px; }

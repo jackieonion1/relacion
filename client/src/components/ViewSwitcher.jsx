@@ -1,19 +1,20 @@
 import React from 'react';
 
-export default function ViewSwitcher({ views, activeView, onChange }) {
+// Segmented control. `labels` renames what is shown without touching the values the page keeps
+export default function ViewSwitcher({ views, activeView, onChange, labels = {} }) {
   return (
-    <div className="bg-gray-200 p-1 rounded-lg flex items-center justify-center space-x-1">
+    <div className="grid h-[52px] p-1 rounded-full bg-sunk" style={{ gridTemplateColumns: `repeat(${views.length}, minmax(0, 1fr))` }}>
       {views.map((view) => (
         <button
           key={view}
+          type="button"
+          aria-pressed={activeView === view}
           onClick={() => onChange(view)}
-          className={`w-full text-center px-4 py-1.5 rounded-md text-sm font-semibold transition-colors duration-200 ${
-            activeView === view
-              ? 'bg-white text-gray-800 shadow-sm'
-              : 'bg-transparent text-gray-600 hover:bg-gray-300/50'
+          className={`min-w-0 rounded-full text-[15px] font-semibold transition-colors ${
+            activeView === view ? 'bg-raised text-ink shadow-carta' : 'text-ink-2'
           }`}
         >
-          {view}
+          {labels[view] || view}
         </button>
       ))}
     </div>

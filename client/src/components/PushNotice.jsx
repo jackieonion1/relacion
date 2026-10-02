@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { resyncPush, subscribeToPush } from '../lib/push';
 import { decideNotice, dismissNotice } from '../lib/pushResync';
+import Aviso, { useAvisoTurn } from './Aviso';
 
 const vapid = () => import.meta.env.REACT_APP_VAPID_PUBLIC_KEY || '';
 
@@ -26,7 +27,9 @@ export default function PushNotice() {
     return () => { alive = false; };
   }, []);
 
-  if (!show) return null;
+  // The slot only decides when it paints: the resync above runs on mount whatever the turn (plan §4)
+  const myTurn = useAvisoTurn('push', show);
+  if (!myTurn) return null;
 
   async function activate() {
     setBusy(true);
@@ -48,14 +51,9 @@ export default function PushNotice() {
   const later = () => { try { dismissNotice(localStorage); } catch {} setShow(false); };
 
   return (
-    <div className="mx-auto w-full max-w-screen-md px-4 pt-3">
-      <div role="status" className="rounded-xl border border-rose-200 bg-rose-50 text-rose-900 px-4 py-3 text-sm flex items-center gap-3">
-        <div className="flex-1">
-          {failed ? 'No se pudo activar. Prueba en Ajustes.' : 'Activa las notificaciones para enterarte de lo nuevo'}
-        </div>
-        <button onClick={activate} disabled={busy} className="btn-primary text-xs disabled:opacity-60">Activar</button>
-        <button onClick={later} disabled={busy} className="btn-ghost text-xs">Luego</button>
-      </div>
-    </div>
+    <Aviso title={failed ? 'No se pudo activar. Prueba en Ajustes.' : 'Activa las notificaciones para enterarte de lo nuevo'}>
+      <button onClick={activate} disabled={busy} className="btn btn-inv">Activar</button>
+      <button onClick={later} disabled={busy} className="btn aviso-txt">Luego</button>
+    </Aviso>
   );
 }

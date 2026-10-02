@@ -1,10 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import { applyUpdate, checkForUpdate, getRegistration } from '../lib/appUpdate';
+import Aviso, { useAvisoTurn } from './Aviso';
+import Icon from './Icon';
 
 const THROTTLE_MS = 5 * 60 * 1000;
 const INTERVAL_MS = 30 * 60 * 1000;
 
-// «Nueva versión disponible»: solo avisa; recarga únicamente al pulsar «Actualizar»
+// «Hay una versión nueva»: solo avisa; recarga únicamente al pulsar «Actualizar»
 export default function UpdateBanner() {
   const [available, setAvailable] = useState(false);
   const [dismissed, setDismissed] = useState(false);
@@ -58,7 +60,8 @@ export default function UpdateBanner() {
     };
   }, []);
 
-  if (!available || dismissed) return null;
+  const myTurn = useAvisoTurn('update', available && !dismissed);
+  if (!myTurn) return null;
 
   const update = async () => {
     setUpdating(true);
@@ -66,14 +69,13 @@ export default function UpdateBanner() {
   };
 
   return (
-    <div className="mx-auto w-full max-w-screen-md px-4 pt-3">
-      <div role="status" className="rounded-xl border border-rose-200 bg-rose-50 text-rose-900 px-4 py-3 text-sm flex items-center gap-3">
-        <div className="flex-1">Nueva versión disponible</div>
-        <button onClick={update} disabled={updating} className="btn-primary text-xs disabled:opacity-60">
-          {updating ? 'Actualizando…' : 'Actualizar'}
-        </button>
-        <button onClick={() => setDismissed(true)} disabled={updating} className="btn-ghost text-xs">Luego</button>
-      </div>
-    </div>
+    <Aviso icon="actualizar" title="Hay una versión nueva" text="Se aplica al actualizar; la música se para.">
+      <button onClick={update} disabled={updating} className="btn btn-inv">
+        {updating ? 'Actualizando…' : 'Actualizar'}
+      </button>
+      <button onClick={() => setDismissed(true)} disabled={updating} aria-label="Ahora no" className="aviso-cerrar">
+        <Icon name="cerrar" size={20} />
+      </button>
+    </Aviso>
   );
 }

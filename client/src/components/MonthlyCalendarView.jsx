@@ -1,9 +1,17 @@
 import React, { useState, useMemo, useEffect } from 'react';
+import Icon from './Icon';
+import { birthdayOn, isAnniversary, isMonthiversaryDay } from '../lib/specialDays';
+import { EVENT_TYPES, eventTypeOf } from '../lib/eventTypes';
 
 const monthNames = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
-const dayNames = ['D', 'L', 'M', 'X', 'J', 'V', 'S'];
+const dayNames = ['L', 'M', 'X', 'J', 'V', 'S', 'D'];
+// Cell tint of the days with a party: every 24th rose, each birthday in the colour of its owner
+const PARTY_TINT = { 'lucy-birthday': 'bg-sello-ella', 'sebas-birthday': 'bg-sello-el' };
+// Bars stacked from the bottom of the cell by lane, 6 px apart
+const LANE_BOTTOM = [3, 9, 15];
 
-export default function MonthlyCalendarView({ events = [], onDayClick, targetDate }) {
+// selected = { day, month, year } of the open day, marked in ink
+export default function MonthlyCalendarView({ events = [], onDayClick, targetDate, selected }) {
   const [currentDate, setCurrentDate] = useState(new Date());
 
   // If parent provides a targetDate, sync the shown month to it
@@ -114,93 +122,90 @@ export default function MonthlyCalendarView({ events = [], onDayClick, targetDat
     setCurrentDate(new Date(year, month + 1, 1));
   };
 
+  const monthGen = monthNames[month].toLowerCase();
   const calendarDays = [];
   // Padding for previous month
   for (let i = 0; i < firstDayOfMonth; i++) {
-    calendarDays.push(<div key={`pad-start-${i}`} className="p-2"></div>);
+    calendarDays.push(<span key={`pad-start-${i}`} aria-hidden="true" className="h-[58px]"></span>);
   }
   // Days of current month
   for (let day = 1; day <= daysInMonth; day++) {
     const date = new Date(year, month, day);
     const isToday = date.toDateString() === new Date().toDateString();
-    const isSpecialDay = day === 24; // Day 24 is special ❤️
-    const isAprilParty = day === 21 && month === 3; // April 21 🎉
-    const isNovemberParty = day === 4 && month === 10; // November 4 🎉
+    const isSelected = !!selected && selected.day === day && selected.month === month && selected.year === year;
+    const isSpecialDay = isMonthiversaryDay(day); // Day 24 is special ❤️
+    const birthday = birthdayOn(day, month)?.eventType; // April 21 and November 4 🎉
+    const col = (firstDayOfMonth + day - 1) % 7;
     const dateString = `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
     const eventInfos = eventsByDay.get(dateString) || [];
 
-    // Render event lines using their assigned lanes
+    // Event lines on their assigned lanes; a bar that goes on into the next week stays open at the row's edge
     const eventBars = eventInfos.map((eventInfo, index) => {
-      // Color based on event type
-      let colorClass = 'bg-rose-500'; // Default: conjunto (pink)
-      if (eventInfo.eventType === 'novio') {
-        colorClass = 'bg-yellow-500'; // Novio: yellow
-      } else if (eventInfo.eventType === 'novia') {
-        colorClass = 'bg-purple-500'; // Novia: purple
-      } else if (eventInfo.eventType === 'sebas-birthday') {
-        colorClass = 'bg-yellow-500'; // Sebas birthday: yellow
-      } else if (eventInfo.eventType === 'lucy-birthday') {
-        colorClass = 'bg-purple-400'; // Lucy birthday: lilac
-      } else if (eventInfo.eventType === 'conjunto' && eventInfo.isSpecialEvent) {
-        colorClass = 'bg-rose-500'; // Anniversary/monthiversary: pink
-      }
-      
-      // Position based on assigned lane with uniform 6px spacing (using safe positions)
-      const bottomPosition = eventInfo.lane === 0 ? 'bottom-1' : eventInfo.lane === 1 ? 'bottom-2.5' : 'bottom-4';
-      const baseClasses = `absolute ${bottomPosition} h-1 ${colorClass}`;
-      
-      if (eventInfo.type === 'single') {
-        return <div key={`${eventInfo.lane}-${index}`} className={`${baseClasses} left-1/2 -translate-x-1/2 w-4 rounded-full`}></div>;
-      } else if (eventInfo.type === 'start') {
-        // Start from where single event would start, extend to edge + margin
-        return <div key={`${eventInfo.lane}-${index}`} className={`${baseClasses} right-1 rounded-full`} style={{left: 'calc(50% - 8px)'}}></div>;
-      } else if (eventInfo.type === 'end') {
-        // Start from edge + margin, end where single event would end  
-        return <div key={`${eventInfo.lane}-${index}`} className={`${baseClasses} left-1 rounded-full`} style={{right: 'calc(50% - 8px)'}}></div>;
-      } else if (eventInfo.type === 'middle') {
-        // Full width with small margins to preserve border radius
-        return <div key={`${eventInfo.lane}-${index}`} className={`${baseClasses} left-1 right-1 rounded-full`}></div>;
-      }
-      return null;
+      const startsHere = eventInfo.type === 'single' || eventInfo.type === 'start';
+      const endsHere = eventInfo.type === 'single' || eventInfo.type === 'end';
+      const openLeft = !startsHere && col !== 0;
+      const openRight = !endsHere && col !== 6;
+      const left = startsHere ? 'calc(50% - 8px)' : (openLeft ? '0' : '4px');
+      const right = endsHere ? 'calc(50% - 8px)' : (openRight ? '0' : '4px');
+      const l = openLeft ? '0' : '2px';
+      const r = openRight ? '0' : '2px';
+      return (
+        <span
+          key={`${eventInfo.lane}-${index}`}
+          className={`absolute h-1 ${eventTypeOf(eventInfo.eventType).color}`}
+          style={{ bottom: LANE_BOTTOM[eventInfo.lane], left, right, borderRadius: `${l} ${r} ${r} ${l}` }}
+        />
+      );
     });
 
+    const party = isSpecialDay ? (isAnniversary(day, month) ? ', aniversario' : ', mesiversario') : (birthday ? ', cumpleaños' : '');
+    const count = eventInfos.length ? `, ${eventInfos.length} ${eventInfos.length > 1 ? 'eventos' : 'evento'}` : '';
+    const tint = isSpecialDay ? 'bg-lacre-soft' : (PARTY_TINT[birthday] || '');
+    let disc = 'font-medium';
+    if (isSelected) disc = 'bg-ink text-paper font-bold';
+    else if (isToday) disc = 'bg-lacre text-on-lacre font-bold';
+
     calendarDays.push(
-      <div 
-        key={`day-${day}`} 
-        className={`p-1 text-center border border-gray-200/80 rounded-lg h-16 flex items-center justify-center relative cursor-pointer hover:bg-gray-50 transition-colors ${isSpecialDay ? 'bg-rose-50 hover:bg-rose-100' : ''} ${isAprilParty ? 'bg-purple-50 hover:bg-purple-100' : ''} ${isNovemberParty ? 'bg-yellow-50 hover:bg-yellow-100' : ''}`}
+      <button
+        type="button"
+        key={`day-${day}`}
+        aria-label={`${day} de ${monthGen}${isToday ? ', hoy' : ''}${party}${count}`}
+        aria-pressed={isSelected}
+        className={`relative h-[58px] flex flex-col items-center pt-1 rounded-xl transition-colors active:bg-sunk ${tint}`}
         onClick={() => onDayClick && onDayClick(day, currentDate.getMonth(), currentDate.getFullYear())}
       >
-        <span className={`w-8 h-8 flex items-center justify-center rounded-full ${isToday ? 'bg-rose-500 text-white' : ''}`}>
+        <span className={`num w-[34px] h-[34px] flex items-center justify-center rounded-full text-[15px] ${disc}`}>
           {day}
         </span>
-        {isSpecialDay && (
-          <div className="absolute top-0.5 right-0.5 text-xs">
-            💖
-          </div>
+        {(isSpecialDay || birthday) && (
+          <span aria-hidden="true" className="absolute top-0.5 right-0.5 text-[11px] leading-none">
+            {isSpecialDay ? '💖' : '🎉'}
+          </span>
         )}
-        {(isAprilParty || isNovemberParty) && (
-          <div className="absolute top-0.5 right-0.5 text-xs">
-            🎉
-          </div>
-        )}
-        {eventBars}
-      </div>
+        <span aria-hidden="true" className="absolute inset-x-0 bottom-0 h-[22px]">{eventBars}</span>
+      </button>
     );
   }
 
   return (
-    <div className="card">
-      <div className="flex items-center justify-between mb-4">
-        <button onClick={handlePrevMonth} className="btn-ghost p-2 rounded-full w-10 h-10 flex items-center justify-center text-xl">‹</button>
-        <h3 className="font-semibold text-lg text-center">{monthNames[month]} {year}</h3>
-        <button onClick={handleNextMonth} className="btn-ghost p-2 rounded-full w-10 h-10 flex items-center justify-center text-xl">›</button>
+    <div>
+      <div className="flex items-center justify-between pb-2">
+        <button type="button" onClick={handlePrevMonth} aria-label="Mes anterior" className="btn btn-icono"><Icon name="atras" size={20} /></button>
+        <h2 className="serif text-2xl font-normal text-center">{monthNames[month]} {year}</h2>
+        <button type="button" onClick={handleNextMonth} aria-label="Mes siguiente" className="btn btn-icono"><Icon name="siguiente" size={20} /></button>
       </div>
-      <div className="grid grid-cols-7 gap-2 text-center text-sm font-medium text-gray-500 mb-2">
-        {dayNames.slice(1).map(day => <div key={day}>{day}</div>)}
-        <div>{dayNames[0]}</div>
+      <div aria-hidden="true" className="grid grid-cols-7 pb-1">
+        {dayNames.map((day) => <span key={day} className="etiqueta text-center">{day}</span>)}
       </div>
-      <div className="grid grid-cols-7 gap-1">
+      <div className="grid grid-cols-7 gap-y-0.5">
         {calendarDays}
+      </div>
+      <div className="flex flex-wrap gap-x-4 gap-y-1 justify-center pt-4 text-[13px] text-ink-2">
+        {EVENT_TYPES.map((t) => (
+          <span key={t.value} className="flex items-center gap-1.5">
+            <span aria-hidden="true" className={`w-4 h-1 rounded-sm ${t.color}`}></span>{t.emoji} {t.text}
+          </span>
+        ))}
       </div>
     </div>
   );

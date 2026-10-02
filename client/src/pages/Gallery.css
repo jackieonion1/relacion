@@ -1,0 +1,35 @@
+/* Gallery (Gallery.jsx). Grid cascade, slots that fill in and the indeterminate upload ring (Prototipo.dc.html,
+   "cuadrícula"). With "Reducir movimiento" the global rule in index.css ends them at once */
+.galeria-celda { animation: galeria-celda-in 320ms var(--ease-suave) backwards; }
+@keyframes galeria-celda-in {
+  from { opacity: 0; transform: scale(0.94); }
+  to { opacity: 1; transform: none; }
+}
+
+.galeria-hueco { position: absolute; inset: 0; background-color: var(--sunk); overflow: hidden; }
+.galeria-hueco::after {
+  content: ""; position: absolute; inset: 0;
+  background: linear-gradient(100deg, transparent 30%, var(--shine) 50%, transparent 70%);
+  transform: translateX(-100%);
+  animation: galeria-brillo 1500ms var(--ease-suave) infinite;
+}
+@keyframes galeria-brillo { to { transform: translateX(100%); } }
+
+.galeria-foto { animation: galeria-foto-in 280ms var(--ease-suave) backwards; }
+@keyframes galeria-foto-in {
+  from { opacity: 0; filter: blur(6px); }
+  to { opacity: 1; filter: none; }
+}
+
+/* Viewer arrows (C3): on a touch screen the swipe does it, so they only show with keyboard focus (the screen
+   reader still finds them) */
+@media (hover: none) and (pointer: coarse) {
+  .visor-flecha:not(:focus-visible) {
+    clip-path: inset(50%); width: 1px; height: 1px; overflow: hidden; white-space: nowrap;
+  }
+}
+.visor-flecha:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+
+/* uploadBytes reports no progress: the ring only turns (plan A9) */
+.galeria-anillo { animation: galeria-giro 1100ms linear infinite; }
+@keyframes galeria-giro { to { transform: rotate(360deg); } }

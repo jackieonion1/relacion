@@ -3,8 +3,8 @@
   "name": "Nosotros - Relación a distancia",
   "start_url": ".",
   "display": "standalone",
-  "background_color": "#ffffff",
-  "theme_color": "#ffffff",
+  "background_color": "#fdf5f3",
+  "theme_color": "#fdf5f3",
   "lang": "es",
   "icons": [
     {

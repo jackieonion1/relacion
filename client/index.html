@@ -3,7 +3,17 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
-    <meta name="theme-color" content="#ffffff" />
+    <meta name="theme-color" content="#fdf5f3" />
+    <script>
+      // Apariencia before the first paint, with the rules of src/lib/theme.js: Claro unless localStorage.tema says otherwise
+      try {
+        var tema = localStorage.getItem('tema');
+        if (tema === 'oscuro' || (tema === 'sistema' && matchMedia('(prefers-color-scheme: dark)').matches)) {
+          document.documentElement.dataset.tema = 'oscuro';
+          document.querySelector('meta[name="theme-color"]').content = '#191010';
+        }
+      } catch (e) {}
+    </script>
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />

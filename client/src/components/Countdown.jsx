@@ -1,6 +1,9 @@
 import React, { useState, useEffect, useMemo } from 'react';
 
-const Countdown = ({ toDate }) => {
+const pad2 = (n) => String(n).padStart(2, '0');
+
+// Live countdown (D/H/M/S, every second) in one line: "12 d · 04 h · 22 min · 10 s". The days drop out on the last day
+const Countdown = ({ toDate, className = '' }) => {
   const targetDate = useMemo(() => new Date(toDate), [toDate]);
 
   const calculateTimeLeft = () => {
@@ -29,25 +32,18 @@ const Countdown = ({ toDate }) => {
     return () => clearInterval(timer);
   }, [targetDate]);
 
-  const timerComponents = Object.entries(timeLeft).map(([interval, value]) => (
-    <div key={interval} className="text-center">
-      <div className="text-2xl md:text-3xl font-bold text-rose-600">{String(value).padStart(2, '0')}</div>
-      <div className="text-xs text-gray-500 capitalize">{interval}</div>
-    </div>
-  ));
-
+  if (timeLeft.Días == null) {
+    return <p className={`text-[13px] font-semibold text-accent-ink ${className}`}>¡El evento ha llegado!</p>;
+  }
+  const { Días: d, Horas: h, Minutos: m, Segundos: s } = timeLeft;
   return (
-    <div>
-      {timerComponents.length ? (
-        <div className="flex justify-around gap-2 p-3 bg-rose-50/50 rounded-lg">
-            {timerComponents}
-        </div>
-      ) : (
-        <div className="text-center p-3 bg-rose-50/50 rounded-lg">
-          <span className="text-gray-600 font-medium">¡El evento ha llegado!</span>
-        </div>
-      )}
-    </div>
+    <p
+      role="timer"
+      aria-label={`Faltan ${d} días, ${h} horas y ${m} minutos`}
+      className={`num text-[13px] font-semibold text-accent-ink ${className}`}
+    >
+      {d > 0 ? `${d} d · ` : ''}{pad2(h)} h · {pad2(m)} min · {pad2(s)} s
+    </p>
   );
 };
 

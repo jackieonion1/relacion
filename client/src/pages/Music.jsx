@@ -2,8 +2,79 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router';
 import { createPortal } from 'react-dom';
 import Modal from '../components/Modal';
+import Sheet from '../components/Sheet';
+import Button from '../components/Button';
+import Field from '../components/Field';
+import ViewSwitcher from '../components/ViewSwitcher';
 import { listMusic, uploadMusic, deleteMusic, renameMusic, getOriginal, getSubtitles, uploadSubtitles } from '../lib/music';
-import TrashIcon from '../components/icons/TrashIcon';
+import Icon from '../components/Icon';
+import { fmtDuration, getTokensForCue, parseSubtitles } from '../lib/lyrics';
+import './Music.css';
+
+const WHO = { yo: '🫒', ella: '🍪' };
+const VIZ_NAMES = ['Latido', 'Espiral', 'Onda'];
+
+// Visual reads levels through Web Audio. The first time it opens, the <audio> is handed to the context for good, so
+// from then on the song depends on the context staying awake (it is resumed when the page comes back). If on the
+// iPhone that cuts the music with the screen locked, set this to false: Visual keeps moving at rest without the
+// analyser and the element never leaves its native output
+const VIZ_ANALYSER = true;
+
+// Upload day of a row: «12 mar», with the year only when it is not this one
+function fmtFecha(ms) {
+  const d = new Date(ms);
+  const otherYear = d.getFullYear() !== new Date().getFullYear();
+  return d.toLocaleDateString('es-ES', { day: 'numeric', month: 'short', ...(otherYear ? { year: 'numeric' } : {}) });
+}
+
+// Cover pairs of the prototype (Prototipo.dc.html, PH): the song id always picks the same one
+const COVERS = [
+  ['oklch(0.74 0.06 20)', 'oklch(0.58 0.05 300)'], ['oklch(0.62 0.05 240)', 'oklch(0.47 0.06 235)'],
+  ['oklch(0.67 0.08 48)', 'oklch(0.55 0.07 40)'], ['oklch(0.71 0.05 120)', 'oklch(0.52 0.06 128)'],
+  ['oklch(0.86 0.035 82)', 'oklch(0.73 0.05 70)'], ['oklch(0.33 0.04 270)', 'oklch(0.50 0.09 62)'],
+  ['oklch(0.46 0.05 152)', 'oklch(0.36 0.04 140)'], ['oklch(0.91 0.01 240)', 'oklch(0.79 0.02 240)'],
+  ['oklch(0.36 0.04 40)', 'oklch(0.63 0.11 62)'], ['oklch(0.81 0.05 230)', 'oklch(0.69 0.08 112)'],
+  ['oklch(0.46 0.06 330)', 'oklch(0.61 0.05 22)'], ['oklch(0.71 0.015 60)', 'oklch(0.59 0.02 60)'],
+  ['oklch(0.58 0.06 250)', 'oklch(0.74 0.05 80)'], ['oklch(0.78 0.04 30)', 'oklch(0.66 0.05 35)'],
+  ['oklch(0.40 0.03 250)', 'oklch(0.30 0.03 250)'], ['oklch(0.83 0.05 95)', 'oklch(0.62 0.07 130)'],
+  ['oklch(0.55 0.07 20)', 'oklch(0.42 0.05 10)'], ['oklch(0.88 0.02 60)', 'oklch(0.70 0.04 50)'],
+];
+function coverOf(id) {
+  let h = 0;
+  for (const ch of String(id || '')) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  const [a, b] = COVERS[h % COVERS.length];
+  return `linear-gradient(180deg, ${a} 0%, ${a} 54%, ${b} 64%, ${b} 100%)`;
+}
+
+// The visualizer paints with the theme's lacre. The canvas wants rgb, so one pixel turns the token into it
+const ROSE = '244, 63, 94';
+function lacreRgb(el) {
+  try {
+    const v = getComputedStyle(el).getPropertyValue('--lacre').trim();
+    const probe = document.createElement('canvas');
+    probe.width = 1; probe.height = 1;
+    const ctx = probe.getContext('2d', { willReadFrequently: true });
+    if (!v || !ctx) return ROSE;
+    ctx.fillStyle = `rgb(${ROSE})`;
+    ctx.fillStyle = v;
+    ctx.fillRect(0, 0, 1, 1);
+    const d = ctx.getImageData(0, 0, 1, 1).data;
+    return `${d[0]}, ${d[1]}, ${d[2]}`;
+  } catch { return ROSE; }
+}
+
+// Glyphs of the prototype that Icon lacks (previous/next track, lyrics), drawn the same way
+function Glyph({ d }) {
+  return (
+    <svg viewBox="0 0 24 24" width={24} height={24} fill="none" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
+      <path d={d} />
+    </svg>
+  );
+}
+
+function Eq({ on }) {
+  return <span className={`musica-eq ${on ? 'on' : ''}`} aria-hidden="true"><span /><span /><span /></span>;
+}
 
 export default function Music() {
   const location = useLocation();
@@ -12,9 +83,11 @@ export default function Music() {
   const pairId = useMemo(() => localStorage.getItem('pairId') || '', []);
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
   const [uploading, setUploading] = useState(false);
   const uploadInputRef = useRef(null);
-  const [menu, setMenu] = useState(null); // { id, rect }
+  const [menu, setMenu] = useState(null); // the song whose options sheet is open
   const [renaming, setRenaming] = useState(null); // { id, name }
   const [deleteConfirmation, setDeleteConfirmation] = useState({ isOpen: false, id: '', name: '' });
   // Subtitles state
@@ -27,6 +100,7 @@ export default function Music() {
   const isScrubbingRef = useRef(false);
   const [player, setPlayer] = useState({ id: '', name: '', duration: 0 });
   const [audioUrl, setAudioUrl] = useState('');
+  const [playError, setPlayError] = useState(null); // the song getOriginal could not bring (no network, CORS, download)
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [expanded, setExpanded] = useState(false);
@@ -37,7 +111,6 @@ export default function Music() {
   const analyserRef = useRef(null);
   const mediaSourceRef = useRef(null);
   const vizRAFRef = useRef(0);
-  const vizGainRef = useRef(null);
   const lastPosSyncRef = useRef(0);
   const [vizStyle, setVizStyle] = useState(0); // 0..2
   const [pageVisible, setPageVisible] = useState(() => {
@@ -47,7 +120,13 @@ export default function Music() {
 
   useEffect(() => {
     const onVis = () => {
-      try { setPageVisible(document.visibilityState === 'visible'); } catch {}
+      try {
+        const visible = document.visibilityState === 'visible';
+        setPageVisible(visible);
+        // Once Visual created the source, the song sounds through the context: wake it if the system suspended it
+        const ctx = audioCtxRef.current;
+        if (visible && ctx && ctx.state !== 'running' && ctx.state !== 'closed') { try { ctx.resume(); } catch {} }
+      } catch {}
     };
     try { document.addEventListener('visibilitychange', onVis); } catch {}
     return () => { try { document.removeEventListener('visibilitychange', onVis); } catch {} };
@@ -89,13 +168,6 @@ export default function Music() {
     };
   }, [artworkUrl]);
 
-  function fmtDuration(secs) {
-    const s = Math.max(0, Math.floor(secs || 0));
-    const m = Math.floor(s / 60);
-    const r = s % 60;
-    return `${m}:${r.toString().padStart(2, '0')}`;
-  }
-
   function onSeekPointerDown() {
     isScrubbingRef.current = true;
   }
@@ -122,21 +194,6 @@ export default function Music() {
     isScrubbingRef.current = false;
     seekTo(raw);
   }
-  function getTokensForCue(c) {
-    if (!c) return [];
-    if (c.tokens && c.tokens.length) return c.tokens;
-    // Fallback: evenly distribute words across cue duration
-    const dur = Math.max(0.2, (c.end || (c.start + 2)) - c.start);
-    const parts = (c.text || '').split(/(\s+)/); // keep spaces
-    const words = parts.filter((p) => p.length > 0);
-    const step = dur / Math.max(1, words.length);
-    let t = c.start;
-    return words.map((w) => {
-      const tok = { start: t, end: t + step, text: w };
-      t += step;
-      return tok;
-    });
-  }
 
   // Bottom sheet open/close with enter/exit animation
   const openSheet = () => {
@@ -156,117 +213,24 @@ export default function Music() {
     setTimeout(() => { setExpanded(false); setClosingSheet(false); }, 260);
   };
 
-  // Simple subtitle parsers
-  function parseTimeStamp(ts) {
-    // supports mm:ss.xx, hh:mm:ss,ms or hh:mm:ss.ms
-    if (!ts) return 0;
-    const t = ts.trim();
-    if (/^\d{1,2}:\d{2}(?:[\.:]\d{1,3})?$/.test(t)) {
-      const [m, s] = t.split(':');
-      const [sec, frac = '0'] = s.split(/[\.:]/);
-      return (+m) * 60 + (+sec) + (+(`0.${frac}`));
-    }
-    const m = t.match(/(?:(\d{1,2}):)?(\d{1,2}):(\d{2})(?:[\.,](\d{1,3}))?/);
-    if (m) {
-      const hh = +(m[1] || 0), mm = +m[2], ss = +m[3], ms = +(m[4] || 0);
-      return hh * 3600 + mm * 60 + ss + (ms / 1000);
-    }
-    return 0;
-  }
-  function parseLRC(text) {
-    const lines = (text || '').split(/\r?\n/);
-    const cues = [];
-    for (const ln of lines) {
-      // Find line timestamps like [mm:ss.xx]
-      const lineTags = Array.from(ln.matchAll(/\[(\d{1,2}:\d{2}(?:[\.:]\d{1,2})?)\]/g));
-      const content = ln.replace(/^(?:\[[^\]]+\])+\s*/, '');
-
-      // Enhanced LRC per-word tokens like <mm:ss.xx>
-      const tokenMatches = Array.from(content.matchAll(/<(\d{1,2}:\d{2}(?:[\.:]\d{1,2})?)>/g));
-      if (tokenMatches.length > 0) {
-        const tokens = [];
-        // If there is leading text before the first <time> token, create a token for it using the line timestamp
-        const firstMatch = tokenMatches[0];
-        if (firstMatch && firstMatch.index > 0) {
-          const leadText = content.slice(0, firstMatch.index);
-          const lineStart = lineTags[0] ? parseTimeStamp(lineTags[0][1]) : parseTimeStamp(firstMatch[1]);
-          tokens.push({ start: lineStart, end: Infinity, text: leadText });
-        }
-        for (let i = 0; i < tokenMatches.length; i++) {
-          const m = tokenMatches[i];
-          const start = parseTimeStamp(m[1]);
-          const startIdx = m.index + m[0].length;
-          const endIdx = (i + 1 < tokenMatches.length) ? tokenMatches[i + 1].index : content.length;
-          const textChunk = content.slice(startIdx, endIdx);
-          tokens.push({ start, end: Infinity, text: textChunk });
-        }
-        const firstStart = tokens.length ? tokens[0].start : (lineTags[0] ? parseTimeStamp(lineTags[0][1]) : 0);
-        cues.push({ start: firstStart, end: Infinity, text: content.replace(/<\d{1,2}:\d{2}(?:[\.:]\d{1,2})?>/g, ''), tokens });
-        continue;
-      }
-
-      // Regular line-level LRC
-      for (const tg of lineTags) {
-        const start = parseTimeStamp(tg[1]);
-        cues.push({ start, end: Infinity, text: content });
-      }
-    }
-    cues.sort((a, b) => a.start - b.start);
-    for (let i = 0; i < cues.length; i++) {
-      const nextStart = (i + 1 < cues.length) ? cues[i + 1].start : Infinity;
-      cues[i].end = Math.max(cues[i].start, (isFinite(nextStart) ? nextStart - 0.01 : cues[i].start + 3600));
-      if (cues[i].tokens && cues[i].tokens.length) {
-        const toks = cues[i].tokens;
-        toks.sort((a, b) => a.start - b.start);
-        for (let j = 0; j < toks.length; j++) {
-          const tNext = (j + 1 < toks.length) ? toks[j + 1].start : cues[i].end;
-          toks[j].end = Math.max(toks[j].start, tNext - 0.01);
-        }
-      }
-    }
-    return cues;
-  }
-  function parseSRTorVTT(text) {
-    const cues = [];
-    const norm = (text || '').replace(/\r/g, '').replace(/^WEBVTT.*?\n\n/, '');
-    const blocks = norm.split(/\n\n+/);
-    for (const b of blocks) {
-      const lines = b.split(/\n/).filter(Boolean);
-      if (!lines.length) continue;
-      const timeIdx = lines[0].includes('-->') ? 0 : 1;
-      const timeLine = lines[timeIdx] || '';
-      const m = timeLine.match(/(\d{1,2}:\d{2}:\d{2}[\.,]\d{1,3}|\d{1,2}:\d{2}[\.,]\d{1,3})\s*-->\s*(\d{1,2}:\d{2}:\d{2}[\.,]\d{1,3}|\d{1,2}:\d{2}[\.,]\d{1,3})/);
-      if (!m) continue;
-      const start = parseTimeStamp(m[1]);
-      const end = parseTimeStamp(m[2]);
-      const content = lines.slice(timeIdx + 1).join('\n').trim();
-      cues.push({ start, end, text: content });
-    }
-    cues.sort((a, b) => a.start - b.start);
-    return cues;
-  }
-  function parseSubtitles(type, text) {
-    const ext = (type || '').toLowerCase();
-    if (ext === 'lrc') return parseLRC(text);
-    if (ext === 'srt' || ext === 'vtt') return parseSRTorVTT(text);
-    // Fallback: split lines
-    return (text || '').split(/\r?\n/).filter(Boolean).map((t, i) => ({ start: i * 3, end: (i + 1) * 3, text: t }));
-  }
-
   useEffect(() => {
     let cancelled = false;
     async function load() {
       setLoading(true);
+      setLoadError(false);
       try {
         const list = await listMusic(pairId, 200);
         if (!cancelled) setItems(list);
+      } catch {
+        // C18: before, a rejection was left uncaught and the list said it was empty
+        if (!cancelled) setLoadError(true);
       } finally {
         if (!cancelled) setLoading(false);
       }
     }
     if (pairId) load();
     return () => { cancelled = true; };
-  }, [pairId]);
+  }, [pairId, reloadKey]);
 
   // Cleanup object URL on unmount or when switching track
   useEffect(() => {
@@ -347,7 +311,7 @@ export default function Music() {
   useEffect(() => {
     const el = audioRef.current;
     if (!el) return;
-    const wantViz = expanded && viewMode === 'viz' && pageVisible;
+    const wantViz = VIZ_ANALYSER && expanded && viewMode === 'viz' && pageVisible;
     if (wantViz) {
       const Ctx = window.AudioContext || window.webkitAudioContext;
       if (!Ctx) return;
@@ -357,46 +321,27 @@ export default function Music() {
       const ctx = audioCtxRef.current;
       if (ctx.state === 'suspended') { try { ctx.resume(); } catch {} }
       try {
-        // Determine if WebAudio can actually output
         const running = ctx && ctx.state === 'running';
         // Only create MediaElementSource when context is running to avoid iOS suppressing native audio
         if (running && !mediaSourceRef.current) {
           mediaSourceRef.current = ctx.createMediaElementSource(el);
+          // From here on the source is the element's only output (it never plays directly again): wire it to
+          // destination once and never unplug it
+          mediaSourceRef.current.connect(ctx.destination);
         }
         if (!analyserRef.current) {
           analyserRef.current = ctx.createAnalyser();
           analyserRef.current.fftSize = 1024;
           analyserRef.current.smoothingTimeConstant = 0.85;
         }
-        if (!vizGainRef.current) {
-          vizGainRef.current = ctx.createGain();
-        }
-        // Decide routing based on whether AudioContext is running
-        // If running, route audio through WebAudio (audible via destination).
-        // If not running (iOS background or not yet resumed), keep branch silent and rely on native element audio.
-        vizGainRef.current.gain.value = running ? 1.0 : 0.0;
-        // Avoid duplicate connections
-        try { mediaSourceRef.current && mediaSourceRef.current.disconnect(); } catch {}
-        try { analyserRef.current.disconnect(); } catch {}
-        try { vizGainRef.current.disconnect(); } catch {}
+        // The analyser is a branch that only reads levels; it does not go to destination
         if (mediaSourceRef.current) {
           try { mediaSourceRef.current.connect(analyserRef.current); } catch {}
         }
-        try { analyserRef.current.connect(vizGainRef.current); } catch {}
-        // Only connect to destination if the context is running (so we actually want WebAudio output)
-        if (running) {
-          try { vizGainRef.current.connect(ctx.destination); } catch {}
-        }
-        // Only mute element when WebAudio is actually producing audio
-        try { el.muted = running; } catch {}
       } catch {}
-    } else {
-      // Tear down graph so HTMLMediaElement regains direct system playback (iOS background OK)
-      try { el.muted = false; } catch {}
-      try { if (mediaSourceRef.current) mediaSourceRef.current.disconnect(); } catch {}
-      try { if (analyserRef.current) analyserRef.current.disconnect(); } catch {}
-      try { if (vizGainRef.current) vizGainRef.current.disconnect(); } catch {}
-      // Keep nodes/context instantiated to avoid the one-per-element MediaElementSource restriction
+    } else if (mediaSourceRef.current && analyserRef.current) {
+      // Unplug only the branch: the song keeps sounding through destination
+      try { mediaSourceRef.current.disconnect(analyserRef.current); } catch {}
     }
   }, [expanded, viewMode, player.id, pageVisible]);
 
@@ -423,6 +368,7 @@ export default function Music() {
     if (!ctx2d) return;
     const analyser = analyserRef.current;
     const data = analyser ? new Uint8Array(analyser.fftSize) : null;
+    const rgb = lacreRgb(canvas);
     const draw = () => {
       const w = canvas.clientWidth || 300;
       const h = canvas.clientHeight || 300;
@@ -454,8 +400,8 @@ export default function Music() {
             const angle = t * (0.1 + k * 0.03) + k;
             const r = R * (0.8 + 0.15 * Math.sin(angle * 3 + k));
             const grad = ctx2d.createRadialGradient(0, 0, r * 0.2, 0, 0, r);
-            grad.addColorStop(0, 'rgba(244, 63, 94, 0.07)');
-            grad.addColorStop(1, 'rgba(244, 63, 94, 0.00)');
+            grad.addColorStop(0, `rgba(${rgb}, 0.07)`);
+            grad.addColorStop(1, `rgba(${rgb}, 0.00)`);
             ctx2d.rotate(0.15 + level * 0.2);
             ctx2d.fillStyle = grad;
             ctx2d.beginPath();
@@ -474,7 +420,7 @@ export default function Music() {
             const a0 = t * (0.75 + k * 0.09) + k;
             const a1 = a0 + Math.PI * (0.6 + 0.25 * Math.sin(t * 1.1 + k));
             const r = R * (0.72 + 0.32 * Math.sin(t * 1.35 + k));
-            ctx2d.strokeStyle = `rgba(244, 63, 94, ${0.08 + level * 0.16})`;
+            ctx2d.strokeStyle = `rgba(${rgb}, ${0.08 + level * 0.16})`;
             ctx2d.lineWidth = 3;
             ctx2d.beginPath();
             ctx2d.arc(0, 0, r, a0, a1);
@@ -489,7 +435,7 @@ export default function Music() {
           ctx2d.translate(w / 2, h / 2);
           const baseR = Math.min(w, h) * 0.28;
           const scale = baseR * (0.15 + 0.35 * level);
-          ctx2d.fillStyle = 'rgba(244, 63, 94, 0.08)';
+          ctx2d.fillStyle = `rgba(${rgb}, 0.08)`;
           ctx2d.beginPath();
           const N = data ? data.length : 512;
           for (let i = 0; i < N; i++) {
@@ -528,9 +474,11 @@ export default function Music() {
         togglePlay();
         return;
       }
-      // Load blob (cached or remote) and create object URL
+      // Load blob (cached or remote) and create object URL. Without it the current song keeps playing and the
+      // notice offers to try again (it used to do nothing)
+      setPlayError(null);
       const blob = await getOriginal(pairId, it.id);
-      if (!blob) return;
+      if (!blob) { setPlayError(it); return; }
       const url = URL.createObjectURL(blob);
       if (audioRef.current) {
         try { audioRef.current.pause(); } catch {}
@@ -553,7 +501,7 @@ export default function Music() {
           audioRef.current.play().catch(() => {});
         }
       });
-    } catch {}
+    } catch { setPlayError(it); }
   }
 
   function togglePlay() {
@@ -681,9 +629,10 @@ export default function Music() {
     if (!list.length || !pairId) return;
     setUploading(true);
     try {
+      const identity = localStorage.getItem('identity') || 'yo';
       for (const f of list) {
-        const added = await uploadMusic(pairId, f, localStorage.getItem('identity') || 'yo');
-        setItems((prev) => [{ id: added.id, name: added.name, createdAt: added.createdAt, duration: added.duration || 0 }, ...prev]);
+        const added = await uploadMusic(pairId, f, identity);
+        setItems((prev) => [{ id: added.id, name: added.name, createdAt: added.createdAt, duration: added.duration || 0, identity }, ...prev]);
       }
     } finally {
       setUploading(false);
@@ -724,9 +673,8 @@ export default function Music() {
     setDeleteConfirmation({ isOpen: false, id: '', name: '' });
   }
 
-  function onOpenMenu(e, id) {
-    const rect = e.currentTarget.getBoundingClientRect();
-    setMenu({ id, rect });
+  function onOpenMenu(item) {
+    setMenu(item);
   }
 
   function onOpenRename(item) {
@@ -805,20 +753,33 @@ export default function Music() {
     }
   }, [activeCueIndex, expanded]);
 
+  const current = items.find((x) => x.id === player.id);
+  const currentWho = current ? WHO[current.identity] : undefined;
+  const hasCues = !!(subs.cues && subs.cues.length > 0);
+  const pct = Math.max(0, Math.min(100, (player.duration ? (currentTime / player.duration) : 0) * 100));
+  const pickFiles = () => uploadInputRef.current && uploadInputRef.current.click();
+  const subtitle = loading ? 'Cargando canciones…'
+    : uploading ? 'Subiendo…'
+    : loadError ? 'No disponibles ahora'
+    : items.length === 0 ? 'Ninguna todavía'
+    : 'La lista de los dos';
+  const optionRow = 'flex items-center gap-3.5 w-full min-h-14 px-3 rounded-2xl text-base font-medium text-left active:bg-sunk';
+
   return (
-    <div className="space-y-4 pb-20">
+    // Margen propio de 16 px (§5.00). Fuera de /music no ocupa nada: solo quedan el <audio> y la píldora, en portales
+    <div className={isMusicRoute ? 'flex flex-col pb-6' : undefined}>
       {isMusicRoute && (
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-rose-600">Música</h2>
-          <button
-            onClick={() => window.location.reload()}
-            aria-label="Actualizar"
-            title="Actualizar"
-            className="p-2 rounded-lg hover:bg-rose-50 text-rose-600"
-          >
-            <span className="text-xl leading-none">↻</span>
-          </button>
-        </div>
+        <header className="flex items-end justify-between gap-3 pt-1.5 pb-3.5 pl-5 pr-4">
+          <div className="flex flex-col gap-0.5 min-w-0">
+            <h1 className="serif text-4xl leading-[1.05] font-normal tracking-[-0.01em]">Música</h1>
+            <p className="text-sm text-ink-2">{subtitle}</p>
+          </div>
+          <div className="flex items-center gap-1">
+            {/* ↻: en la PWA de iPhone no hay otra forma de recargar (plan §0 nº 8, F1) */}
+            <Button icon="recargar" label="Actualizar" title="Actualizar" onClick={() => window.location.reload()} />
+            <Button icon="nuevo" onClick={pickFiles}>Añadir</Button>
+          </div>
+        </header>
       )}
 
       {isMusicRoute && (
@@ -832,19 +793,6 @@ export default function Music() {
         />
       )}
 
-      {isMusicRoute && createPortal(
-        <button
-          className="fab btn-primary shadow-lg rounded-full px-5 py-3 font-semibold"
-          style={player.id ? { bottom: 'calc(8rem + env(safe-area-inset-bottom) + 0.5rem)' } : undefined}
-          onClick={() => uploadInputRef.current && uploadInputRef.current.click()}
-          aria-label="Nueva canción"
-          title="Nueva canción"
-        >
-          Nueva canción
-        </button>,
-        document.body
-      )}
-
       {/* Hidden input for subtitles upload */}
       {isMusicRoute && (
         <input
@@ -856,280 +804,276 @@ export default function Music() {
         />
       )}
 
-      {isMusicRoute && uploading && (
-        <div className="fixed bottom-40 right-5 z-40 text-xs text-gray-700 bg-white/80 px-2 py-1 rounded-md shadow">
-          Subiendo…
-        </div>
-      )}
-
       {isMusicRoute && (
-        loading ? (
-          <div className="text-center text-gray-500">Cargando…</div>
-        ) : items.length === 0 ? (
-          <div className="text-center text-gray-500">No hay canciones aún.</div>
-        ) : (
-          <ul className="divide-y divide-rose-100 rounded-xl overflow-hidden border border-rose-100 bg-white">
-            {items.map((it) => (
-              <li key={it.id} className="px-4 py-3 flex items-center justify-between relative cursor-pointer" onClick={() => { if (menu) return; playItem(it); }}>
-                <div className="min-w-0 pr-3">
-                  <div className="text-sm font-medium text-gray-900 truncate">{it.name || it.id}</div>
-                  <div className="text-xs text-gray-500">
-                    {fmtDuration(it.duration)}
-                    <span className="mx-1">•</span>
-                    {new Date(it.createdAt || Date.now()).toLocaleString()}
-                  </div>
-                </div>
-                <div className="shrink-0">
-                  <button
-                    onClick={(e) => { e.stopPropagation(); onOpenMenu(e, it.id); }}
-                    onMouseDown={(e) => e.stopPropagation()}
-                    onTouchStart={(e) => e.stopPropagation()}
-                    className="p-2 rounded-md hover:bg-rose-50"
-                    aria-label="Más opciones"
-                  >
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
-                      <path d="M12 6.75a1.5 1.5 0 110-3 1.5 1.5 0 010 3zM12 13.5a1.5 1.5 0 110-3 1.5 1.5 0 010 3zM12 20.25a1.5 1.5 0 110-3 1.5 1.5 0 010 3z" />
-                    </svg>
-                  </button>
-                </div>
-                {menu?.id === it.id && (
-                  <>
-                    {createPortal(
-                      <button className="fixed inset-0 z-[95] cursor-default" onClick={() => setMenu(null)} aria-hidden="true" />, document.body
-                    )}
-                    {createPortal(
-                      (() => {
-                        const rect = menu.rect;
-                        const gap = 8;
-                        const estimatedH = 140; // ~three options
-                        const width = 176;
-                        const preferUp = (window.innerHeight - rect.bottom) < (estimatedH + gap);
-                        const top = preferUp ? Math.max(8, rect.top - estimatedH - gap) : Math.min(window.innerHeight - estimatedH - 8, rect.bottom + gap);
-                        const left = Math.min(window.innerWidth - width - 8, Math.max(8, rect.right - width));
-                        return (
-                          <div
-                            className="z-[100] w-44 bg-white border border-rose-100 rounded-lg shadow-lg overflow-hidden fixed"
-                            style={{ top, left }}
-                          >
-                            <button
-                              onClick={() => onOpenRename(it)}
-                              className="w-full px-3 py-2 text-left text-sm text-gray-700 hover:bg-rose-50"
-                            >
-                              Cambiar nombre
-                            </button>
-                            <button
-                              onClick={() => onOpenSubtitles(it)}
-                              className="w-full px-3 py-2 text-left text-sm text-gray-700 hover:bg-rose-50"
-                            >
-                              Subir subtítulos
-                            </button>
-                            <button
-                              onClick={() => onDelete(it.id)}
-                              className="w-full flex items-center gap-2 px-3 py-2 text-left text-sm text-rose-700 hover:bg-rose-50"
-                            >
-                              <TrashIcon className="w-4 h-4" />
-                              Borrar
-                            </button>
-                          </div>
-                        );
-                      })(),
-                      document.body
-                    )}
-                  </>
-                )}
-              </li>
-            ))}
-          </ul>
-        )
-      )}
-
-      {/* Rename modal */}
-      {isMusicRoute && renaming && createPortal(
-        <>
-          <div className="fixed inset-0 z-[80] bg-black/20" onClick={() => setRenaming(null)} />
-          <div className="fixed inset-0 z-[90] flex items-center justify-center p-6">
-            <div className="w-full max-w-sm bg-white rounded-xl shadow-xl border border-rose-100 p-4 space-y-3">
-              <h3 className="text-sm font-semibold text-gray-900">Cambiar nombre</h3>
-              <input
-                autoFocus
-                type="text"
-                value={renaming.name}
-                onChange={(e) => setRenaming(r => ({ ...r, name: e.target.value }))}
-                onKeyDown={(e) => { if (e.key === 'Enter') onConfirmRename(); }}
-                className="w-full border rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-rose-300"
-                placeholder="Nuevo nombre"
-              />
-              <div className="flex justify-end gap-2 pt-1">
-                <button className="px-3 py-2 text-sm rounded-lg hover:bg-gray-50" onClick={() => setRenaming(null)}>Cancelar</button>
-                <button className="px-3 py-2 text-sm rounded-lg bg-rose-600 text-white hover:bg-rose-700" onClick={onConfirmRename}>Guardar</button>
-              </div>
+        <div className="flex flex-col gap-2.5 px-4">
+          {uploading && (
+            <div role="status" aria-label="Subiendo canción" className="musica-hueco flex items-center px-4 text-[15px] text-ink-2">
+              Subiendo canción…
             </div>
-          </div>
-        </>,
-        document.body
-      )}
-
-      {/* Delete confirmation modal (reuse Notes style) */}
-      <Modal isOpen={isMusicRoute && deleteConfirmation.isOpen} onClose={cancelDelete}>
-        <div className="p-6 text-center">
-          <div className="text-4xl mb-4">🗑️</div>
-          <h3 className="text-lg font-semibold mb-2">Borrar canción</h3>
-          <p className="text-gray-600 mb-6">¿Seguro que quieres borrar esta canción?</p>
-          {deleteConfirmation.name && (
-            <div className="text-xs text-gray-500 mb-6 line-clamp-3">“{deleteConfirmation.name}”</div>
           )}
-          <div className="flex gap-3 justify-center">
-            <button onClick={cancelDelete} className="px-4 py-2 text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors">Cancelar</button>
-            <button onClick={confirmDelete} className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors">Borrar</button>
-          </div>
-        </div>
-      </Modal>
-
-      {/* Mini-player fixed above navbar (only on /music) */}
-      {isMusicRoute && player.id && !expanded && (
-        <div
-          className="fixed left-0 right-0 z-40"
-          style={{ bottom: `calc(4rem + env(safe-area-inset-bottom))` }}
-        >
-          <div
-            className="mx-3 mb-3 rounded-xl border border-rose-100 shadow-lg bg-white/95 backdrop-blur px-3 py-2 flex items-center gap-3"
-            onClick={openSheet}
-          >
-            <span className="text-rose-600 shrink-0">
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5"><path d="M4.5 15.75l7.5-7.5 7.5 7.5"/></svg>
-            </span>
-            <div className="min-w-0 flex-1">
-              <div className="text-sm font-medium text-gray-900 truncate">{player.name}</div>
-              <div className="text-xs text-gray-500">{fmtDuration(currentTime)} / {fmtDuration(player.duration)}</div>
+          {playError && !expanded && (
+            <div role="alert" className="card flex items-center gap-2 py-2 pr-2 text-ink">
+              <span className="flex-1 min-w-0 flex flex-col">
+                <span className="text-[15px] font-semibold">No se pudo cargar la canción</span>
+                <span className="text-[13px] text-ink-2 truncate">{playError.name || playError.id}</span>
+              </span>
+              <Button variant="sec" onClick={() => playItem(playError)}>Reintentar</Button>
+              <Button icon="cerrar" label="Cerrar aviso" onClick={() => setPlayError(null)} />
             </div>
-            <button
-              className="p-2 rounded-md bg-rose-50 text-rose-700 hover:bg-rose-100"
-              onClick={(e) => { e.stopPropagation(); togglePlay(); }}
-              aria-label={isPlaying ? 'Pausar' : 'Reproducir'}
-            >
-              {isPlaying ? (
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5"><path d="M6.75 5.25h3v13.5h-3zM14.25 5.25h3v13.5h-3z"/></svg>
-              ) : (
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5"><path d="M5.25 4.5v15l13.5-7.5-13.5-7.5z"/></svg>
-              )}
+          )}
+          {loading ? (
+            <div role="status" aria-label="Cargando canciones" className="flex flex-col gap-3 py-1.5">
+              <span className="musica-hueco" />
+              <span className="musica-hueco" />
+              <span className="musica-hueco" />
+            </div>
+          ) : loadError ? (
+            <section role="alert" className="flex flex-col items-center gap-2.5 p-6 rounded-hero bg-sunk text-center">
+              <h2 className="text-[17px] font-semibold">No se pudieron cargar las canciones</h2>
+              <Button variant="sec" onClick={() => setReloadKey((k) => k + 1)}>Reintentar</Button>
+            </section>
+          ) : items.length === 0 ? (uploading ? null : (
+            <section className="flex flex-col items-center gap-2.5 py-9 px-6 rounded-hero border-[1.5px] border-dashed border-line text-center">
+              <h2 className="serif text-[26px] font-normal">Sin canciones aún</h2>
+              <p className="text-[15px] text-ink-2 max-w-[260px] text-pretty">Añade la vuestra. Si tiene letra sincronizada, se verá mientras suena.</p>
+              <Button size="m" onClick={pickFiles}>Añadir canción</Button>
+            </section>
+          )) : (
+            <ul className="rounded-tarjeta bg-card border border-line overflow-hidden">
+              {items.map((it, i) => {
+                const isCurrent = it.id === player.id;
+                const who = WHO[it.identity];
+                return (
+                  <li
+                    key={it.id}
+                    className={`musica-fila flex items-center gap-3 py-1.5 pl-2.5 pr-1 ${i ? 'border-t border-line' : ''} ${isCurrent ? 'bg-lacre-soft' : ''}`}
+                    style={{ animationDelay: `${Math.min(i, 12) * 30}ms` }}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => { if (menu) return; playItem(it); }}
+                      className="flex-1 min-w-0 flex items-center gap-3 min-h-14 text-left"
+                    >
+                      <span aria-hidden="true" className="musica-portada w-11 h-11 rounded-mini" style={{ background: coverOf(it.id) }} />
+                      <span className="flex-1 min-w-0 flex flex-col gap-px">
+                        <span className={`text-base font-semibold truncate ${isCurrent ? 'text-accent-ink' : 'text-ink'}`}>{it.name || it.id}</span>
+                        {/* A9: no «Artista» (no existe); quién la subió, si se sabe, cuándo y cuánto dura */}
+                        <span className="num text-[13px] text-ink-2 flex items-center gap-1.5">
+                          {isCurrent && <Eq on={isPlaying} />}
+                          {[who && `Subida por ${who}`, it.createdAt && fmtFecha(it.createdAt), fmtDuration(it.duration)].filter(Boolean).join(' · ')}
+                        </span>
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onOpenMenu(it)}
+                      aria-label="Más opciones"
+                      className="w-11 h-11 rounded-full flex items-center justify-center text-ink-2 shrink-0 active:bg-sunk"
+                    >
+                      <Icon name="mas" />
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+      )}
+
+      {/* Options of one song (Musica-opciones.dc.html) */}
+      <Sheet isOpen={isMusicRoute && !!menu} onClose={() => setMenu(null)} label={menu ? `Opciones de «${menu.name || menu.id}»` : undefined}>
+        {menu && (
+          <div className="flex flex-col px-3 pt-2.5 pb-[34px]">
+            <button type="button" onClick={() => onOpenSubtitles(menu)} className={optionRow}>
+              <Glyph d="M5 6h9M5 10h9M5 14h5M17 20v-8M14 15l3-3 3 3" />
+              Subir letra (.lrc, .srt, .vtt)
+            </button>
+            <button type="button" onClick={() => onOpenRename(menu)} className={optionRow}>
+              <Icon name="editar" />
+              Cambiar nombre
+            </button>
+            <button type="button" onClick={() => onDelete(menu.id)} className={`${optionRow} text-danger`}>
+              <Icon name="borrar" />
+              Borrar canción
             </button>
           </div>
+        )}
+      </Sheet>
+
+      {/* Rename */}
+      <Sheet isOpen={isMusicRoute && !!renaming} onClose={() => setRenaming(null)}>
+        {renaming && (
+          <form className="flex flex-col gap-3.5 px-5 pt-3.5 pb-[34px]" onSubmit={(e) => { e.preventDefault(); onConfirmRename(); }}>
+            <h2 className="serif text-[26px] font-normal">Cambiar nombre</h2>
+            <Field
+              label="Nombre"
+              value={renaming.name}
+              onChange={(e) => setRenaming(r => ({ ...r, name: e.target.value }))}
+              placeholder="Nuevo nombre"
+              enterKeyHint="done"
+            />
+            <div className="grid grid-cols-2 gap-2">
+              <Button variant="sec" size="l" onClick={() => setRenaming(null)}>Cancelar</Button>
+              <Button type="submit" size="l">Guardar</Button>
+            </div>
+          </form>
+        )}
+      </Sheet>
+
+      {/* Delete confirmation */}
+      <Sheet isOpen={isMusicRoute && deleteConfirmation.isOpen} onClose={cancelDelete}>
+        <div className="flex flex-col gap-1.5 px-5 pt-3.5 pb-[34px]">
+          <div className="flex items-center gap-3.5 pb-2.5">
+            <span aria-hidden="true" className="musica-portada w-14 h-14 rounded-mini" style={{ background: coverOf(deleteConfirmation.id) }} />
+            <div className="flex-1 min-w-0 flex flex-col gap-0.5">
+              <h2 className="serif text-2xl leading-[1.15] font-normal">¿Borrar esta canción?</h2>
+              {deleteConfirmation.name && <p className="text-sm font-semibold truncate">{deleteConfirmation.name}</p>}
+              <p className="text-sm text-ink-2">Desaparece de la lista de los dos.</p>
+            </div>
+          </div>
+          <Button variant="dan" size="l" onClick={confirmDelete}>Borrar canción</Button>
+          <Button variant="txt" size="l" onClick={cancelDelete}>Cancelar</Button>
+        </div>
+      </Sheet>
+
+      {/* Mini-player above the tab bar, only on /music (Q6). Not on --shell-bottom, which rises over the notice: here
+          the notice goes above the mini-player instead (.con-mini .avisos), so this keeps the tab bar plus 12 px */}
+      {isMusicRoute && player.id && !expanded && (
+        <div
+          className="fixed z-40 left-3 right-3 mx-auto h-[60px] rounded-tarjeta bg-card border border-line shadow-flota flex items-center gap-3 pl-2.5 pr-1.5"
+          style={{ bottom: 'calc(var(--navbar-height) + env(safe-area-inset-bottom, 0px) + 12px)', maxWidth: 'calc(48rem - 24px)' }}
+        >
+          <span aria-hidden="true" className="musica-portada w-10 h-10 rounded-mini" style={{ background: coverOf(player.id) }} />
+          <button
+            type="button"
+            onClick={openSheet}
+            aria-label={`Abrir el reproductor: ${player.name}`}
+            className="flex-1 min-w-0 min-h-[52px] flex flex-col justify-center gap-0.5 text-left"
+          >
+            <span className="text-[15px] font-semibold truncate">{player.name}</span>
+            <span className="num text-[13px] text-ink-2 flex items-center gap-1.5">
+              <Eq on={isPlaying} />{fmtDuration(currentTime)} / {fmtDuration(player.duration)}
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={togglePlay}
+            aria-label={isPlaying ? 'Pausar' : 'Reproducir'}
+            className="w-11 h-11 rounded-full flex items-center justify-center shrink-0 active:bg-sunk"
+          >
+            {isPlaying ? <Icon name="pausa" /> : <Icon name="play" filled />}
+          </button>
         </div>
       )}
 
-      {/* Mini-player in top header when on other tabs */}
+      {/* Pill next to the ⚙ of MarcaSuperior on the other screens, while a song is loaded (Q6, F5). It looks 32 px
+          tall; the ::before stretches the touch to 44 */}
       {!isMusicRoute && player.id && createPortal(
         <button
+          type="button"
           onClick={() => navigate('/music')}
-          className="fixed z-30 top-[calc(env(safe-area-inset-top)+8px)] right-16 px-3 py-1.5 rounded-full border border-rose-100 bg-white/90 backdrop-blur text-xs text-gray-800 shadow hover:bg-white"
-          style={{ maxWidth: '48vw' }}
+          className="fixed z-30 top-[calc(env(safe-area-inset-top)+6px)] right-16 h-8 max-w-[48vw] px-3 rounded-full border border-line bg-card/90 backdrop-blur-sm text-[13px] font-medium text-ink shadow-carta flex items-center gap-1.5 before:absolute before:-inset-y-1.5 before:inset-x-0 before:content-['']"
           aria-label="Ir a Música"
           title="Ir a Música"
         >
-          <span className="font-medium text-rose-600 mr-2">♪</span>
-          <span className="truncate align-middle">{player.name}</span>
+          <span aria-hidden="true" className="text-accent-ink">♪</span>
+          <span className="truncate">{player.name}</span>
         </button>,
         document.body
       )}
 
-      {/* Fullscreen player (bottom sheet) */}
+      {/* Fullscreen player (bottom sheet, Reproductor.dc.html) */}
       <Modal isOpen={expanded || closingSheet} onClose={closeSheet} bare backdropClosing={closingSheet}>
         <div
-          className={`absolute inset-x-0 bottom-0 bg-white rounded-t-2xl shadow-2xl flex flex-col ${closingSheet ? 'animate-bottom-sheet-out' : 'animate-bottom-sheet-in'}`}
-          style={{ height: 'min(96vh, 96dvh)', paddingBottom: 'env(safe-area-inset-bottom)' }}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Reproductor"
+          className={`reproductor absolute inset-x-0 bottom-0 max-w-lg mx-auto bg-card text-ink rounded-t-hoja shadow-hoja flex flex-col items-center gap-3.5 px-6 pt-2 ${closingSheet ? 'animate-bottom-sheet-out' : 'animate-bottom-sheet-in'}`}
+          style={{ top: 'calc(env(safe-area-inset-top, 0px) + 12px)', paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 20px)' }}
           onClick={(e) => e.stopPropagation()}
         >
-          <div className="p-4 border-b border-rose-100 flex items-center justify-between rounded-t-2xl">
-            <button className="btn-ghost" onClick={closeSheet} aria-label="Cerrar">
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-6 h-6"><path d="M12 16l6-6H6l6 6z"/></svg>
-            </button>
-            <div className="font-semibold text-gray-900 truncate text-center flex-1">{player.name}</div>
-            <span className="w-6" />
+          <button type="button" onClick={closeSheet} aria-label="Cerrar reproductor" className="w-[88px] h-11 -my-2 flex items-center justify-center shrink-0">
+            <span aria-hidden="true" className="block w-9 h-[5px] rounded-full bg-line" />
+          </button>
+          <span
+            aria-hidden="true"
+            className="musica-portada rounded-hero shadow-flota"
+            style={{ width: 'min(196px, 22dvh)', height: 'min(196px, 22dvh)', background: coverOf(player.id) }}
+          />
+          <div className="flex flex-col items-center gap-0.5 max-w-full text-center">
+            <h2 className="serif text-[26px] leading-tight font-normal max-w-full truncate">{player.name}</h2>
+            <p className="text-sm text-ink-2">{currentWho ? `Subida por ${currentWho}` : 'La lista de los dos'}</p>
           </div>
-          {/* View switcher */}
-          <div className="px-4 pt-3">
-            <div className="flex items-center justify-between">
-              <div className="inline-flex rounded-lg border border-rose-200 overflow-hidden">
-                <button
-                  className={`px-3 py-1.5 text-sm ${viewMode === 'lyrics' ? 'bg-rose-100 text-rose-700' : 'bg-white text-gray-700'}`}
-                  onClick={() => setViewMode('lyrics')}
-                >
-                  Letra
-                </button>
-                <button
-                  className={`px-3 py-1.5 text-sm ${viewMode === 'viz' ? 'bg-rose-100 text-rose-700' : 'bg-white text-gray-700'}`}
-                  onClick={() => setViewMode('viz')}
-                >
-                  Visualizador
-                </button>
-              </div>
-              {viewMode === 'viz' && (
-                <button
-                  className="ml-3 px-3 py-1.5 text-sm bg-white text-gray-700 border border-rose-200 rounded-lg hover:bg-rose-50"
-                  onClick={() => setVizStyle((s) => (s + 1) % 3)}
-                  aria-label="Cambiar efecto"
-                  title="Cambiar efecto"
-                >
-                  🎲 Cambiar
-                </button>
-              )}
+          {/* ⏮ / ⏭ that could not bring the next one: this one keeps playing */}
+          {playError && (
+            <div role="alert" className="-my-1.5 flex items-center gap-1 text-sm">
+              <span className="text-danger">No se pudo cargar la canción</span>
+              <Button variant="txt" accent onClick={() => playItem(playError)}>Reintentar</Button>
             </div>
+          )}
+          <div className="w-[220px] shrink-0">
+            <ViewSwitcher views={['lyrics', 'viz']} activeView={viewMode} onChange={setViewMode} labels={{ lyrics: 'Letra', viz: 'Visual' }} />
           </div>
 
-          <div className="p-4 flex-1 overflow-auto" style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 5rem)' }}>
+          <div className="flex-1 min-h-0 w-full flex flex-col">
             {viewMode === 'lyrics' ? (
-              subs.cues && subs.cues.length > 0 ? (
-                <div className="space-y-1">
-                  {subs.cues.map((c, i) => {
-                    const isActive = i === activeCueIndex;
-                    return (
-                      <div
-                        key={`${c.start}-${i}`}
-                        ref={(el) => { cueRefs.current[i] = el; }}
-                        onClick={() => seekTo(c.start)}
-                        className={`text-sm cursor-pointer select-none transition-colors ${isActive ? 'bg-rose-50 text-rose-800 rounded px-2 py-1' : 'text-gray-800 hover:text-gray-900'}`}
-                      >
-                        {c.tokens && c.tokens.length > 0 ? (
-                          c.tokens.map((t, j) => {
-                            const tokActive = currentTime + 0.01 >= t.start && currentTime < t.end + 0.01;
-                            return (
-                              <span
-                                key={`t-${i}-${j}-${t.start}`}
-                                onClick={(e) => { e.stopPropagation(); seekTo(t.start); }}
-                                className={`${tokActive ? 'text-rose-600 font-semibold' : ''}`}
-                              >
-                                {t.text}
-                              </span>
-                            );
-                          })
-                        ) : (
-                          c.text
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
+              hasCues ? (
+                <>
+                  {/* F12: la letra entera con auto-scroll y karaoke palabra a palabra, no el recorte a 3 líneas */}
+                  <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain py-6">
+                    {subs.cues.map((c, i) => {
+                      const isActive = i === activeCueIndex;
+                      return (
+                        <div
+                          key={`${c.start}-${i}`}
+                          ref={(el) => { cueRefs.current[i] = el; }}
+                          onClick={() => seekTo(c.start)}
+                          className={`px-2 py-1.5 rounded-xl text-center cursor-pointer select-none text-balance transition-colors ${isActive ? 'text-[21px] leading-snug font-semibold text-ink' : 'text-[17px] text-ink-2'}`}
+                        >
+                          {c.tokens && c.tokens.length > 0 ? (
+                            c.tokens.map((t, j) => {
+                              const tokActive = currentTime + 0.01 >= t.start && currentTime < t.end + 0.01;
+                              return (
+                                <span
+                                  key={`t-${i}-${j}-${t.start}`}
+                                  onClick={(e) => { e.stopPropagation(); seekTo(t.start); }}
+                                  className={`musica-kw ${tokActive ? 'now' : ''}`}
+                                >
+                                  {t.text}
+                                </span>
+                              );
+                            })
+                          ) : (
+                            c.text
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <p className="etiqueta text-center pt-2">Toca una línea para saltar ahí</p>
+                </>
               ) : (
-                <div className="text-sm text-gray-500">
-                  Sin subtítulos todavía. Usa “Subir subtítulos” en el menú de cada canción para cargar un archivo .lrc/.srt/.vtt.
+                <div className="flex-1 flex flex-col items-center justify-center gap-1.5 text-center px-4">
+                  <p className="text-[17px] font-semibold text-ink">Sin letra todavía</p>
+                  <p className="text-sm text-ink-2 max-w-[280px] text-pretty">Súbela desde ⋯ en la lista, con «Subir letra». Vale un .lrc, .srt o .vtt.</p>
                 </div>
               )
             ) : (
-              // Visualizer view
-              subs.cues && subs.cues.length > 0 ? (
-                <div className="relative w-full h-full flex items-center justify-center">
+              <>
+                {/* F11: el lienzo con Web Audio y sus 3 efectos; solo cambian los colores (lacre del tema) */}
+                <div className="relative flex-1 min-h-0 flex items-center justify-center">
                   <canvas ref={vizCanvasRef} className="absolute inset-0 w-full h-full" style={{ filter: 'blur(2px)' }} />
-                  {(() => {
+                  {hasCues && (() => {
                     const c = subs.cues[activeCueIndex] || null;
                     const tokens = getTokensForCue(c);
                     const visible = tokens.filter((t) => t.start <= currentTime);
                     return (
                       <div className="relative z-10 text-center px-4">
-                        <div className="text-3xl sm:text-4xl md:text-5xl font-semibold tracking-wide text-gray-900">
+                        <div className="text-[28px] leading-tight font-semibold text-ink text-balance">
                           {visible.length > 0 ? visible.map((t, j) => {
                             const tokActive = currentTime + 0.01 >= t.start && currentTime < t.end + 0.01;
                             return (
-                              <span key={`vz-${j}-${t.start}`} className={tokActive ? 'text-rose-600' : ''}>
+                              <span key={`vz-${j}-${t.start}`} className={tokActive ? 'text-accent-ink' : ''}>
                                 {t.text}
                               </span>
                             );
@@ -1139,56 +1083,55 @@ export default function Music() {
                     );
                   })()}
                 </div>
-              ) : (
-                <div className="text-sm text-gray-500">
-                  Sin subtítulos todavía. Usa “Subir subtítulos” en el menú de cada canción para cargar un archivo .lrc/.srt/.vtt.
-                </div>
-              )
+                <Button variant="sec" className="self-center mt-2 shrink-0" onClick={() => setVizStyle((s) => (s + 1) % 3)} title="Cambiar efecto">
+                  Cambiar efecto · {VIZ_NAMES[vizStyle % 3]}
+                </Button>
+              </>
             )}
           </div>
-          <div className="p-4 border-t border-rose-100 bg-white" style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 20px)' }}>
-            <div className="flex items-center gap-3 text-xs text-gray-600 mb-2">
+
+          <div className="w-full flex flex-col gap-1 shrink-0">
+            {/* A6: el mismo range con sus handlers; solo cambia el estilo (.reproductor .progress-range, Music.css) */}
+            <input
+              type="range"
+              aria-label="Posición en la canción"
+              min={0}
+              max={Math.max(1, player.duration || 0)}
+              step={0.1}
+              value={Math.min(player.duration || 0, currentTime)}
+              onChange={(e) => seekTo(parseFloat(e.target.value))}
+              onInput={(e) => seekTo(parseFloat(e.target.value))}
+              onPointerDown={onSeekPointerDown}
+              onPointerUp={onSeekRelease}
+              onPointerCancel={onSeekCancel}
+              onMouseDown={onSeekPointerDown}
+              onMouseUp={onSeekRelease}
+              onTouchStart={onSeekPointerDown}
+              onTouchEnd={onSeekRelease}
+              onTouchCancel={onSeekCancel}
+              className="w-full progress-range"
+              style={{ ['--pct']: `${pct}%` }}
+            />
+            <div className="num flex justify-between text-xs text-ink-2">
               <span>{fmtDuration(currentTime)}</span>
-              <input
-                type="range"
-                min={0}
-                max={Math.max(1, player.duration || 0)}
-                step={0.1}
-                value={Math.min(player.duration || 0, currentTime)}
-                onChange={(e) => seekTo(parseFloat(e.target.value))}
-                onInput={(e) => seekTo(parseFloat(e.target.value))}
-                onPointerDown={onSeekPointerDown}
-                onPointerUp={onSeekRelease}
-                onPointerCancel={onSeekCancel}
-                onMouseDown={onSeekPointerDown}
-                onMouseUp={onSeekRelease}
-                onTouchStart={onSeekPointerDown}
-                onTouchEnd={onSeekRelease}
-                onTouchCancel={onSeekCancel}
-                className="flex-1 progress-range"
-                style={{ ['--pct']: `${Math.max(0, Math.min(100, (player.duration ? (currentTime / player.duration) : 0) * 100))}%` }}
-              />
               <span>{fmtDuration(player.duration)}</span>
             </div>
-            <div className="flex items-center justify-center gap-6">
-              <button className="btn-ghost rounded-full w-10 h-10 flex items-center justify-center" onClick={() => playNext(-1)} aria-label="Anterior">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-6 h-6"><path d="M16.5 5.25h2.25v13.5H16.5zM3 12l12 6.75V5.25L3 12z"/></svg>
-              </button>
-              <button className="btn-primary rounded-full w-12 h-12" onClick={togglePlay} aria-label={isPlaying ? 'Pausar' : 'Reproducir'}>
-                {isPlaying ? (
-                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-6 h-6"><path d="M7.5 5.25h3v13.5h-3zM13.5 5.25h3v13.5h-3z"/></svg>
-                ) : (
-                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-6 h-6"><path d="M6.75 4.5v15l12-7.5-12-7.5z"/></svg>
-                )}
-              </button>
-              <button className="btn-ghost rounded-full w-10 h-10 flex items-center justify-center" onClick={() => playNext(1)} aria-label="Siguiente">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-6 h-6">
-                  <g transform="translate(24,0) scale(-1,1)">
-                    <path d="M16.5 5.25h2.25v13.5H16.5zM3 12l12 6.75V5.25L3 12z"/>
-                  </g>
-                </svg>
-              </button>
-            </div>
+          </div>
+          <div className="flex items-center gap-7 shrink-0">
+            <button type="button" onClick={() => playNext(-1)} aria-label="Anterior" className="w-[52px] h-[52px] rounded-full flex items-center justify-center active:bg-sunk">
+              <Glyph d="M6 5v14M18 5.5v13L9 12z" />
+            </button>
+            <button
+              type="button"
+              onClick={togglePlay}
+              aria-label={isPlaying ? 'Pausar' : 'Reproducir'}
+              className="w-[72px] h-[72px] rounded-full bg-ink text-paper flex items-center justify-center transition-transform active:scale-95"
+            >
+              {isPlaying ? <Icon name="pausa" size={28} /> : <Icon name="play" size={28} filled />}
+            </button>
+            <button type="button" onClick={() => playNext(1)} aria-label="Siguiente" className="w-[52px] h-[52px] rounded-full flex items-center justify-center active:bg-sunk">
+              <Glyph d="M18 5v14M6 5.5v13l9-6.5z" />
+            </button>
           </div>
         </div>
       </Modal>
@@ -1198,10 +1141,6 @@ export default function Music() {
         <audio ref={audioRef} preload="auto" playsInline />,
         document.body
       )}
-
-      {/* Only render the main page list UI on /music (handled by guards above) */}
-      {/* Spacer so list doesn't go under mini-player (on /music) */}
-      {isMusicRoute && <div style={{ height: player.id ? 96 : 0 }} />}
     </div>
   );
 }

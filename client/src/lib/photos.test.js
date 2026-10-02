@@ -1,6 +1,6 @@
-import { deletePhoto, retryPendingPhotos, uploadPhoto, listPhotosPage, madridDayKey } from './photos';
+import { deletePhoto, retryPendingPhotos, uploadPhoto, listPhotosPage, madridDayKey, getOriginal, getOriginalUrl, getPhotoThumbUrl, getDailyPhotoId } from './photos';
 import { deleteThumb, deleteOrig, getThumb, getOrig } from './photoCache';
-import { collection, doc, deleteDoc, setDoc, getDoc, getDocs } from 'firebase/firestore';
+import { collection, doc, deleteDoc, setDoc, updateDoc, getDoc, getDocs } from 'firebase/firestore';
 import { ref, getDownloadURL, deleteObject, uploadBytes } from 'firebase/storage';
 
 vi.mock('./firebase', () => ({
@@ -8,7 +8,7 @@ vi.mock('./firebase', () => ({
   db: {},
   storage: {},
   authReady: Promise.resolve(),
-  whenAuthed: () => Promise.resolve({ uid: 'u1' }),
+  whenAuthed: vi.fn(() => Promise.resolve({ uid: 'u1' })),
 }));
 vi.mock('./photoCache', () => ({
   getThumb: vi.fn(),
@@ -347,6 +347,81 @@ describe('listPhotosPage', () => {
     getThumb.mockImplementation(async (id) => { if (id === 'D1') throw new Error('idb'); return null; });
     const page = await listPhotosPage(PAIR, { pageSize: 60 });
     expect(page.items.map((it) => it.thumbUrl)).toEqual(['https://t/0?alt=media', '', 'https://t/2?alt=media']);
+  });
+
+  // Antes caía a lo local y la galería decía «Aún no hay fotos» (le pasó en el iPhone)
+  test('si falla la primera página lanza en vez de devolver una galería vacía', async () => {
+    getDocs.mockRejectedValue(new Error('permission-denied'));
+    await expect(listPhotosPage(PAIR, { pageSize: 60 })).rejects.toThrow('permission-denied');
+  });
+
+  test('sin sesión tras la espera también es un error, y no lee Firestore', async () => {
+    const { whenAuthed } = await import('./firebase');
+    whenAuthed.mockResolvedValueOnce(null);
+    await expect(listPhotosPage(PAIR, { pageSize: 60 })).rejects.toMatchObject({ code: 'no-auth' });
+    expect(getDocs).not.toHaveBeenCalled();
+  });
+});
+
+// Sin red una escritura de Firestore no resuelve hasta que el servidor confirma: ninguna lectura puede esperarla
+describe('escrituras de reparación de URL', () => {
+  const never = () => new Promise(() => {});
+  const OK = 'https://x/y?alt=media';
+  const realFetch = global.fetch;
+  beforeEach(() => {
+    global.fetch = vi.fn(() => Promise.reject(new TypeError('blocked'))); // CORS
+    getOrig.mockResolvedValue(null);
+    getDoc.mockResolvedValue({ exists: () => true, data: () => ({ origUrl: OK, thumbUrl: OK }) });
+    updateDoc.mockReset();
+    setDoc.mockReset();
+  });
+  afterEach(() => { global.fetch = realFetch; });
+
+  test('getOriginal con la misma URL no escribe, aunque el fetch falle en cada carga', async () => {
+    getDownloadURL.mockResolvedValue(OK);
+    expect(await getOriginal(PAIR, 'A1')).toBeNull();
+    expect(updateDoc).not.toHaveBeenCalled();
+  });
+
+  test('getOriginal con otra URL escribe una vez y no espera a la confirmación', async () => {
+    getDownloadURL.mockResolvedValue('https://x/new?alt=media');
+    updateDoc.mockImplementation(never);
+    expect(await getOriginal(PAIR, 'A1')).toBeNull();
+    expect(updateDoc).toHaveBeenCalledTimes(1);
+    expect(updateDoc.mock.calls[0][1]).toEqual({ origUrl: 'https://x/new?alt=media' });
+  });
+
+  test('si la escritura falla, getOriginal no revienta', async () => {
+    getDownloadURL.mockResolvedValue('https://x/new?alt=media');
+    updateDoc.mockRejectedValue(new Error('offline'));
+    expect(await getOriginal(PAIR, 'A1')).toBeNull();
+    await flush();
+  });
+
+  test('getOriginalUrl y getPhotoThumbUrl devuelven la URL sin esperar a la escritura', async () => {
+    getDoc.mockResolvedValue({ exists: () => true, data: () => ({}) });
+    getDownloadURL.mockResolvedValue('https://x/new?alt=media');
+    updateDoc.mockImplementation(never);
+    expect(await getOriginalUrl(PAIR, 'A1')).toBe('https://x/new?alt=media');
+    expect(await getPhotoThumbUrl(PAIR, 'A1')).toBe('https://x/new?alt=media');
+    expect(updateDoc).toHaveBeenCalledTimes(2);
+  });
+
+  test('getDailyPhotoId devuelve la foto sin esperar a la escritura de meta/dailyPhoto', async () => {
+    getDoc.mockResolvedValue({ exists: () => false });
+    getDocs.mockResolvedValue({ docs: [{ id: 'A1' }] });
+    setDoc.mockImplementation(never);
+    expect(await getDailyPhotoId(PAIR)).toBe('A1');
+    expect(setDoc).toHaveBeenCalledTimes(1);
+    expect(setDoc.mock.calls[0][2]).toEqual({ merge: true });
+  });
+
+  test('si la escritura de dailyPhoto falla, sigue devolviendo la foto', async () => {
+    getDoc.mockResolvedValue({ exists: () => false });
+    getDocs.mockResolvedValue({ docs: [{ id: 'A1' }] });
+    setDoc.mockRejectedValue(new Error('offline'));
+    expect(await getDailyPhotoId(PAIR)).toBe('A1');
+    await flush();
   });
 });
 

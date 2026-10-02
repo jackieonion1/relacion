@@ -1,29 +1,28 @@
 import React from 'react';
+import { EVENT_TYPES } from '../lib/eventTypes';
 
-export default function EventTypeSwitcher({ activeType, onChange }) {
-  const types = [
-    { value: 'conjunto', emoji: '🩷', text: 'Conjunto', color: 'bg-rose-500' },
-    { value: 'novio', emoji: '💛', text: 'Novio', color: 'bg-yellow-500' },
-    { value: 'novia', emoji: '💜', text: 'Novia', color: 'bg-purple-500' }
-  ];
-
+// "De quién es": a three-way segmented control (radiogroup) that returns the stored value
+export default function EventTypeSwitcher({ activeType, onChange, label = 'De quién es' }) {
   return (
-    <div className="bg-gray-200 p-1 rounded-lg flex items-center justify-center space-x-1">
-      {types.map((type) => (
-        <button
-          key={type.value}
-          type="button"
-          onClick={() => onChange(type.value)}
-          className={`w-full text-center px-3 py-1.5 rounded-md text-sm font-semibold transition-colors duration-200 flex flex-col items-center leading-tight ${
-            activeType === type.value
-              ? 'bg-white text-gray-800 shadow-sm'
-              : 'bg-transparent text-gray-600 hover:bg-gray-300/50'
-          }`}
-        >
-          <span className="text-lg">{type.emoji}</span>
-          <span className="text-[11px] mt-0.5">{type.text}</span>
-        </button>
-      ))}
+    <div role="radiogroup" aria-label={label} className="grid grid-cols-3 h-[52px] p-1 rounded-full bg-sunk">
+      {EVENT_TYPES.map((type) => {
+        const on = activeType === type.value;
+        return (
+          <button
+            key={type.value}
+            type="button"
+            role="radio"
+            aria-checked={on}
+            onClick={() => onChange(type.value)}
+            className={`min-w-0 flex items-center justify-center gap-1.5 rounded-full text-[15px] font-semibold transition-colors ${
+              on ? 'bg-raised text-ink shadow-carta' : 'text-ink-2'
+            }`}
+          >
+            <span aria-hidden="true" className="leading-none">{type.emoji}</span>
+            <span className="truncate">{type.text}</span>
+          </button>
+        );
+      })}
     </div>
   );
 }

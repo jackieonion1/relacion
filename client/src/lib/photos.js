@@ -167,47 +167,45 @@ export async function listPhotos(pairId, max = 100) {
 }
 
 // One page of the gallery, newest first. `cursor` is the last doc of the previous page.
-// Returns { items, cursor, hasMore } (+ thumbsDone with onThumb(id, url)); on a failed "load more" it throws
-// so the UI can offer a retry.
+// Returns { items, cursor, hasMore } (+ thumbsDone with onThumb(id, url)). With Firebase a failed page throws,
+// the first one too (also with no session after the wait), so the UI tells "could not load" from "empty"
+// and can offer a retry.
 export async function listPhotosPage(pairId, { pageSize = 60, cursor = null, onThumb = null } = {}) {
   const fblib = await fb();
   if (db && fblib) {
-    try {
-      await whenAuthed();
-      const { collection, getDocs, query, orderBy, limit, startAfter } = fblib;
-      const col = collection(db, 'pairs', pairId, 'photos');
-      // pageSize + 1 tells us whether there is another page without an empty extra read
-      const q = cursor
-        ? query(col, orderBy('createdAt', 'desc'), startAfter(cursor), limit(pageSize + 1))
-        : query(col, orderBy('createdAt', 'desc'), limit(pageSize + 1));
-      const snap = await getDocs(q);
-      const { page, hasMore } = splitPage(snap.docs, pageSize);
-      const items = page.map((docSnap) => ({
-        id: docSnap.id,
-        thumbUrl: '',
-        createdAt: docSnap.data()?.createdAt?.toMillis?.() || Date.now(),
-      }));
-      const nextCursor = page.length ? page[page.length - 1] : cursor;
-      const thumbs = mapLimit(page, THUMB_CONCURRENCY, async (docSnap, i) => {
-        const url = await resolveThumbUrl(fblib, pairId, docSnap);
-        if (onThumb) { if (url) onThumb(docSnap.id, url); } else items[i].thumbUrl = url || '';
-      });
-      // With onThumb: return the grid now (empty slots) and report each thumb as it arrives; the caller owns
-      // those blob URLs, also the ones arriving after it moved on. Without it: wait and return them filled in
-      if (onThumb) return { items, cursor: nextCursor, hasMore, thumbsDone: thumbs };
-      await thumbs;
-      return { items, cursor: nextCursor, hasMore };
-    } catch (e) {
-      if (cursor) throw e;
-      // First page: fall back to local
-    }
+    if (!(await whenAuthed())) throw Object.assign(new Error('no-auth'), { code: 'no-auth' });
+    const { collection, getDocs, query, orderBy, limit, startAfter } = fblib;
+    const col = collection(db, 'pairs', pairId, 'photos');
+    // pageSize + 1 tells us whether there is another page without an empty extra read
+    const q = cursor
+      ? query(col, orderBy('createdAt', 'desc'), startAfter(cursor), limit(pageSize + 1))
+      : query(col, orderBy('createdAt', 'desc'), limit(pageSize + 1));
+    const snap = await getDocs(q);
+    const { page, hasMore } = splitPage(snap.docs, pageSize);
+    // identity: who uploaded it ('yo' | 'ella'); missing on the oldest photos
+    const items = page.map((docSnap) => ({
+      id: docSnap.id,
+      thumbUrl: '',
+      createdAt: docSnap.data()?.createdAt?.toMillis?.() || Date.now(),
+      identity: docSnap.data()?.identity || '',
+    }));
+    const nextCursor = page.length ? page[page.length - 1] : cursor;
+    const thumbs = mapLimit(page, THUMB_CONCURRENCY, async (docSnap, i) => {
+      const url = await resolveThumbUrl(fblib, pairId, docSnap);
+      if (onThumb) { if (url) onThumb(docSnap.id, url); } else items[i].thumbUrl = url || '';
+    });
+    // With onThumb: return the grid now (empty slots) and report each thumb as it arrives; the caller owns
+    // those blob URLs, also the ones arriving after it moved on. Without it: wait and return them filled in
+    if (onThumb) return { items, cursor: nextCursor, hasMore, thumbsDone: thumbs };
+    await thumbs;
+    return { items, cursor: nextCursor, hasMore };
   }
   // Local-only (no Firebase): everything in one page
   const items = [];
   for (const m of readLocalMeta(pairId)) {
     const b = await getThumb(m.id);
     const thumbUrl = b ? URL.createObjectURL(b) : '';
-    items.push({ id: m.id, thumbUrl, createdAt: m.createdAt });
+    items.push({ id: m.id, thumbUrl, createdAt: m.createdAt, identity: m.identity || '' });
   }
   items.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
   return { items, cursor: null, hasMore: false };
@@ -272,7 +270,8 @@ export async function getDailyPhotoId(pairId) {
     const idx = hash32(`${pairId}|${dayKey}`) % ids.length;
     const chosen = ids[idx];
     // Persist so all devices use the same
-    await setDoc(metaRef, { dayKey, photoId: chosen, updatedAt: fblib.serverTimestamp ? fblib.serverTimestamp() : new Date() }, { merge: true });
+    // Not awaited: offline the write only resolves once the server confirms, and Inicio must paint meanwhile
+    Promise.resolve(setDoc(metaRef, { dayKey, photoId: chosen, updatedAt: fblib.serverTimestamp ? fblib.serverTimestamp() : new Date() }, { merge: true })).catch(() => {});
     return chosen;
   } catch {
     return '';
@@ -295,11 +294,14 @@ export async function getPhotoThumbUrl(pairId, id) {
     const invalid = url && (/\.appspot\.com\//.test(url) || url.indexOf('alt=media') === -1);
     if (!url || invalid) {
       const tRef = ref(storage, `pairs/${pairId}/photos/${id}/thumb.jpg`);
-      url = await getDownloadURL(tRef);
-      try {
-        const dRef = doc(collection(db, 'pairs', pairId, 'photos'), id);
-        await updateDoc(dRef, { thumbUrl: url });
-      } catch {}
+      const freshUrl = await getDownloadURL(tRef);
+      if (freshUrl !== url) {
+        try {
+          const dRef = doc(collection(db, 'pairs', pairId, 'photos'), id);
+          Promise.resolve(updateDoc(dRef, { thumbUrl: freshUrl })).catch(() => {});
+        } catch {}
+      }
+      url = freshUrl;
     }
     return url || '';
   } catch {
@@ -338,10 +340,12 @@ export async function getOriginal(pairId, id) {
         try {
           const oRef = ref(storage, `pairs/${pairId}/photos/${id}/orig.jpg`);
           const freshUrl = await getDownloadURL(oRef);
-          try {
-            const dRef = doc(collection(db, 'pairs', pairId, 'photos'), id);
-            await updateDoc(dRef, { origUrl: freshUrl });
-          } catch {}
+          if (freshUrl !== url) {
+            try {
+              const dRef = doc(collection(db, 'pairs', pairId, 'photos'), id);
+              Promise.resolve(updateDoc(dRef, { origUrl: freshUrl })).catch(() => {});
+            } catch {}
+          }
           const resp2 = await fetch(freshUrl);
           if (resp2.ok) {
             fetched = await resp2.blob();
@@ -375,11 +379,14 @@ export async function getOriginalUrl(pairId, id) {
     const invalid = url && (/\.appspot\.com\//.test(url) || url.indexOf('alt=media') === -1);
     if (!url || invalid) {
       const oRef = ref(storage, `pairs/${pairId}/photos/${id}/orig.jpg`);
-      url = await getDownloadURL(oRef);
-      try {
-        const dRef = doc(collection(db, 'pairs', pairId, 'photos'), id);
-        await updateDoc(dRef, { origUrl: url });
-      } catch {}
+      const freshUrl = await getDownloadURL(oRef);
+      if (freshUrl !== url) {
+        try {
+          const dRef = doc(collection(db, 'pairs', pairId, 'photos'), id);
+          Promise.resolve(updateDoc(dRef, { origUrl: freshUrl })).catch(() => {});
+        } catch {}
+      }
+      url = freshUrl;
     }
     return url || '';
   } catch {
@@ -418,7 +425,7 @@ export async function listPendingPhotos(pairId) {
       const b = await getThumb(p.id);
       if (b) thumbUrl = URL.createObjectURL(b);
     } catch {}
-    items.push({ id: p.id, thumbUrl, createdAt: p.createdAt || 0 });
+    items.push({ id: p.id, thumbUrl, createdAt: p.createdAt || 0, identity: p.identity || '' });
   }
   items.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
   return items;

@@ -1,54 +1,63 @@
 import React, { useState, useEffect } from 'react';
 import HeartRainAnimation from '../components/HeartRainAnimation';
 import SimpleMap from '../components/SimpleMap';
-import Modal from '../components/Modal';
+import Sheet from '../components/Sheet';
+import Button from '../components/Button';
 import { getMapState, setMapState, subscribeToMapState } from '../lib/mapState';
+import './Map.css';
+
+const STATES = [
+  { id: 'home', label: 'En casa', emoji: '🏠' },
+  { id: 'traveling', label: 'De camino', emoji: '🚀' },
+  { id: 'together', label: 'Juntos', emoji: '💖' }
+];
+
+// The hero of each state: same box as the map, so switching does not move what is below
+const HERO = 'relative h-[280px] rounded-hero overflow-hidden border border-line flex flex-col items-center justify-center text-center p-6';
 
 // ViewSwitcher component for map states
 function MapViewSwitcher({ activeState, onRequestChange }) {
-  const states = [
-    { id: 'home', label: 'En casa', emoji: '🏠' },
-    { id: 'traveling', label: 'De camino', emoji: '🚀' },
-    { id: 'together', label: 'Juntos', emoji: '💖' }
-  ];
-
   return (
-    <div className="flex bg-gray-100 rounded-xl p-1">
-      {states.map(state => (
-        <button
-          key={state.id}
-          onClick={() => {
-            if (state.id !== activeState) {
-              onRequestChange(state.id, state.label, state.emoji);
-            }
-          }}
-          className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all ${
-            activeState === state.id
-              ? 'bg-white text-rose-600 shadow-sm'
-              : 'text-gray-600 hover:text-gray-900'
-          }`}
-        >
-          <span className="mr-1">{state.emoji}</span>
-          {state.label}
-        </button>
-      ))}
-    </div>
+    <section aria-labelledby="mapa-estados" className="flex flex-col gap-2 pt-[18px]">
+      <h2 id="mapa-estados" className="etiqueta px-1">Cómo estamos</h2>
+      <div className="grid grid-cols-3 gap-2">
+        {STATES.map(state => {
+          const on = activeState === state.id;
+          return (
+            <button
+              key={state.id}
+              type="button"
+              aria-pressed={on}
+              onClick={() => {
+                if (state.id !== activeState) {
+                  onRequestChange(state.id, state.label, state.emoji);
+                }
+              }}
+              className={`h-[84px] rounded-[18px] border-[1.5px] flex flex-col items-center justify-center gap-1.5 text-sm font-semibold transition-colors duration-200 ease-suave active:scale-[0.97] ${
+                on ? 'border-lacre bg-lacre-soft text-accent-ink' : 'border-line bg-card text-ink'
+              }`}
+            >
+              <span aria-hidden="true" className="text-[28px] leading-none">{state.emoji}</span>
+              {state.label}
+            </button>
+          );
+        })}
+      </div>
+    </section>
   );
 }
 
 // Traveling animation component
 function TravelingAnimation() {
   return (
-    <div className="flex items-center justify-center py-8">
-      <div className="relative">
-        <div className="text-6xl animate-bounce">🚀</div>
-        <div className="absolute -top-2 -right-2 text-2xl animate-pulse">✨</div>
-        <div className="absolute -bottom-2 -left-2 text-2xl animate-pulse delay-300">✨</div>
-      </div>
-      <div className="ml-4 text-center">
-        <div className="text-lg font-semibold text-gray-900 mb-1">De camino...</div>
-        <div className="text-sm text-gray-600">¡Pronto estaremos juntos!</div>
-      </div>
+    <div role="status" className={`${HERO} mapa-cielo gap-2.5`}>
+      <span aria-hidden="true" className="relative inline-block text-[64px] leading-none mb-1.5">
+        <span className="mapa-cohete">🚀</span>
+        <span className="mapa-brillo text-[22px]" style={{ top: -10, right: -22 }}>✨</span>
+        <span className="mapa-brillo text-xl" style={{ bottom: -6, left: -24, animationDelay: '500ms' }}>✨</span>
+      </span>
+      <p className="serif text-[30px] leading-[1.1] text-ink">De camino…</p>
+      <p className="text-base font-semibold text-accent-ink">¡Pronto estaremos juntos!</p>
     </div>
   );
 }
@@ -64,13 +73,6 @@ export default function MapPage() {
     newState: '',
     newStateLabel: '',
     newStateEmoji: ''
-  });
-
-  // Live distance and city labels from SimpleMap
-  const [distanceInfo, setDistanceInfo] = useState({
-    distanceKm: null,
-    loading: false,
-    cities: { novio: '', novia: '' }
   });
 
   // Load initial state from Firestore and subscribe to changes
@@ -147,110 +149,91 @@ export default function MapPage() {
     });
   };
 
+  const switcher = (
+    <MapViewSwitcher
+      activeState={currentState}
+      onRequestChange={handleStateChangeRequest}
+    />
+  );
+
   const renderContent = () => {
     switch (currentState) {
       case 'home':
-        return (
-          <div>
-            <div className="text-center py-4">
-              <div className="text-6xl mb-4">🏠</div>
-              <div className="text-sm text-gray-600 mb-2">Distancia</div>
-              <div className="text-3xl font-semibold text-rose-600 mb-1">
-                {distanceInfo.loading
-                  ? 'Calculando…'
-                  : (distanceInfo.distanceKm != null ? `${distanceInfo.distanceKm} km` : '— km')}
-              </div>
-            </div>
-            <SimpleMap onDistanceChange={setDistanceInfo} />
-          </div>
-        );
-      
+        return <SimpleMap>{switcher}</SimpleMap>;
+
       case 'traveling':
-        return <TravelingAnimation />;
-      
+        return (
+          <>
+            <TravelingAnimation />
+            {switcher}
+          </>
+        );
+
       case 'together':
         return (
-          <div className="text-center py-8">
-            <div className="text-6xl mb-4">💖</div>
-            <div className="text-lg font-semibold text-rose-600 mb-1">¡Juntos!</div>
-            <div className="text-sm text-gray-600">Distancia: 0 km</div>
-          </div>
+          <>
+            <div role="status" className={`${HERO} bg-lacre-soft gap-2`}>
+              <span className="mapa-sello text-[72px] leading-none" aria-hidden="true">💖</span>
+              <p className="serif italic text-[36px] leading-[1.05] text-accent-ink">¡Juntos!</p>
+              <p className="text-[15px] text-ink-2">🫒 y 🍪 en el mismo sitio</p>
+            </div>
+            <div className="flex items-baseline justify-between px-1 pt-3.5">
+              <span className="etiqueta">Distancia</span>
+              <span className="serif num text-[28px] text-ink">0 km 💖</span>
+            </div>
+            {switcher}
+          </>
         );
-      
+
       default:
-        return null;
+        return switcher;
     }
   };
 
+  const title = <h1 className="serif text-[36px] leading-[1.05] font-normal tracking-[-0.01em] text-ink px-1 pt-1.5 pb-3.5">Mapa</h1>;
+
   if (isLoading) {
     return (
-      <div className="space-y-4">
-        <div className="card">
-          <div className="text-center py-8 text-gray-600">
-            Cargando estado...
-          </div>
+      <div className="px-4">
+        {title}
+        <div role="status" className="h-[280px] rounded-hero bg-sunk animate-pulse">
+          <span className="sr-only">Cargando estado…</span>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="space-y-4 relative pb-20">
-      <h2 className="text-lg font-semibold text-rose-600">Mapa</h2>
+    <div className="px-4 relative pb-20">
+      {title}
       {saveError && (
-        <div className="card flex items-center justify-between gap-3 text-sm text-rose-600">
+        <div role="alert" className="mb-3 flex items-center justify-between gap-3 pl-4 pr-1 py-1 rounded-control bg-card border border-line text-sm text-danger">
           <span>{saveError}</span>
-          <button type="button" onClick={() => setSaveError('')} className="btn-link" aria-label="Cerrar aviso">×</button>
+          <Button icon="cerrar" label="Cerrar aviso" onClick={() => setSaveError('')} />
         </div>
       )}
-      <div className="card">
-        <div className="text-sm text-gray-600 mb-3">Estado actual</div>
-        <MapViewSwitcher 
-          activeState={currentState} 
-          onRequestChange={handleStateChangeRequest} 
-        />
-      </div>
 
-      <div className="card">
-        {renderContent()}
-      </div>
+      {renderContent()}
 
       {/* Heart rain animation for "together" state */}
       {showHeartRain && (
-        <HeartRainAnimation 
-          type="fireworks" 
+        <HeartRainAnimation
+          type="fireworks"
           isActive={true}
           onStop={() => setShowHeartRain(false)}
         />
       )}
 
-      {/* Confirmation modal */}
-      <Modal isOpen={confirmationModal.isOpen} onClose={cancelStateChange}>
-        <div className="p-6 text-center">
-          <div className="text-4xl mb-4">{confirmationModal.newStateEmoji}</div>
-          <h3 className="text-lg font-semibold mb-2">Cambiar estado</h3>
-          <p className="text-gray-600 mb-6">
-            ¿Quieres cambiar el estado a <strong>"{confirmationModal.newStateLabel}"</strong>?
-          </p>
-          <p className="text-sm text-gray-500 mb-6">
-            Este cambio se sincronizará con todas las sesiones abiertas.
-          </p>
-          <div className="flex gap-3 justify-center">
-            <button 
-              onClick={cancelStateChange}
-              className="px-4 py-2 text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
-            >
-              Cancelar
-            </button>
-            <button 
-              onClick={confirmStateChange}
-              className="btn-primary"
-            >
-              Confirmar
-            </button>
-          </div>
+      {/* Confirmation sheet; while the fireworks fall it leaves room for «Parar la fiesta», which floats above it */}
+      <Sheet isOpen={confirmationModal.isOpen} onClose={cancelStateChange}>
+        <div className={`flex flex-col gap-1.5 px-5 pt-1.5 transition-[padding] duration-200 ${showHeartRain ? 'pb-[10.5rem]' : 'pb-[34px]'}`}>
+          <div className="text-4xl leading-none py-2" aria-hidden="true">{confirmationModal.newStateEmoji}</div>
+          <h2 className="serif text-[26px] leading-[1.15] font-normal">¿Cambiar a «{confirmationModal.newStateLabel}»?</h2>
+          <p className="text-[15px] text-ink-2 pb-3.5">Lo verá la otra persona en su mapa.</p>
+          <Button size="l" onClick={confirmStateChange}>Cambiar</Button>
+          <Button variant="txt" size="l" onClick={cancelStateChange}>Cancelar</Button>
         </div>
-      </Modal>
+      </Sheet>
     </div>
   );
 }

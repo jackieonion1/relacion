@@ -1,0 +1,89 @@
+/* Celebration rain (HeartRain.jsx). Own file so the keyframes load once instead of a <style> per render */
+@keyframes heartFall {
+  0% {
+    transform: translateY(-50px) rotate(0deg);
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(calc(100vh + 100px)) rotate(360deg);
+    opacity: 0;
+  }
+}
+
+/* While an explosion waits for its animation-delay, fill-mode both holds it on 0%: hidden there, so the burst does
+   not sit visible in a heap at its centre before going off */
+@keyframes heartFireworks {
+  0% {
+    transform: translate(0, 0) scale(0.5) rotate(0deg);
+    opacity: 0;
+  }
+  1% {
+    opacity: 1;
+  }
+  50% {
+    transform: translate(var(--dx), var(--dy)) scale(1.2) rotate(180deg);
+    opacity: 1;
+  }
+  100% {
+    transform: translate(calc(var(--dx) * 1.5), calc(var(--dy) * 1.5)) scale(0.3) rotate(360deg);
+    opacity: 0;
+  }
+}
+
+.heart-fall {
+  animation: heartFall 4s ease-in both;
+}
+
+.heart-fireworks {
+  animation: heartFireworks 3s ease-out both;
+}
+
+/* Centred above the bottom bar and the notice, if any (same offset as .fab), clear of the home indicator */
+.heart-rain-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: calc(var(--shell-bottom) + 0.75rem);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  pointer-events: none;
+}
+
+.heart-rain-stop {
+  pointer-events: auto;
+  min-height: 44px;
+  min-width: 44px;
+  padding: 0 1.25rem;
+  border-radius: 9999px;
+  /* Carta tokens, so it reads in light and dark */
+  border: 1px solid color-mix(in oklab, var(--lacre) 35%, var(--line));
+  background: color-mix(in oklab, var(--card) 92%, transparent);
+  color: var(--accent-ink);
+  font-weight: 600;
+  font-size: 0.95rem;
+  box-shadow: var(--sh-2);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.heart-rain-stop:focus-visible {
+  outline: 3px solid var(--lacre);
+  outline-offset: 2px;
+}
+
+/* With reduced motion nothing falls: a still row of the celebration's emoji instead */
+.heart-rain-still {
+  font-size: 2rem;
+  line-height: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .heart-fall,
+  .heart-fireworks {
+    animation: none;
+    display: none;
+  }
+}

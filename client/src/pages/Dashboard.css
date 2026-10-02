@@ -1,0 +1,71 @@
+/* Inicio (R5): Prototipo.dc.html, "INICIO". Reduced motion is the global rule in index.css (every animation ends at once) */
+
+/* Loading hole with the shine passing over it */
+.hueco { position: relative; background-color: var(--sunk); overflow: hidden; }
+.hueco::after {
+  content: ""; position: absolute; inset: 0;
+  background: linear-gradient(100deg, transparent 30%, var(--shine) 50%, transparent 70%);
+  transform: translateX(-100%);
+  animation: hueco-brillo 1500ms var(--ease-suave) infinite;
+}
+@keyframes hueco-brillo { to { transform: translateX(100%); } }
+
+.av {
+  display: inline-flex; align-items: center; justify-content: center; flex: none;
+  width: 28px; height: 28px; border-radius: 14px; background-color: var(--sunk); font-size: 15px; line-height: 1;
+}
+
+.foto-dia:focus-visible, .fila-evento:focus-visible { outline: 2px solid var(--lacre); outline-offset: 2px; }
+.fila-evento { -webkit-tap-highlight-color: transparent; transition: background-color var(--dur-fundido) var(--ease-suave); }
+.fila-evento:active { background-color: var(--sunk); }
+.encuentro { transition: transform var(--dur-fundido) var(--ease-suave); }
+.encuentro:has(.encuentro-abrir:active) { transform: scale(0.98); }
+.encuentro-abrir { -webkit-tap-highlight-color: transparent; }
+.encuentro-abrir:focus-visible { outline: 2px solid var(--lacre); outline-offset: 2px; }
+
+/* Latido (C1): local, sends nothing. Each tap swaps beat-a / beat-b so the animation starts again */
+.latido { position: relative; color: var(--lacre); -webkit-tap-highlight-color: transparent; }
+.latido:focus-visible { outline: 2px solid var(--lacre); outline-offset: 2px; }
+.latido .hb { display: flex; }
+.latido.beat-a .hb { animation: latido-a var(--dur-latido) var(--ease-suave); }
+.latido.beat-b .hb { animation: latido-b var(--dur-latido) var(--ease-suave); }
+@keyframes latido-a { 0% { transform: scale(1); } 14% { transform: scale(1.34); } 30% { transform: scale(0.9); } 48% { transform: scale(1.12); } 68% { transform: scale(0.98); } 100% { transform: scale(1); } }
+@keyframes latido-b { 0% { transform: scale(1); } 14% { transform: scale(1.34); } 30% { transform: scale(0.9); } 48% { transform: scale(1.12); } 68% { transform: scale(0.98); } 100% { transform: scale(1); } }
+.latido .ring { position: absolute; inset: 4px; border-radius: 50%; border: 1.5px solid var(--lacre); opacity: 0; pointer-events: none; }
+.latido.beat-a .ring { animation: ring-a 720ms var(--ease-suave); }
+.latido.beat-b .ring { animation: ring-b 720ms var(--ease-suave); }
+@keyframes ring-a { 0% { opacity: 0.6; transform: scale(0.7); } 100% { opacity: 0; transform: scale(2.2); } }
+@keyframes ring-b { 0% { opacity: 0.6; transform: scale(0.7); } 100% { opacity: 0; transform: scale(2.2); } }
+.latido .spark {
+  position: absolute; left: 50%; top: 50%; width: 5px; height: 5px; margin: -2.5px; border-radius: 50%;
+  background-color: var(--lacre); opacity: 0; pointer-events: none;
+}
+.latido.beat-a .spark { animation: spark-a 620ms var(--ease-suave) 80ms; }
+.latido.beat-b .spark { animation: spark-b 620ms var(--ease-suave) 80ms; }
+@keyframes spark-a { 0% { opacity: 0; transform: rotate(var(--a)) translateY(-8px) scale(0.6); } 25% { opacity: 1; } 100% { opacity: 0; transform: rotate(var(--a)) translateY(-32px) scale(0.2); } }
+@keyframes spark-b { 0% { opacity: 0; transform: rotate(var(--a)) translateY(-8px) scale(0.6); } 25% { opacity: 1; } 100% { opacity: 0; transform: rotate(var(--a)) translateY(-32px) scale(0.2); } }
+@media (prefers-reduced-motion: reduce) {
+  .latido .hb, .latido .ring, .latido .spark, .hueco::after { animation: none !important; }
+}
+
+/* Underline that fills under "y 6 días" while the heart is on */
+.brillo {
+  background-image: linear-gradient(var(--lacre-soft), var(--lacre-soft)); background-repeat: no-repeat;
+  background-position: 0 88%; background-size: 0% 32%;
+  transition: background-size 520ms var(--ease-suave);
+}
+.brillo.on { background-size: 100% 32%; }
+
+/* Weather sky (F3): the 7 × 4 table of Dashboard.jsx paints .cielo-fondo with fixed v3 pastels (index.css), the same
+   in both themes. The text follows the phase: dark ink over the light skies, light ink at night. In the dark theme
+   every sky is dimmed and takes light ink */
+.cielo { position: relative; overflow: hidden; isolation: isolate; color: oklch(0.24 0.02 30); border: 1px solid var(--line); }
+.cielo p { color: inherit; } /* index.css gives every p its own grey */
+.cielo .cielo-2 { color: oklch(0.42 0.02 40); }
+.cielo.de-noche { color: oklch(0.97 0.01 80); border-color: transparent; }
+.cielo.de-noche .cielo-2 { color: oklch(0.86 0.03 290); }
+.cielo-fondo { position: absolute; inset: 0; z-index: -1; }
+html[data-tema='oscuro'] .cielo { color: oklch(0.97 0.01 80); border-color: transparent; }
+html[data-tema='oscuro'] .cielo .cielo-2 { color: oklch(0.86 0.03 290); }
+html[data-tema='oscuro'] .cielo-fondo { filter: brightness(0.5) saturate(1.1); }
+html[data-tema='oscuro'] .cielo.de-noche .cielo-fondo { filter: brightness(0.8); }

@@ -12,7 +12,7 @@ describe('MarkdownRenderer: lo que se ve no cambia', () => {
     expect(a.getAttribute('href')).toBe('https://example.com/a?x=1&y=2');
     expect(a.textContent).toBe('web');
     expect(container.firstChild.innerHTML).toBe(
-      `<p ${P}><a href="https://example.com/a?x=1&amp;y=2" target="_blank" rel="noopener" class="text-rose-600 underline">web</a></p>`
+      `<p ${P}><a href="https://example.com/a?x=1&amp;y=2" target="_blank" rel="noopener" class="text-lacre underline">web</a></p>`
     );
   });
 
