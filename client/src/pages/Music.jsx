@@ -133,11 +133,13 @@ export default function Music() {
   }, []);
 
   // Prepare PNG artwork from existing SVG so iOS can style system UI better
+  // The URL is revoked only on unmount: the Media Session fetches it later, and revoking it when artworkUrl changes
+  // (the cleanup of the run that created it) left every song's metadata pointing at a dead blob
   useEffect(() => {
     let urlToRevoke = '';
+    let cancelled = false;
     (async () => {
       try {
-        if (artworkUrl) return; // already prepared
         const img = new Image();
         img.crossOrigin = 'anonymous';
         img.src = '/icon.svg';
@@ -156,7 +158,7 @@ export default function Music() {
         // Center-fit SVG square on top
         ctx.drawImage(img, 0, 0, size, size);
         const blob = await new Promise((res) => canvas.toBlob(res, 'image/png'));
-        if (blob) {
+        if (blob && !cancelled) {
           const url = URL.createObjectURL(blob);
           urlToRevoke = url;
           setArtworkUrl(url);
@@ -164,9 +166,10 @@ export default function Music() {
       } catch {}
     })();
     return () => {
+      cancelled = true;
       if (urlToRevoke) { try { URL.revokeObjectURL(urlToRevoke); } catch {} }
     };
-  }, [artworkUrl]);
+  }, []);
 
   function onSeekPointerDown() {
     isScrubbingRef.current = true;
