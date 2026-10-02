@@ -78,7 +78,7 @@ function spinToResult() {
 test('el resultado lanza los fuegos de siempre, por encima del fondo y por debajo de la tarjeta', () => {
   render(<Roulette />);
   spinToResult();
-  expect(screen.queryByText('Resultado')).not.toBeNull();
+  expect(screen.queryByRole('dialog', { name: 'Resultado' })).not.toBeNull();
   expect(rain().length).toBeGreaterThan(0);
   expect(document.querySelector('[data-testid="heart-rain"]').style.zIndex).toBe('10045');
   for (const p of rain()) {
@@ -92,12 +92,63 @@ test('«Parar la fiesta» quita los fuegos y deja el resultado; tocar lo cierra 
   spinToResult();
   fireEvent.click(screen.getByRole('button', { name: 'Parar la fiesta' }));
   expect(rain()).toHaveLength(0);
-  expect(screen.queryByText('Resultado')).not.toBeNull();
-  fireEvent.click(screen.getByText('toca para cerrar'));
-  expect(screen.queryByText('Resultado')).toBeNull();
+  expect(screen.queryByRole('dialog', { name: 'Resultado' })).not.toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Vale' }));
+  expect(screen.queryByRole('dialog', { name: 'Resultado' })).toBeNull();
   // the next result rains again
   fireEvent.click(screen.getByRole('button', { name: /Girar/ }));
   expect(rain().length).toBeGreaterThan(0);
+});
+
+test('«Otra vez» cierra el resultado y gira de nuevo; tocar el fondo también lo cierra', () => {
+  render(<Roulette />);
+  spinToResult();
+  fireEvent.click(screen.getByRole('button', { name: 'Otra vez' }));
+  // the second spin ends on its own result, with its fireworks
+  expect(screen.queryByRole('dialog', { name: 'Resultado' })).not.toBeNull();
+  expect(rain().length).toBeGreaterThan(0);
+  fireEvent.click(document.querySelector('.velo'));
+  expect(screen.queryByRole('dialog', { name: 'Resultado' })).toBeNull();
+  expect(rain()).toHaveLength(0);
+});
+
+// Records what the wheel writes
+function recordingContext(texts) {
+  const ctx = fakeContext();
+  ctx.fillText = (t) => { texts.push(t); };
+  ctx.measureText = (t) => ({ width: String(t).length * 8 });
+  return ctx;
+}
+
+test('con 8 opciones o menos la rueda lleva sus etiquetas, truncadas con «…»; con 9 o más, ninguna', () => {
+  const texts = [];
+  HTMLCanvasElement.prototype.getContext.mockImplementation(() => recordingContext(texts));
+  render(<Roulette />);
+  add('Pizza');
+  add('Una opción muy larga que no cabe en el gajo');
+  texts.length = 0;
+  add('Sushi');
+  const drawn = texts.slice(-3);
+  expect(drawn).toContain('Pizza');
+  expect(drawn).toContain('Sushi');
+  const long = drawn.find((t) => t.startsWith('Una'));
+  expect(long.endsWith('…')).toBe(true);
+  expect(long.length * 8).toBeLessThanOrEqual(140 - 14 - 46);
+  for (let i = 4; i <= 9; i++) add(`Opción ${i}`);
+  texts.length = 0;
+  add('Opción 10');
+  expect(texts).toHaveLength(0);
+});
+
+test('con «Reducir movimiento» el resultado sale al momento, sin esperar a la animación', () => {
+  window.matchMedia = vi.fn(() => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() }));
+  const raf = vi.spyOn(window, 'requestAnimationFrame');
+  render(<Roulette />);
+  add('Pizza'); add('Sushi');
+  fireEvent.click(screen.getByRole('button', { name: /Girar/ }));
+  expect(raf).not.toHaveBeenCalled();
+  expect(screen.queryByRole('dialog', { name: 'Resultado' })).not.toBeNull();
+  delete window.matchMedia;
 });
 
 test('lo guardado se recorta a 15 al abrir', () => {

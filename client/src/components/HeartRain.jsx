@@ -1,24 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { RAIN, addBurst, burst, rainKind } from '../lib/rain';
+import { usePrefersReducedMotion } from '../lib/motion';
 import './HeartRain.css';
 
-const REDUCE = '(prefers-reduced-motion: reduce)';
 // The stop button sits above every layer the rain falls over, the roulette result card (10070) included
 const STOP_Z = 10080;
-
-function usePrefersReducedMotion() {
-  const [reduce, setReduce] = useState(() => typeof window.matchMedia === 'function' && window.matchMedia(REDUCE).matches);
-  useEffect(() => {
-    if (typeof window.matchMedia !== 'function') return undefined;
-    const mq = window.matchMedia(REDUCE);
-    const onChange = () => setReduce(mq.matches);
-    onChange();
-    mq.addEventListener('change', onChange);
-    return () => mq.removeEventListener('change', onChange);
-  }, []);
-  return reduce;
-}
 
 // Endless rain while isActive, until the page turns it off or «Parar la fiesta» is tapped.
 // onStop lets the page drop its own flag; without it the rain stays stopped until isActive or type changes
