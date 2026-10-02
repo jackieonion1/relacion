@@ -4,6 +4,7 @@ import { MemoryRouter, Routes, Route, useLocation } from 'react-router';
 import Gallery from './Gallery';
 import { whenAuthed } from '../lib/firebase';
 import { listPhotosPage, listPendingPhotos, getPendingIds, retryPendingPhotos, getOriginal, getOriginalUrl, deletePhoto } from '../lib/photos';
+import { escucharFoto, setReaccion } from '../lib/fotoSocial';
 
 // The real module underneath: a name that lib/photos gains later is there without touching this mock (a closed list
 // would throw «no "x" export is defined» for the modules Gallery pulls in, e.g. lib/recuerdos). Only what the tests
@@ -23,6 +24,17 @@ vi.mock('../lib/photos', async (orig) => ({
 }));
 
 vi.mock('../lib/firebase', () => ({ whenAuthed: vi.fn() }));
+
+// 3.1: what the viewer listens to and writes in Firestore, as doubles (their own tests are in lib/)
+vi.mock('../lib/fotoSocial', async (orig) => ({
+  ...(await orig()),
+  escucharFoto: vi.fn(),
+  setReaccion: vi.fn(),
+}));
+beforeEach(() => {
+  escucharFoto.mockReturnValue(() => {});
+  setReaccion.mockResolvedValue({ committed: Promise.resolve() });
+});
 
 const flush = async () => { for (let i = 0; i < 10; i++) await Promise.resolve(); };
 const items = (n) => Array.from({ length: n }, (_, i) => ({ id: `D${i}`, thumbUrl: '', createdAt: 100 - i }));
@@ -307,4 +319,44 @@ test('vacía de verdad sí dice «Aún no hay fotos»', async () => {
   await mount();
   expect(screen.getByText('Aún no hay fotos')).toBeTruthy();
   expect(screen.queryByRole('alert')).toBeNull();
+});
+
+const rest = () => act(() => new Promise((r) => setTimeout(r, 350))); // the viewer listens once the swipe rests
+
+describe('3.1: reacciones en el visor', () => {
+  beforeEach(() => {
+    localStorage.setItem('identity', 'yo');
+    listPhotosPage.mockResolvedValue({
+      items: [{ id: 'R', thumbUrl: '', createdAt: new Date(2025, 2, 12, 12).getTime(), identity: 'ella', reactions: {} }],
+      cursor: null, hasMore: false, thumbsDone: Promise.resolve(),
+    });
+    getOriginal.mockResolvedValue(null);
+    getOriginalUrl.mockResolvedValue('https://example.test/orig.jpg');
+  });
+  afterEach(() => localStorage.removeItem('identity'));
+
+  test('la mía se pinta al tocar, se quita tocándola otra vez, y la del otro llega del doc observado', async () => {
+    await mount();
+    await act(async () => { fireEvent.click(cells()[0]); await flush(); });
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: '🥹' })); await flush(); });
+    expect(setReaccion).toHaveBeenLastCalledWith('SEB1998', 'R', 'yo', '🥹');
+    expect(screen.getByRole('button', { name: '🥹' }).getAttribute('aria-pressed')).toBe('true');
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: '🥹' })); await flush(); });
+    expect(setReaccion).toHaveBeenLastCalledWith('SEB1998', 'R', 'yo', null);
+    expect(screen.getByRole('button', { name: '🥹' }).getAttribute('aria-pressed')).toBe('false');
+
+    await rest();
+    expect(escucharFoto).toHaveBeenCalledWith('SEB1998', 'R', expect.any(Function), expect.any(Function));
+    const live = escucharFoto.mock.calls.at(-1)[2];
+    await act(async () => { live({ id: 'R', createdAt: new Date(2025, 2, 12, 12).getTime(), identity: 'ella', reactions: { ella: '💖' }, favBy: [], takenAt: null }); await flush(); });
+    expect(screen.getByRole('button', { name: '💖, también 🍪' })).toBeTruthy();
+  });
+
+  test('una foto que solo está en este móvil no tiene reacciones todavía', async () => {
+    getPendingIds.mockReturnValue(['R']);
+    await mount();
+    await act(async () => { fireEvent.click(cells()[0]); await flush(); });
+    expect(screen.queryByRole('group', { name: 'Reacciones' })).toBeNull();
+    expect(screen.getByText('La subió 🍪')).toBeTruthy();
+  });
 });

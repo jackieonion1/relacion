@@ -8,25 +8,23 @@ import Modal from '../components/Modal';
 import Sheet from '../components/Sheet';
 import Button from '../components/Button';
 import Icon from '../components/Icon';
+import VisorPie, { photoDate } from '../components/VisorPie';
+import { escucharFoto, setReaccion } from '../lib/fotoSocial';
 import './Gallery.css';
 
 const PAGE_SIZE = 60;
 // Si Firestore se cuelga sin fallar, la primera página no se queda en «Cargando» para siempre
 const LOAD_TIMEOUT_MS = 20000;
-const WHO = { yo: '🫒', ella: '🍪' };
 // Deslizar en el visor (C3): recorrido mínimo, y franja de los bordes que se deja al gesto «atrás» del sistema
 const SWIPE_MIN = 56;
 const SWIPE_EDGE = 24;
 // Fondo y texto del visor: oscuros en los dos temas (Prototipo.dc.html, «VISOR»)
 const VIEWER_BG = 'oklch(0.12 0.01 30)';
 const VIEWER_INK = 'oklch(0.97 0.006 80)';
+// The open photo's doc is listened to once the swipe rests on it, not for every photo passed on the way
+const LIVE_DELAY_MS = 300;
 
 const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
-// «12 mar 2025», como el pie del visor del lienzo
-function photoDate(ms) {
-  const d = new Date(ms);
-  return `${d.getDate()} ${MONTHS[d.getMonth()].slice(0, 3)} ${d.getFullYear()}`;
-}
 const monthKey = (ms) => { const d = new Date(ms); return `${d.getFullYear()}-${d.getMonth()}`; };
 const monthLabel = (ms) => { const d = new Date(ms); return `${cap(MONTHS[d.getMonth()])} ${d.getFullYear()}`; };
 
@@ -71,6 +69,10 @@ export default function Gallery() {
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+  const identity = useMemo(() => localStorage.getItem('identity') || 'yo', []);
+  // The open photo's doc, live ({ id, foto }; foto null once deleted): reactions of the other, and the footer of a
+  // photo opened with ?photo= that is not in the loaded grid
+  const [vivo, setVivo] = useState({ id: null, foto: null });
   // Paginación: cursor = último doc de la página cargada; genRef descarta páginas de una carga anterior
   const cursorRef = useRef(null);
   const genRef = useRef(0);
@@ -190,6 +192,33 @@ export default function Gallery() {
     urlOpenedRef.current = photoIdFromUrl;
     openViewer(photoIdFromUrl);
   }, [photoIdFromUrl, viewer.open]);
+
+  useEffect(() => {
+    const id = viewer.open ? viewer.id : null;
+    if (!id || !pairId) return undefined;
+    let unsub = null;
+    const timer = setTimeout(() => {
+      unsub = escucharFoto(pairId, id, (foto) => setVivo({ id, foto }), (e) => console.warn('Photo listener failed', e));
+    }, LIVE_DELAY_MS);
+    return () => { clearTimeout(timer); if (unsub) unsub(); };
+  }, [viewer.open, viewer.id, pairId]);
+
+  // Our own change, painted at once in the grid and in the open photo (the write is queued, not awaited)
+  function patchFoto(id, change) {
+    setItems((prev) => prev.map((it) => (it.id === id ? { ...it, ...change(it) } : it)));
+    setVivo((v) => (v.id === id && v.foto ? { ...v, foto: { ...v.foto, ...change(v.foto) } } : v));
+  }
+
+  function onReact(emoji) {
+    const id = viewer.id;
+    if (!id) return;
+    patchFoto(id, (it) => {
+      const reactions = { ...(it.reactions || {}) };
+      if (emoji) reactions[identity] = emoji; else delete reactions[identity];
+      return { reactions };
+    });
+    setReaccion(pairId, id, identity, emoji).catch((e) => console.warn('Reaction failed', e));
+  }
 
   async function loadMore() {
     if (loadingMore || !hasMore || !cursorRef.current) return;
@@ -446,8 +475,10 @@ export default function Gallery() {
   const isEmpty = items.length === 0 && uploadingCount === 0;
   const subtitle = loading ? 'Cargando fotos…' : loadError ? 'No disponibles ahora' : isEmpty ? 'Ninguna todavía' : 'Las de los dos';
   const viewerItem = viewer.id ? items.find((it) => it.id === viewer.id) : null;
-  // C11: solo si la foto dice quién la subió; las antiguas no lo guardan y el pie no sale
-  const who = viewerItem ? WHO[viewerItem.identity] : undefined;
+  // The live doc over the grid item (C11 still holds: the footer only says who uploaded it if the photo keeps it).
+  // A photo still only on this phone has no doc yet: nothing to react to
+  const viewerFoto = vivo.id === viewer.id && vivo.foto ? { ...viewerItem, ...vivo.foto, thumbUrl: viewerItem?.thumbUrl || '' } : viewerItem;
+  const social = !!viewerFoto && !pendingIds.includes(viewer.id);
   const pendingCount = pendingIds.length;
 
   // C3: anterior y siguiente entre las ya cargadas, en el orden de la cuadrícula. Desde la última, si hay más
@@ -687,7 +718,8 @@ export default function Gallery() {
                 className="absolute inset-0 px-4 sm:px-12 md:px-16 lg:px-24"
                 style={{
                   paddingTop: 'calc(env(safe-area-inset-top, 0px) + 72px)',
-                  paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 100px)'
+                  // Room for the footer, one row taller once the photo can get reactions
+                  paddingBottom: `calc(env(safe-area-inset-bottom, 0px) + ${social ? 156 : 100}px)`
                 }}
               >
                 <div className="w-full h-full flex items-center justify-center">
@@ -768,35 +800,14 @@ export default function Gallery() {
             </button>
           ))}
           {!viewer.loading && viewer.url && (
-            <div
-              className="absolute left-4 right-2 flex items-center gap-3"
-              style={{ bottom: 'calc(env(safe-area-inset-bottom, 0px) + 24px)' }}
-              onClick={(e) => e.stopPropagation()}
-            >
-              {deleteError ? (
-                <span role="alert" className="flex-1 min-w-0 text-[15px] font-semibold">No se pudo borrar la foto.</span>
-              ) : who ? (
-                <>
-                  <span aria-hidden="true" className="w-7 h-7 rounded-full inline-flex items-center justify-center text-[15px] leading-none shrink-0" style={{ background: 'oklch(1 0 0 / 0.12)' }}>{who}</span>
-                  <span className="flex-1 min-w-0 flex flex-col">
-                    <span className="text-[15px] font-semibold">La subió {who}</span>
-                    <span className="text-[13px] opacity-75">{photoDate(viewerItem.createdAt || 0)}</span>
-                  </span>
-                </>
-              ) : (
-                <span className="flex-1" />
-              )}
-              <button
-                type="button"
-                onClick={() => setConfirmDeleteOpen(true)}
-                disabled={deleting}
-                aria-label="Borrar foto"
-                title="Borrar foto"
-                className="w-11 h-11 rounded-full flex items-center justify-center disabled:opacity-50 active:scale-95 transition-transform"
-              >
-                <Icon name="borrar" />
-              </button>
-            </div>
+            <VisorPie
+              foto={viewerFoto}
+              identity={identity}
+              deleteError={deleteError}
+              deleting={deleting}
+              onDelete={() => setConfirmDeleteOpen(true)}
+              onReact={social ? onReact : null}
+            />
           )}
         </div>
       </Modal>
