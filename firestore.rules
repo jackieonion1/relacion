@@ -27,7 +27,30 @@ service cloud.firestore {
 
     // Rutas explícitas pairs/{pair}/{colección}/{doc}: sin `**`, que también casaba /pairs y /pairs/{pair}
     match /pairs/{pairId}/{col}/{docId} {
-      allow read, write: if col != 'members' && col != 'pushSubs' && canUse(pairId);
+      allow read, write: if !(col in ['members', 'pushSubs', 'capsules', 'capsuleSecrets']) && canUse(pairId);
+    }
+
+    // Time capsules (3.1). Out of the generic rule on purpose: Firestore ORs every matching rule, so that one would
+    // open them. capsules/{id} is the envelope (who, for whom, openAt): everyone reads it. Its content lives in
+    // capsuleSecrets/{id} and is only got, one by one, once the server clock (request.time) reaches openAt
+    function validOpenAt(data) {
+      return data.openAt is timestamp && data.openAt > request.time;
+    }
+    match /pairs/{pairId}/capsules/{capsuleId} {
+      allow read, delete: if canUse(pairId);
+      allow create: if canUse(pairId) && validOpenAt(request.resource.data)
+        && request.resource.data.keys().hasOnly(['openAt', 'fromIdentity', 'forIdentity', 'kind', 'title', 'createdBy', 'createdAt', 'openedFor']);
+      // Only who has opened it changes; openAt never moves
+      allow update: if canUse(pairId) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['openedFor'])
+        && request.resource.data.openedFor is list;
+    }
+    // No list (a query could not be told apart from reading them all) and no update (nothing overwrites a sealed one).
+    // Created in the same batch as its envelope and with the same openAt (getAfter), so the countdown can't lie
+    match /pairs/{pairId}/capsuleSecrets/{capsuleId} {
+      allow get: if canUse(pairId) && resource.data.openAt <= request.time;
+      allow create: if canUse(pairId) && validOpenAt(request.resource.data)
+        && request.resource.data.openAt == getAfter(/databases/$(database)/documents/pairs/$(pairId)/capsules/$(capsuleId)).data.openAt;
+      allow delete: if canUse(pairId);
     }
 
     // A push subscription carries the uid that wrote it (every client since 1.6 does), so lockPair can drop the

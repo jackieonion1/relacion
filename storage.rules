@@ -19,5 +19,16 @@ service firebase.storage {
     match /pairs/{pairId}/music/{musicId}/{fileName} {
       allow read, write: if canUse(pairId);
     }
+
+    // Time capsule photo: pairs/{pairId}/capsules/{capsuleId}/img.jpg. Read (getBlob) only once its capsuleSecrets
+    // doc has reached openAt by the server clock; no download URL is ever stored. Uploaded once, never replaced
+    match /pairs/{pairId}/capsules/{capsuleId}/{fileName} {
+      allow get: if request.auth != null
+        && request.time >= firestore.get(/databases/(default)/documents/pairs/$(pairId)/capsuleSecrets/$(capsuleId)).data.openAt
+        && canUse(pairId);
+      // resource == null as well: the emulator counted an upload over an existing object as create
+      allow create: if resource == null && canUse(pairId) && request.resource.size < 5 * 1024 * 1024 && request.resource.contentType.matches('image/.*');
+      allow delete: if canUse(pairId);
+    }
   }
 }
