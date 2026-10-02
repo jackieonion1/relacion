@@ -169,6 +169,9 @@ export async function crearCapsula(pairId, { texto, titulo, dia, para, foto = nu
   if (foto) {
     const { ref: sref, uploadBytes } = await import('firebase/storage');
     path = mediaPath(pairId, ref.id, openAtMs);
+    // Its result is dropped on purpose: the metadata in it carries a download token that reads the photo past the
+    // rules, before its day too. Only the author gets it, who has the photo anyway; never keep it, nor call
+    // getDownloadURL on a capsule photo
     await uploadBytes(sref(storage, path), await reducirFoto(foto), { contentType: 'image/jpeg' });
   }
   const batch = f.writeBatch(db);

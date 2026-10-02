@@ -22,7 +22,8 @@ service firebase.storage {
 
     // Time capsule photo: pairs/{pairId}/capsules/{capsuleId}/{openAtMs}.jpg. Its openAt is its own name, not a
     // Firestore doc: deleting the capsule and recreating it with the same id and a nearer openAt leaves these bytes
-    // on their day. Read (getBlob) only once the server clock reaches it; no download URL is ever stored.
+    // on their day. Read (getBlob) only once the server clock reaches it; no download URL is ever stored. The upload
+    // response does carry a download token that skips these rules: only the author gets it, and the client drops it.
     // Neither replaced nor deleted while sealed: created once with a future openAt, deleted only after it. Without a
     // firestore.get here, a read costs canUse's lookups only (2 at most: the limit of Storage rules reading
     // Firestore, which the emulator does not enforce, firebase-tools#11167)
