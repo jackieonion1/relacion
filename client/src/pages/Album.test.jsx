@@ -18,7 +18,7 @@ const viaje = { id: 'ev-roma', titulo: 'Roma', emoji: '✈️', tipo: 'evento', 
 
 function Destino() {
   const l = useLocation();
-  return <p>destino {l.pathname}{l.search} volver {l.state?.volver}</p>;
+  return <p>destino {l.pathname}{l.search}{l.state?.seleccionar ? ' seleccionar' : ''} volver {l.state?.volver}</p>;
 }
 const pinta = (id = 'a1', state = null) => render(
   <MemoryRouter initialEntries={[{ pathname: `/recuerdos/albumes/${id}`, state }]}>
@@ -121,9 +121,11 @@ test('cancelar la selección no toca nada', async () => {
 test('un álbum vacío explica cómo añadir fotos desde la galería', async () => {
   fotosDeAlbum.mockResolvedValue({ items: [] });
   pinta('a1');
-  expect((await screen.findByRole('region', { name: 'Sin fotos' })).textContent).toContain('pulsa «Seleccionar»');
-  fireEvent.click(screen.getByRole('button', { name: 'Ir a la galería' }));
-  expect(await screen.findByText(/destino \/gallery/)).not.toBeNull();
+  const vacio = await screen.findByRole('region', { name: 'Sin fotos' });
+  expect(vacio.textContent).toContain('Galería → Seleccionar → Álbum');
+  expect(screen.queryByRole('list', { name: /^Fotos de/ })).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Elegir fotos en la galería' }));
+  expect(await screen.findByText(/destino \/gallery seleccionar/)).not.toBeNull();
 });
 
 test('editar cambia el nombre y el icono', async () => {

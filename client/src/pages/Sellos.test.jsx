@@ -3,6 +3,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router';
 import Sellos from './Sellos';
 import { fotosEnRangoTope, portadaDeRango } from '../lib/recuerdos';
+import { mesiversarios } from '../lib/sellos';
 
 vi.mock('../lib/recuerdos', async (orig) => ({ ...(await orig()), portadaDeRango: vi.fn(), fotosEnRangoTope: vi.fn() }));
 
@@ -60,6 +61,38 @@ test('cada sello pide la portada de su mes, y la pinta si la hay', async () => {
   expect(portadaDeRango).toHaveBeenCalledWith(PAIR, expect.any(Number), expect.any(Number));
   await waitFor(() => expect(container.querySelectorAll('.mes-foto img')).toHaveLength(22));
   expect(container.querySelector('.mes-foto img').getAttribute('src')).toBe('blob:portada');
+});
+
+test('un mes sin fotos es un sello grabado: sin hueco de foto, con su número, y no se abre', async () => {
+  portadaDeRango.mockImplementation(async (pairId, desde, hasta) => (hasta === mesiversarios(new Date()).sellos.find((s) => s.n === 5).hasta ? '' : 'blob:portada'));
+  const { container } = pinta();
+  await waitFor(() => expect(container.querySelectorAll('.mes-grabado')).toHaveLength(1));
+  const grabado = screen.getByRole('img', { name: 'Mes 5, 24 abr 2025, sin fotos' });
+  expect(grabado.querySelector('.mes-centro b').textContent).toBe('5');
+  expect(grabado.textContent).toContain('2025');
+  expect(grabado.querySelector('.mes-foto, img')).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Mes 5, 24 abr 2025' })).toBeNull();
+  fireEvent.click(grabado);
+  expect(screen.queryByRole('dialog')).toBeNull();
+  // The rest keep their photo and open as before
+  await waitFor(() => expect(container.querySelectorAll('.mes-foto img')).toHaveLength(21));
+  expect(screen.getByRole('button', { name: 'Mes 6, 24 may 2025' })).not.toBeNull();
+});
+
+test('el sello grabado del aniversario conserva «1 año 🎉»', async () => {
+  const { container } = pinta();
+  await waitFor(() => expect(container.querySelectorAll('.mes-grabado')).toHaveLength(22));
+  const sello = screen.getByRole('img', { name: '1 año, 24 nov 2025, sin fotos' });
+  expect(sello.className).toContain('aniversario');
+  expect(sello.textContent).toContain('1 año 🎉');
+});
+
+test('si no se puede mirar la portada del mes no se dice que no tenga fotos', async () => {
+  portadaDeRango.mockRejectedValue(new Error('sin red'));
+  const { container } = pinta();
+  await waitFor(() => expect(portadaDeRango).toHaveBeenCalledTimes(22));
+  await waitFor(() => expect(screen.getAllByRole('button').length).toBeGreaterThan(0));
+  expect(container.querySelector('.mes-grabado')).toBeNull();
 });
 
 test('tocar un sello abre la hoja de su mes con las fotos de ese mes', async () => {

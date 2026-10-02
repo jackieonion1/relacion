@@ -65,6 +65,29 @@ test('cada tarjeta es un enlace al álbum y le pide su portada', async () => {
   expect(portadaDeAlbum).toHaveBeenCalledWith(PAIR, expect.objectContaining({ id: 'ev-roma' }));
 });
 
+test('un álbum sin fotos es una polaroid vacía que lo dice, y uno con foto sigue con su portada', async () => {
+  portadaDeAlbum.mockImplementation(async (pairId, a) => (a.id === 'ev-roma' ? 'blob:portada' : ''));
+  const { container } = pinta();
+  await waitFor(() => expect(container.querySelectorAll('.album-tarjeta.vacia')).toHaveLength(1));
+  const vacia = screen.getByText('Nuestro finde').closest('a');
+  expect(vacia.className).toContain('vacia');
+  expect(vacia.textContent).toContain('Sin fotos todavía');
+  expect(vacia.querySelector('img')).toBeNull();
+  const conFoto = screen.getByText('Roma').closest('a');
+  expect(conFoto.className).not.toContain('vacia');
+  expect(conFoto.textContent).not.toContain('Sin fotos todavía');
+  expect(conFoto.querySelector('img').getAttribute('src')).toBe('blob:portada');
+});
+
+test('si no se puede mirar la portada no se afirma que el álbum esté vacío', async () => {
+  portadaDeAlbum.mockRejectedValue(new Error('sin red'));
+  const { container } = pinta();
+  await screen.findByText('Roma');
+  await waitFor(() => expect(portadaDeAlbum).toHaveBeenCalledTimes(2));
+  expect(container.querySelector('.album-tarjeta.vacia')).toBeNull();
+  expect(screen.queryByText('Sin fotos todavía')).toBeNull();
+});
+
 test('sin viajes ni álbumes cuenta qué va a aparecer aquí', async () => {
   listarAlbumes.mockResolvedValue([]);
   listarEncuentros.mockResolvedValue([]);

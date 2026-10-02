@@ -136,8 +136,9 @@ export default function Gallery() {
   const [saltarOpen, setSaltarOpen] = useState(false);
   const [primera, setPrimera] = useState(null);
   const rootRef = useRef(null);
-  // Selection mode (3.1): the picked ids (null = off), its sheets, and the result of a change to all of them
-  const [seleccion, setSeleccion] = useState(null);
+  // Selection mode (3.1): the picked ids (null = off), its sheets, and the result of a change to all of them.
+  // An empty album sends us here with state.seleccionar, so it opens already selecting
+  const [seleccion, setSeleccion] = useState(() => (location.state?.seleccionar ? new Set() : null));
   const [fechaOpen, setFechaOpen] = useState(false);
   const [albumOpen, setAlbumOpen] = useState(false);
   const [resultado, setResultado] = useState(null); // { titulo, texto, error }

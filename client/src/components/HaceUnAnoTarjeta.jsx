@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router';
-import Icon from './Icon';
 import { thumbDeItem } from '../lib/photos';
 import { fotosDelDia, guardarTarjeta, haceAnosTexto, tarjetaGuardada } from '../lib/recuerdos';
 
@@ -20,13 +19,14 @@ export default function HaceUnAnoTarjeta() {
     const guardada = tarjetaGuardada(pairId);
     if (guardada) {
       // Seen already today: no reads of those days, only the thumb again (the cached one, if it is still there)
-      setHay({ ...guardada, url: '' });
+      setHay({ ...guardada, url: guardada.foto ? '' : null });
       if (guardada.foto) {
+        const sinMiniatura = () => { if (!cancelado) setHay((h) => h && { ...h, url: null }); };
         thumbDeItem(pairId, guardada.foto).then((u) => {
-          if (!u) return;
+          if (!u) { sinMiniatura(); return; }
           urls = [u];
           if (cancelado) soltar(); else setHay((h) => h && { ...h, url: u });
-        }).catch(() => {});
+        }).catch(sinMiniatura);
       }
     } else {
       fotosDelDia(pairId, new Date(), 3, { max: 1 }).then((grupos) => {
@@ -38,7 +38,7 @@ export default function HaceUnAnoTarjeta() {
         // Offline an answer may be only what the local cache holds: it is not kept for the rest of the day
         if (!(typeof navigator !== 'undefined' && navigator.onLine === false)) guardarTarjeta(pairId, tarjeta);
         if (cancelado) { soltar(); return; }
-        setHay({ ...tarjeta, url: conMiniatura?.thumbUrl || '' });
+        setHay({ ...tarjeta, url: conMiniatura?.thumbUrl || null });
       }).catch(() => {}); // no photos to show is no card: nothing to tell about a failed look
     }
     return () => {
@@ -66,11 +66,12 @@ export default function HaceUnAnoTarjeta() {
           {fotos}{otros.length > 0 && ` · y de ${haceAnosTexto(otros[0]).toLowerCase()}`} 🩷
         </p>
       </div>
-      <div aria-hidden="true" className="hace-print">
-        <span>
-          {url ? <img src={url} alt="" /> : <span className="absolute inset-0 flex items-center justify-center text-line"><Icon name="latido" size={22} filled /></span>}
-        </span>
-      </div>
+      {/* No print when no photo has a thumb: an empty one would pass for a photo. '' is a thumb still on its way */}
+      {url !== null && (
+        <div aria-hidden="true" className="hace-print">
+          <span>{url ? <img src={url} alt="" /> : <span className="recuerdo-hueco" />}</span>
+        </div>
+      )}
     </section>
   );
 }

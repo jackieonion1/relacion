@@ -55,12 +55,13 @@ function Fotos({ album, pairId, volver, alQuitar }) {
   }
   if (!fotos.length) {
     return (
-      <section aria-label="Sin fotos" className="p-5 rounded-hero border-[1.5px] border-dashed border-line flex flex-col items-start gap-3">
-        <h2 className="etiqueta">Sin fotos</h2>
-        <p className="serif text-[18px] leading-[1.35] text-ink-2">
-          Todavía no hay fotos aquí. En la galería, pulsa «Seleccionar», elige las que sean y toca «Álbum» 🩷
+      <section aria-label="Sin fotos" className="album-vacio">
+        <span aria-hidden="true" className="album-vacio-marco">{album.emoji}</span>
+        <h2 className="serif text-[22px] leading-[1.15] font-normal">Este álbum espera sus fotos</h2>
+        <p className="text-[15px] leading-[1.4] text-ink-2">
+          Se llenan desde la galería: <b className="font-semibold text-ink">Galería → Seleccionar → Álbum</b>. Elegid las que sean y las ponéis aquí 🩷
         </p>
-        <Button size="m" variant="sec" icon="galeria" onClick={() => navigate('/gallery')}>Ir a la galería</Button>
+        <Button size="m" variant="sec" icon="galeria" onClick={() => navigate('/gallery', { state: { seleccionar: true } })}>Elegir fotos en la galería</Button>
       </section>
     );
   }

@@ -16,16 +16,42 @@ const MINIATURAS = 24;
 const diaMes = (ms) => new Intl.DateTimeFormat('es-ES', { day: 'numeric', month: 'short', timeZone: 'Europe/Madrid' }).format(ms);
 const nombreAnio = (n) => `${n === 1 ? 'Primer' : ordinal(n).replace(/^./, (c) => c.toUpperCase())} año`;
 
-// One stamp: the cover (the first photo of its month) is asked for when it comes near the screen
+// One stamp: the cover (the first photo of its month) is asked for when it comes near the screen. A month with no
+// photo is an engraved stamp (no slot for a photo, nothing to open); if the look fails it stays the usual one
 function Sello({ s, k, pairId, onAbrir }) {
   const [ref, visible] = useVisible();
-  const [portada, setPortada] = useState(undefined); // undefined while it loads, '' when the month has no photo
+  const [portada, setPortada] = useState(undefined); // undefined while it loads, '' when the month has no photo, null when it could not be read
   useEffect(() => {
     if (!visible || !pairId) return undefined;
     let cancelado = false;
-    portadaDeRango(pairId, s.desde, s.hasta).then((u) => { if (!cancelado) setPortada(u); }).catch(() => { if (!cancelado) setPortada(''); });
+    portadaDeRango(pairId, s.desde, s.hasta).then((u) => { if (!cancelado) setPortada(u); }).catch(() => { if (!cancelado) setPortada(null); });
     return () => { cancelado = true; };
   }, [visible, pairId, s.desde, s.hasta]);
+
+  if (portada === '') {
+    return (
+      <li>
+        <div
+          ref={ref}
+          role="img"
+          aria-label={`${nombreSello(s)}, ${fechaCorta(s.fecha)}, sin fotos`}
+          className={`mes-sello mes-grabado${s.aniversario ? ' aniversario' : ''}`}
+          style={{ '--giro': GIROS[k % GIROS.length], '--k': Math.min(k, 12) }}
+        >
+          <span className="mes-papel" aria-hidden="true">
+            <span className="mes-centro">
+              <b>{s.n}</b>
+              <Icon name="latido" size={12} filled />
+            </span>
+            <span className="mes-pie">
+              {s.aniversario ? <b>{nombreSello(s)} 🎉</b> : <b>{diaMes(s.fecha)}</b>}
+              <span>{s.aniversario ? diaMes(s.fecha) + ' ' + new Date(s.fecha).getFullYear() : new Date(s.fecha).getFullYear()}</span>
+            </span>
+          </span>
+        </div>
+      </li>
+    );
+  }
 
   return (
     <li>

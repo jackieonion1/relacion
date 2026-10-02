@@ -595,6 +595,16 @@ describe('3.1: selección y fecha en bloque', () => {
     await act(async () => { fireEvent.click(within(hoja).getByRole('button', { name: 'Poner fecha' })); await flush(); });
   }
 
+  test('si llega con state.seleccionar (un álbum vacío) ya está eligiendo; sin él, no', async () => {
+    const { unmount } = render(<MemoryRouter initialEntries={[{ pathname: '/gallery', state: { seleccionar: true } }]}><Gallery /></MemoryRouter>);
+    await act(flush);
+    expect(barra()).not.toBeNull();
+    expect(screen.getByText('Elige las fotos')).not.toBeNull();
+    unmount();
+    await mount();
+    expect(screen.queryByRole('toolbar', { name: 'Fotos seleccionadas' })).toBeNull();
+  });
+
   test('tocar una foto la elige en vez de abrirla, y la fecha va a todas con confirmación', async () => {
     await mount();
     await elegir(0, 2);
