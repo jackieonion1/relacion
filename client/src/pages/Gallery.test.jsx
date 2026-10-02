@@ -8,6 +8,8 @@ import { listPhotosBy } from '../lib/photos';
 import { escucharFoto, setReaccion, setFavorita } from '../lib/fotoSocial';
 import { escucharComentarios, addComentario, deleteComentario, marcarLeidos } from '../lib/fotoComentarios';
 import { useNoLeidos } from '../lib/fotoAvisos';
+import { ponerFecha, ponerFavorita } from '../lib/fotoSeleccion';
+import { madridMediodia } from '../lib/fotoFecha';
 
 // The real module underneath: a name that lib/photos gains later is there without touching this mock (a closed list
 // would throw «no "x" export is defined» for the modules Gallery pulls in, e.g. lib/recuerdos). Only what the tests
@@ -43,6 +45,7 @@ vi.mock('../lib/fotoComentarios', async (orig) => ({
   marcarLeidos: vi.fn(),
 }));
 vi.mock('../lib/fotoAvisos', () => ({ useNoLeidos: vi.fn(), useGaleriaBadge: vi.fn() }));
+vi.mock('../lib/fotoSeleccion', async (orig) => ({ ...(await orig()), ponerFecha: vi.fn(), ponerFavorita: vi.fn() }));
 const NADA_SIN_LEER = new Map();
 beforeEach(() => {
   escucharFoto.mockReturnValue(() => {});
@@ -54,6 +57,8 @@ beforeEach(() => {
   deleteComentario.mockResolvedValue();
   marcarLeidos.mockResolvedValue();
   useNoLeidos.mockReturnValue(NADA_SIN_LEER);
+  ponerFecha.mockImplementation(async (pairId, ids) => ({ hechas: ids.length, borradas: [], fallidas: [] }));
+  ponerFavorita.mockImplementation(async (pairId, ids) => ({ hechas: ids.length, borradas: [], fallidas: [] }));
 });
 
 const flush = async () => { for (let i = 0; i < 10; i++) await Promise.resolve(); };
@@ -507,5 +512,77 @@ describe('3.1: ir a un mes', () => {
     expect(cells().map((c) => c.getAttribute('aria-label'))).toEqual(['Foto del 8 mar 2025']);
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Todas' })); await flush(); });
     expect(cells()).toHaveLength(3);
+  });
+});
+
+describe('3.1: selección y fecha en bloque', () => {
+  beforeEach(() => localStorage.setItem('identity', 'yo'));
+  afterEach(() => localStorage.removeItem('identity'));
+  const barra = () => screen.getByRole('toolbar', { name: 'Fotos seleccionadas' });
+  async function elegir(...n) {
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Seleccionar' })); await flush(); });
+    for (const i of n) await act(async () => { fireEvent.click(cells()[i]); await flush(); });
+  }
+  async function ponerDia(dia) {
+    await act(async () => { fireEvent.click(within(barra()).getByRole('button', { name: 'Fecha' })); await flush(); });
+    const hoja = screen.getByRole('dialog');
+    fireEvent.change(within(hoja).getByLabelText('Día de la foto'), { target: { value: dia } });
+    await act(async () => { fireEvent.click(within(hoja).getByRole('button', { name: 'Poner fecha' })); await flush(); });
+  }
+
+  test('tocar una foto la elige en vez de abrirla, y la fecha va a todas con confirmación', async () => {
+    await mount();
+    await elegir(0, 2);
+    expect(screen.queryByRole('button', { name: 'Cerrar' })).toBeNull(); // no abrió el visor
+    expect(cells()[0].getAttribute('aria-pressed')).toBe('true');
+    expect(within(barra()).getByText('2 fotos')).toBeTruthy();
+    await ponerDia('2025-03-12');
+    expect(ponerFecha).toHaveBeenCalledWith('SEB1998', ['D0', 'D2'], madridMediodia('2025-03-12'));
+    expect(screen.getByRole('status').textContent).toMatch('Del 12 mar 2025: 2 fotos');
+    expect(screen.queryByRole('toolbar')).toBeNull();
+    expect(cells()[0].getAttribute('aria-pressed')).toBeNull();
+  });
+
+  test('F2: lo que no se guarda lo dice y sigue elegido para reintentar; lo borrado no cuenta como fallo', async () => {
+    ponerFecha.mockResolvedValueOnce({ hechas: 1, borradas: ['D1'], fallidas: ['D2'] });
+    await mount();
+    await elegir(0, 1, 2);
+    await ponerDia('2025-03-12');
+    const aviso = screen.getByRole('alert');
+    expect(aviso.textContent).toMatch('No se pudo en 1 foto');
+    expect(aviso.textContent).toMatch('Una ya no estaba');
+    expect(cells()).toHaveLength(2); // la borrada sale de la cuadrícula
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Cerrar aviso' })); await flush(); });
+    expect(within(barra()).getByText('1 foto')).toBeTruthy();
+    expect(cells()[1].getAttribute('aria-pressed')).toBe('true');
+  });
+
+  test('«Todas» elige el mes entero y el corazón de la barra las marca como mías', async () => {
+    await mount();
+    await elegir();
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: /^Elegir todas las de / })); await flush(); });
+    expect(within(barra()).getByText('3 fotos')).toBeTruthy();
+    expect(screen.getByRole('button', { name: /^Quitar todas las de / })).toBeTruthy();
+    await act(async () => { fireEvent.click(within(barra()).getByRole('button', { name: 'Favoritas' })); await flush(); });
+    expect(ponerFavorita).toHaveBeenCalledWith('SEB1998', ['D0', 'D1', 'D2'], 'yo', true);
+    expect(screen.getByRole('status').textContent).toMatch('En tus favoritas: 3 fotos');
+  });
+
+  test('si se subieron 15 o más el mismo día sin fecha, ofrece ponérsela de una vez', async () => {
+    const dia = new Date(2024, 10, 30, 12).getTime();
+    listPhotosPage.mockResolvedValue({
+      items: Array.from({ length: 16 }, (_, i) => ({ id: `G${i}`, thumbUrl: '', createdAt: dia - i * 1000, takenAt: null })),
+      cursor: null, hasMore: false, thumbsDone: Promise.resolve(),
+    });
+    await mount();
+    const aviso = screen.getByRole('region', { name: 'Fotos subidas el mismo día' });
+    expect(aviso.textContent).toMatch('16 fotos se subieron el 30 nov 2024');
+    await act(async () => { fireEvent.click(within(aviso).getByRole('button', { name: 'Ponerles fecha' })); await flush(); });
+    expect(within(screen.getByRole('dialog')).getByText(/^16 fotos/)).toBeTruthy();
+    await act(async () => { fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Cancelar' })); await flush(); });
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Listo' })); await flush(); });
+    await act(async () => { fireEvent.click(within(screen.getByRole('region', { name: 'Fotos subidas el mismo día' })).getByRole('button', { name: 'Ahora no' })); await flush(); });
+    expect(screen.queryByRole('region', { name: 'Fotos subidas el mismo día' })).toBeNull();
+    localStorage.removeItem('galeria:golpe-visto:SEB1998');
   });
 });

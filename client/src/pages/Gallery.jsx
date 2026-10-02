@@ -12,10 +12,14 @@ import VisorPie, { photoDate } from '../components/VisorPie';
 import ComentariosHoja from '../components/ComentariosHoja';
 import FiltroGaleria from '../components/FiltroGaleria';
 import SaltarMes, { MesBarra } from '../components/SaltarMes';
+import SeleccionBarra from '../components/SeleccionBarra';
+import FechaHoja from '../components/FechaHoja';
+import AlbumPicker from '../components/AlbumPicker';
+import { ponerFecha, ponerFavorita, subidasDeGolpe, fechaComun } from '../lib/fotoSeleccion';
 import { escucharFoto, setReaccion, setFavorita } from '../lib/fotoSocial';
 import { listFavoritas, primeraFecha } from '../lib/fotoConsultas';
 import { fotosDelDia, fotosEnRango } from '../lib/recuerdos';
-import { fechaEfectiva, rangoMesMadrid } from '../lib/fotoFecha';
+import { fechaEfectiva, rangoMesMadrid, madridMediodia } from '../lib/fotoFecha';
 import { escucharComentarios, addComentario, deleteComentario, marcarLeidos } from '../lib/fotoComentarios';
 import { useNoLeidos } from '../lib/fotoAvisos';
 import './Gallery.css';
@@ -131,6 +135,17 @@ export default function Gallery() {
   const [saltarOpen, setSaltarOpen] = useState(false);
   const [primera, setPrimera] = useState(null);
   const rootRef = useRef(null);
+  // Selection mode (3.1): the picked ids (null = off), its sheets, and the result of a change to all of them
+  const [seleccion, setSeleccion] = useState(null);
+  const [fechaOpen, setFechaOpen] = useState(false);
+  const [albumOpen, setAlbumOpen] = useState(false);
+  const [guardando, setGuardando] = useState(false);
+  const [resultado, setResultado] = useState(null); // { titulo, texto, error }
+  // Upload days whose «¿les pones su fecha?» was dismissed, per device
+  const golpeKey = `galeria:golpe-visto:${pairId}`;
+  const [golpeVisto, setGolpeVisto] = useState(() => {
+    try { return JSON.parse(localStorage.getItem(golpeKey) || '[]'); } catch { return []; }
+  });
   // Paginación: cursor = último doc de la página cargada; genRef descarta páginas de una carga anterior
   const cursorRef = useRef(null);
   const genRef = useRef(0);
@@ -305,13 +320,14 @@ export default function Gallery() {
   }, [vistaKey, pairId, vistaRecarga]);
 
   // Our own change, painted at once in the grid, in the views and in the open photo (the write is queued, not awaited)
-  function patchFoto(id, change) {
-    const patch = (list) => list.map((it) => (it.id === id ? { ...it, ...change(it) } : it));
+  function patchFotos(ids, change) {
+    const patch = (list) => list.map((it) => (ids.has(it.id) ? { ...it, ...change(it) } : it));
     setItems(patch);
     setVistaDatos((d) => ({ ...d, items: patch(d.items) }));
     vistaCacheRef.current.forEach((list, k) => vistaCacheRef.current.set(k, patch(list)));
-    setVivo((v) => (v.id === id && v.foto ? { ...v, foto: { ...v.foto, ...change(v.foto) } } : v));
+    setVivo((v) => (ids.has(v.id) && v.foto ? { ...v, foto: { ...v.foto, ...change(v.foto) } } : v));
   }
+  const patchFoto = (id, change) => patchFotos(new Set([id]), change);
 
   function onFav() {
     const id = viewer.id;
@@ -334,6 +350,114 @@ export default function Gallery() {
       console.warn('First photo date failed', e);
       setPrimera({ error: true });
     }
+  }
+
+  const seleccionando = seleccion !== null;
+  function terminarSeleccion() {
+    setSeleccion(null);
+    setFechaOpen(false);
+    setAlbumOpen(false);
+  }
+  // A photo still only on this phone has no doc to change yet
+  function alternar(ids) {
+    const libres = ids.filter((id) => !pendingIds.includes(id));
+    setSeleccion((prev) => {
+      const s = new Set(prev || []);
+      const todas = libres.every((id) => s.has(id));
+      libres.forEach((id) => (todas ? s.delete(id) : s.add(id)));
+      return s;
+    });
+  }
+
+  // What a change to many photos ended in: said on screen (F2), and what failed stays selected to try again
+  function contarResultado(r, hecho) {
+    const n = r.hechas;
+    const borradas = r.borradas.length ? ` ${r.borradas.length === 1 ? 'Una ya no estaba' : `${r.borradas.length} ya no estaban`}.` : '';
+    if (r.fallidas.length) {
+      setSeleccion(new Set(r.fallidas));
+      setResultado({ error: true, titulo: `No se pudo en ${r.fallidas.length === 1 ? '1 foto' : `${r.fallidas.length} fotos`}`, texto: `Siguen elegidas para volver a intentarlo.${borradas}` });
+    } else {
+      setResultado({ titulo: hecho(n), texto: borradas.trim() });
+    }
+  }
+
+  // After a change of dates, the other views may hold the photos in the wrong place: asked again
+  function recargarVistas() {
+    vistaCacheRef.current.clear();
+    if (enVista) setVistaRecarga((k) => k + 1);
+  }
+
+  async function guardarFecha(dia) {
+    const ids = [...(seleccion || [])];
+    if (!ids.length) return;
+    const ms = dia ? madridMediodia(dia) : null;
+    const hecho = (n) => `${ms == null ? 'Fecha quitada' : `Del ${photoDate(ms)}`}: ${n === 1 ? '1 foto' : `${n} fotos`}`;
+    // Painted at once; what does not get saved goes back to the date it had, and the deleted ones leave the grid
+    const previo = new Map([...items, ...vistaDatos.items].filter((it) => seleccion.has(it.id)).map((it) => [it.id, it.takenAt ?? null]));
+    const deshacer = (fallidas) => { if (fallidas.length) patchFotos(new Set(fallidas), (it) => ({ takenAt: previo.get(it.id) ?? null })); };
+    const quitarBorradas = (borradas) => {
+      if (!borradas.length) return;
+      const fuera = new Set(borradas);
+      setItems((prev) => prev.filter((it) => !fuera.has(it.id)));
+    };
+    patchFotos(new Set(ids), () => ({ takenAt: ms }));
+    if (ms != null && primera?.ms != null && ms < primera.ms) setPrimera({ ms });
+    const done = ponerFecha(pairId, ids, ms);
+    recargarVistas();
+    // Offline the batch waits for the connection: the change is already on this phone and goes when it is back
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      terminarSeleccion();
+      setResultado({ titulo: hecho(ids.length), texto: 'Sin conexión: se guarda para los dos cuando vuelva.' });
+      done.then((r) => {
+        deshacer(r.fallidas);
+        quitarBorradas(r.borradas);
+        if (r.fallidas.length) contarResultado(r, hecho);
+      }).catch(() => deshacer(ids));
+      return;
+    }
+    setGuardando(true);
+    try {
+      const r = await done;
+      terminarSeleccion();
+      deshacer(r.fallidas);
+      quitarBorradas(r.borradas);
+      contarResultado(r, hecho);
+    } catch (e) {
+      console.warn('Bulk date failed', e);
+      deshacer(ids);
+      setFechaOpen(false);
+      setResultado({ error: true, titulo: 'No se pudo poner la fecha', texto: 'Siguen elegidas para volver a intentarlo.' });
+    } finally {
+      setGuardando(false);
+    }
+  }
+
+  async function favoritasEnBloque(on) {
+    const ids = [...(seleccion || [])];
+    if (!ids.length) return;
+    const hecho = (n) => `${on ? 'En tus favoritas' : 'Fuera de tus favoritas'}: ${n === 1 ? '1 foto' : `${n} fotos`}`;
+    patchFotos(new Set(ids), (it) => ({ favBy: on ? [...new Set([...(it.favBy || []), identity])] : (it.favBy || []).filter((w) => w !== identity) }));
+    vistaCacheRef.current.delete('favoritas');
+    terminarSeleccion();
+    try {
+      contarResultado(await ponerFavorita(pairId, ids, identity, on), hecho);
+    } catch (e) {
+      console.warn('Bulk favourite failed', e);
+      setResultado({ error: true, titulo: 'No se pudo cambiar en tus favoritas' });
+    }
+  }
+
+  // A success says itself and goes; an error stays until it is closed
+  useEffect(() => {
+    if (!resultado || resultado.error) return undefined;
+    const t = setTimeout(() => setResultado(null), 6000);
+    return () => clearTimeout(t);
+  }, [resultado]);
+
+  function dejarGolpe(dia) {
+    const next = [...golpeVisto, dia];
+    setGolpeVisto(next);
+    try { localStorage.setItem(golpeKey, JSON.stringify(next)); } catch {}
   }
 
   function irAMes(y, m) {
@@ -614,7 +738,17 @@ export default function Gallery() {
     groups.unshift({ key: monthKey(Date.now()), label: monthLabel(Date.now()), items: [] });
   }
   const isEmpty = items.length === 0 && uploadingCount === 0;
-  const subtitle = loading ? 'Cargando fotos…' : loadError ? 'No disponibles ahora' : isEmpty ? 'Ninguna todavía' : 'Las de los dos';
+  const nSel = seleccion ? seleccion.size : 0;
+  const subtitle = seleccionando ? (nSel ? `${nSel} elegidas` : 'Elige las fotos')
+    : loading ? 'Cargando fotos…' : loadError ? 'No disponibles ahora' : isEmpty ? 'Ninguna todavía' : 'Las de los dos';
+  // The biggest upload of one day still without dates, among the photos on screen, unless dismissed
+  const golpe = !seleccionando && !loading && !loadError
+    ? subidasDeGolpe((enVista ? vistaActual.items : items).filter((it) => !pendingIds.includes(it.id))).find((d) => !golpeVisto.includes(d.dia)) || null
+    : null;
+  const elegidas = seleccionando
+    ? [...new Map([...items, ...vistaActual.items].filter((it) => seleccion.has(it.id)).map((it) => [it.id, it])).values()]
+    : [];
+  const elegidasFav = elegidas.length > 0 && elegidas.every((it) => it.favBy?.includes(identity));
   const viewerItem = viewer.id ? shown.find((it) => it.id === viewer.id) || items.find((it) => it.id === viewer.id) : null;
   // The live doc over the grid item (C11 still holds: the footer only says who uploaded it if the photo keeps it).
   // A photo still only on this phone has no doc yet: nothing to react to
@@ -750,17 +884,22 @@ export default function Gallery() {
 
   return (
     // Margen propio de 16 px, salvo la cuadrícula, que va a sangre (§5.00); el hueco de la barra es de la cáscara
-    <div ref={rootRef} className="flex flex-col pb-6">
+    // With the selection bar (or its result) floating at the bottom, room so it covers no photo
+    <div ref={rootRef} className={`flex flex-col ${seleccionando || resultado ? 'pb-28' : 'pb-6'}`}>
       <header className="flex items-end justify-between gap-3 pt-1.5 pb-3.5 pl-5 pr-4">
         <div className="flex flex-col gap-0.5 min-w-0">
           <h1 className="serif text-4xl leading-[1.05] font-normal tracking-[-0.01em]">Galería</h1>
-          <p className="text-sm text-ink-2">{subtitle}</p>
+          <p className="text-sm text-ink-2" aria-live={seleccionando ? 'polite' : undefined}>{subtitle}</p>
         </div>
-        <div className="flex items-center gap-1">
-          {/* ↻: en la PWA de iPhone no hay otra forma de recargar (plan §0 nº 8) */}
-          <Button icon="recargar" label="Actualizar" title="Actualizar" onClick={() => window.location.reload()} />
-          <Button icon="subir" onClick={pickFiles} aria-label="Subir fotos">Subir</Button>
-        </div>
+        {seleccionando ? (
+          <Button variant="sec" onClick={terminarSeleccion} disabled={guardando}>Listo</Button>
+        ) : (
+          <div className="flex items-center gap-1">
+            {/* ↻: en la PWA de iPhone no hay otra forma de recargar (plan §0 nº 8) */}
+            <Button icon="recargar" label="Actualizar" title="Actualizar" onClick={() => window.location.reload()} />
+            <Button icon="subir" onClick={pickFiles} aria-label="Subir fotos">Subir</Button>
+          </div>
+        )}
       </header>
 
       <input
@@ -807,6 +946,20 @@ export default function Gallery() {
         </div>
       )}
 
+      {golpe && !(enVista && vistaActual.loading) && (
+        // Uploads done all at once (the first ones, mostly): one tap picks them and asks their day
+        <section aria-label="Fotos subidas el mismo día" className="card mx-4 mb-3.5 flex flex-col gap-2.5 py-3.5">
+          <div className="flex flex-col gap-0.5">
+            <p className="text-[15px] font-semibold">{golpe.ids.length} fotos se subieron el {photoDate(golpe.ms)}</p>
+            <p className="text-[13px] text-ink-2 text-pretty">Si son de otros días, ponles el suyo: así salen en su mes, en «Hace un año» y en Nuestro año.</p>
+          </div>
+          <div className="flex items-center gap-1">
+            <Button onClick={() => { setSeleccion(new Set(golpe.ids)); setFechaOpen(true); }}>Ponerles fecha</Button>
+            <Button variant="txt" onClick={() => dejarGolpe(golpe.dia)}>Ahora no</Button>
+          </div>
+        </section>
+      )}
+
       {loading || (enVista && vistaActual.loading) ? (
         <div role="status" aria-label="Cargando fotos" className="grid grid-cols-3 gap-0.5">
           {Array.from({ length: 12 }, (_, i) => (
@@ -848,7 +1001,21 @@ export default function Gallery() {
       ) : (
         <>
           {groups.map((g, gi) => (
-            <section key={g.key}>
+            <section key={g.key} className="relative">
+              {/* On the heading's line, outside it: «Seleccionar» on the first one; while selecting, all of a group */}
+              {(seleccionando || gi === 0) && g.items.length > 0 && (() => {
+                const llena = seleccionando && g.items.every((it) => seleccion.has(it.id) || pendingIds.includes(it.id));
+                return (
+                  <button
+                    type="button"
+                    onClick={() => (seleccionando ? alternar(g.items.map((it) => it.id)) : setSeleccion(new Set()))}
+                    aria-label={seleccionando ? `${llena ? 'Quitar' : 'Elegir'} todas las de ${g.label}` : undefined}
+                    className={`absolute right-2 ${gi === 0 ? '-top-2.5' : 'top-2.5'} h-10 px-3 rounded-full text-[13px] font-semibold text-accent-ink active:bg-sunk`}
+                  >
+                    {!seleccionando ? 'Seleccionar' : llena ? 'Ninguna' : 'Todas'}
+                  </button>
+                );
+              })()}
               <h2 className={`etiqueta px-5 pb-2.5 ${gi === 0 ? 'pt-1' : 'pt-6'}`}>
                 {vista.tipo === 'haceUnAno' ? g.label : (
                   // A month's heading opens «Ir a un mes»
@@ -874,9 +1041,11 @@ export default function Gallery() {
                   <button
                     key={it.id}
                     type="button"
-                    onClick={() => openViewer(it.id)}
+                    onClick={() => (seleccionando ? alternar([it.id]) : openViewer(it.id))}
                     aria-label={`Foto del ${photoDate((enVista ? fechaEfectiva(it) : it.createdAt) || 0)}${noLeidos.has(it.id) ? ', con comentarios sin leer' : ''}`}
-                    className="galeria-celda relative block w-full aspect-square overflow-hidden bg-sunk active:opacity-80"
+                    aria-pressed={seleccionando ? seleccion.has(it.id) : undefined}
+                    disabled={seleccionando && pendingIds.includes(it.id)}
+                    className="galeria-celda relative block w-full aspect-square overflow-hidden bg-sunk active:opacity-80 disabled:opacity-50"
                     style={{ animationDelay: `${Math.min(i, 11) * 20}ms` }}
                   >
                     {it.thumbUrl ? (
@@ -886,7 +1055,7 @@ export default function Gallery() {
                     ) : (
                       <span className="absolute inset-0 flex items-center justify-center text-ink-2"><Icon name="sinConexion" size={20} /></span>
                     )}
-                    {noLeidos.has(it.id) && (
+                    {noLeidos.has(it.id) && !seleccionando && (
                       <span aria-hidden="true" className="galeria-punto absolute top-1.5 right-1.5" />
                     )}
                     {/* In «Favoritas», whose it is: one heart, or two when both keep it */}
@@ -898,6 +1067,13 @@ export default function Gallery() {
                     )}
                     {pendingIds.includes(it.id) && (
                       <span className="absolute left-1.5 bottom-1.5 px-2 py-[3px] rounded-[10px] bg-ink text-paper text-xs font-semibold">Sin subir</span>
+                    )}
+                    {seleccionando && !pendingIds.includes(it.id) && (
+                      <span aria-hidden="true" className="galeria-marca">
+                        {seleccion.has(it.id) && (
+                          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5" /></svg>
+                        )}
+                      </span>
                     )}
                   </button>
                 ))}
@@ -1037,6 +1213,42 @@ export default function Gallery() {
           )}
         </div>
       </Modal>
+
+      {resultado ? (
+        <div className="seleccion-barra" role={resultado.error ? 'alert' : 'status'}>
+          <span className="flex-1 min-w-0 flex flex-col gap-px pl-1.5">
+            <span className="text-[15px] font-semibold leading-snug">{resultado.titulo}</span>
+            {resultado.texto && <span className="text-[13px] leading-snug opacity-80">{resultado.texto}</span>}
+          </span>
+          <button type="button" className="seleccion-accion seleccion-icono" aria-label="Cerrar aviso" onClick={() => setResultado(null)}>
+            <Icon name="cerrar" />
+          </button>
+        </div>
+      ) : seleccionando && (
+        <SeleccionBarra
+          n={nSel}
+          favOn={elegidasFav}
+          ocupado={guardando}
+          onFecha={() => setFechaOpen(true)}
+          onAlbum={() => setAlbumOpen(true)}
+          onFav={() => favoritasEnBloque(!elegidasFav)}
+        />
+      )}
+
+      <FechaHoja
+        isOpen={fechaOpen && seleccionando}
+        onClose={() => setFechaOpen(false)}
+        n={nSel}
+        inicial={fechaComun(elegidas)}
+        puedeQuitar={elegidas.some((it) => it.takenAt != null)}
+        guardando={guardando}
+        onGuardar={guardarFecha}
+      />
+
+      {/* The Recuerdos lot's sheet: it lists the albums, writes through lib/albumes and calls onDone when it closes */}
+      {albumOpen && seleccionando && (
+        <AlbumPicker pairId={pairId} ids={[...seleccion]} onDone={() => setAlbumOpen(false)} />
+      )}
 
       <SaltarMes
         isOpen={saltarOpen}
