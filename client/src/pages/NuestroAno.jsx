@@ -2,24 +2,71 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useLocation, useNavigate, useSearchParams } from 'react-router';
 import Icon from '../components/Icon';
+import { useMiniaturas } from '../components/FotosMosaico';
 import { WHO } from '../lib/fotoCampos';
-import { getPhotoThumbUrl } from '../lib/photos';
+import { thumbDeItem } from '../lib/photos';
 import { MESES, cargarNuestroAno, construirHistorias, ordinal, ventanaAniversario, yaAbierto } from '../lib/nuestroAno';
 
 // «Nuestro año» (3.1): the year between two anniversaries as full-screen stories, tapped or swiped through like a
-// Wrapped. Styles in NuestroAno.css, imported from App.jsx (see there why). The heart rain stays out: it would be a
-// sixth moment. Reduced motion is the global rule in index.css (every animation ends at once); nothing here moves
-// by timer, a story waits for a tap
+// Wrapped, with chapters of photos between them. Styles in NuestroAno.css, imported from App.jsx (see there why).
+// The heart rain stays out: it would be a sixth moment. Reduced motion is the global rule in index.css (every
+// animation ends at once) plus the Ken Burns, which then does not move at all; nothing here moves by timer, a story
+// waits for a tap
 
 const fecha = (ms) => new Intl.DateTimeFormat('es-ES', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Europe/Madrid' }).format(ms);
+const diaMes = (ms) => new Intl.DateTimeFormat('es-ES', { day: 'numeric', month: 'short', timeZone: 'Europe/Madrid' }).format(ms);
 const pl = (n, uno, varios) => (n === 1 ? uno : varios);
 const mayus = (s) => s.charAt(0).toUpperCase() + s.slice(1);
+const abrev = (mes) => MESES[mes].slice(0, 3);
 
 // The paper each story is written on
 const TONO = {
-  portada: 'lacre', dias: 'papel', encuentros: 'rosa', largo: 'el', sitio: 'ella', planes: 'papel', fotos: 'rosa',
-  meses: 'papel', foto: 'sunk', notas: 'ella', canciones: 'el', cierre: 'papel',
+  portada: 'lacre', dias: 'papel', 'capitulo-1': 'sunk', encuentros: 'rosa', largo: 'el', espera: 'papel',
+  'capitulo-2': 'sunk', sitio: 'ella', planes: 'papel', 'capitulo-3': 'sunk', fotos: 'rosa', 'capitulo-4': 'sunk',
+  foto: 'papel', extremos: 'sunk', escrito: 'ella', collage: 'rosa', cierre: 'papel',
 };
+
+// The photos a story shows (what lib/nuestroAno keeps of each: { id, thumbDoc, fecha })
+function fotosDe(h) {
+  if (!h) return [];
+  return [h.foto, h.primera, h.ultima, ...(h.meses || []).map((m) => m.foto), ...(h.id === 'collage' ? h.fotos : [])].filter(Boolean);
+}
+
+// A perforated postage stamp: what a month with no photo shows (its 24th, the stamp of that month together), and
+// what a photo that cannot be had turns into. It is one more piece of the letter, not a hole
+function SelloPostal({ arriba, num, abajo, className = '' }) {
+  return (
+    <span className={`ano-sello-postal ${className}`} aria-hidden="true">
+      <span className="ano-sello-postal-in">
+        {arriba && <span className="ano-sello-arriba">{arriba}</span>}
+        <span className="num ano-sello-num">{num}</span>
+        <span className="ano-sello-abajo">{abajo}</span>
+      </span>
+    </span>
+  );
+}
+
+// A thumb of the stories (`thumbs`: id → URL, '' once it could not be had). A soft hole while it comes, then the
+// image fading in; with no URL, or a broken one, `sin` instead
+function Miniatura({ foto, thumbs, alt = '', sin = null }) {
+  const [rota, setRota] = useState(false);
+  const url = foto ? thumbs[foto.id] : '';
+  if (!foto || url === '' || rota) return sin;
+  if (!url) return <span className="ano-hueco" aria-hidden="true" />;
+  return <img src={url} alt={alt} draggable={false} decoding="async" onError={() => setRota(true)} />;
+}
+
+// [day, month (0-based)] of a date, Madrid time
+function diaYMes(ms) {
+  const p = Object.fromEntries(new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'numeric', timeZone: 'Europe/Madrid' }).formatToParts(ms).map((x) => [x.type, x.value]));
+  return [Number(p.day), Number(p.month) - 1];
+}
+
+// The stamp of a photo that is not there: its day
+function selloDeFoto(foto) {
+  const [dia, mes] = diaYMes(foto.fecha);
+  return <SelloPostal num={dia} abajo={abrev(mes)} />;
+}
 
 // 🫒 and 🍪 with their counts, when any of the two wrote or uploaded something
 function Personas({ yo, ella }) {
@@ -55,6 +102,48 @@ function Dias({ h }) {
       <p className="ano-num">{h.dias}</p>
       <p className="ano-gran">días de nosotros</p>
       <p className="ano-texto">{h.mesiversarios} mesiversarios, y contando 🩷</p>
+      {h.sellos && (
+        <ol className="ano-sellitos" aria-hidden="true">
+          {h.sellos.map((s, k) => (
+            <li key={s.n} className={s.ganado ? 'ganado' : ''} style={{ '--k': k }}>
+              <SelloPostal num={s.n} abajo={abrev(s.mes)} />
+            </li>
+          ))}
+        </ol>
+      )}
+    </>
+  );
+}
+
+const ROMANOS = ['I', 'II', 'III', 'IV'];
+
+// A chapter: its months as prints scattered on the table, each with its name and count written under it. A month
+// with no photo to show is the stamp of its 24th
+function Capitulo({ h, thumbs }) {
+  return (
+    <>
+      <p className="ano-etiqueta">Capítulo {ROMANOS[h.k - 1]}</p>
+      <h2 className="ano-gran">De {MESES[h.meses[0].mes]} a {MESES[h.meses.at(-1).mes]}</h2>
+      <ul className={`ano-postales ano-postales-${h.meses.length}`}>
+        {h.meses.map((m, k) => {
+          const sello = <SelloPostal arriba={`Mes ${m.sello}`} num="24" abajo={abrev(m.mes)} className="ano-sello-mes" />;
+          return (
+            <li key={`${m.anio}-${m.mes}`} className="ano-postal" style={{ '--k': k }}>
+              <figure className={m.foto ? 'ano-mini' : 'ano-mini sin-foto'}>
+                {m.foto
+                  ? <Miniatura foto={m.foto} thumbs={thumbs} alt={`Una foto de ${MESES[m.mes]}`} sin={<span className="ano-polaroid-sello">{sello}</span>} />
+                  : sello}
+                {m.mejor && <span className="ano-mini-lacre" aria-hidden="true"><Icon name="latido" size={14} filled /></span>}
+                <figcaption className="ano-pie">
+                  <span className="ano-pie-mes">{mayus(MESES[m.mes])}:</span>
+                  <span className="ano-pie-n num">{m.n > 0 ? `${m.n} ${pl(m.n, 'foto', 'fotos')}` : 'sin fotos, pero con sello'}</span>
+                  {m.mejor && <span className="ano-pie-mejor">el mes con más fotos</span>}
+                </figcaption>
+              </figure>
+            </li>
+          );
+        })}
+      </ul>
     </>
   );
 }
@@ -70,9 +159,15 @@ function Encuentros({ h }) {
   );
 }
 
-function Largo({ h }) {
+// The longest one, over a photo of those days that drifts slowly (Ken Burns) under a veil of the story's paper
+function Largo({ h, thumbs }) {
   return (
     <>
+      {h.foto && (
+        <div className="ano-fondo">
+          <Miniatura foto={h.foto} thumbs={thumbs} alt={`Una foto de «${h.titulo || 'el más largo'}»`} />
+        </div>
+      )}
       <p className="ano-etiqueta">El más largo</p>
       <p className="ano-num">{h.dias}</p>
       <p className="ano-gran">días seguidos</p>
@@ -81,12 +176,39 @@ function Largo({ h }) {
   );
 }
 
+// The longest countdown: from the day it went on the calendar to the day it came, as two postmarks
+function Espera({ h }) {
+  return (
+    <>
+      <p className="ano-etiqueta">Lo que más esperamos</p>
+      <p className="ano-num">{h.dias}</p>
+      <p className="ano-gran">días de cuenta atrás</p>
+      {h.titulo && <p className="ano-texto">para «{h.titulo}»</p>}
+      <p className="ano-ruta" aria-label={`Apuntado el ${diaMes(h.desde)}, y llegó el ${diaMes(h.hasta)}`}>
+        <span className="ano-ruta-marca" aria-hidden="true"><span>apuntado</span><span className="num">{diaMes(h.desde)}</span></span>
+        <span className="ano-ruta-linea" aria-hidden="true" />
+        <span className="ano-ruta-marca llega" aria-hidden="true"><span>llegó</span><span className="num">{diaMes(h.hasta)}</span></span>
+      </p>
+    </>
+  );
+}
+
 function Sitio({ h }) {
+  const otros = h.otros || [];
   return (
     <>
       <p className="ano-etiqueta">Nuestro sitio</p>
       <p className="ano-gran ano-lugar">{h.lugar}</p>
-      <p className="ano-texto">{h.veces} encuentros allí</p>
+      <p className="ano-texto">
+        {h.veces} encuentros allí{otros.length > 0 && `, y ${otros.length} ${pl(otros.length, 'sitio', 'sitios')} más`}
+      </p>
+      {otros.length > 0 && (
+        <ul className="ano-otros" aria-label="Los otros sitios">
+          {otros.slice(0, 5).map((lugar, k) => (
+            <li key={lugar} className={`ano-otro${lugar.length > 8 ? ' largo' : ''}`} style={{ '--k': k }}><span>{lugar}</span></li>
+          ))}
+        </ul>
+      )}
     </>
   );
 }
@@ -106,6 +228,29 @@ function Planes({ h }) {
   );
 }
 
+// A clock of 24 marks, one per hour from midnight at the top: each as long as the sessions of photos at that hour,
+// the busiest one in lacre
+function Reloj({ horas, hora }) {
+  const max = Math.max(...horas) || 1;
+  return (
+    <svg className="ano-reloj" viewBox="-50 -50 100 100" aria-hidden="true">
+      <circle r="24" className="ano-reloj-esfera" />
+      {horas.map((n, k) => {
+        const a = (k / 24) * 2 * Math.PI - Math.PI / 2;
+        const largo = 3 + (16 * n) / max;
+        const [c, s] = [Math.cos(a), Math.sin(a)];
+        return <line key={k} x1={28 * c} y1={28 * s} x2={(28 + largo) * c} y2={(28 + largo) * s} className={k === hora ? 'punta' : ''} />;
+      })}
+      {[0, 6, 12, 18].map((k) => {
+        const a = (k / 24) * 2 * Math.PI - Math.PI / 2;
+        return <text key={k} x={15 * Math.cos(a)} y={15 * Math.sin(a)} className="num">{k}</text>;
+      })}
+    </svg>
+  );
+}
+
+const momento = (h) => (h >= 21 || h < 6 ? '🌙' : '☀️');
+
 function Fotos({ h }) {
   return (
     <>
@@ -113,42 +258,33 @@ function Fotos({ h }) {
       <p className="ano-num">{h.total}</p>
       <p className="ano-gran">{pl(h.total, 'foto nueva', 'fotos nuevas')}</p>
       <Personas yo={h.yo} ella={h.ella} />
+      {h.hora && (
+        <div className="ano-hora">
+          <Reloj horas={h.hora.horas} hora={h.hora.hora} />
+          <p className="ano-texto">A las {h.hora.hora} h es cuando más os mandáis fotos {momento(h.hora.hora)}</p>
+        </div>
+      )}
     </>
   );
 }
 
-function Meses({ h }) {
-  const max = h.mejor.n;
+// The favourite one (the most hearts) or, while nobody has reacted, the most commented
+function Foto({ h, thumbs }) {
+  const comentada = h.comentarios != null;
+  const reacciones = comentada ? [] : ['yo', 'ella'].filter((q) => h.reacciones[q]);
+  const favorita = comentada ? [] : ['yo', 'ella'].filter((q) => h.favBy.includes(q));
   return (
     <>
-      <p className="ano-etiqueta">Mes a mes</p>
-      <p className="ano-gran">{mayus(MESES[h.mejor.mes])} fue el mes con más fotos</p>
-      <div className="ano-meses" role="img" aria-label={`Fotos por mes: ${h.meses.map((m) => `${MESES[m.mes]} ${m.n}`).join(', ')}`}>
-        {h.meses.map((m, k) => (
-          <span key={`${m.anio}-${m.mes}`} className={`ano-mes ${m.anio === h.mejor.anio && m.mes === h.mejor.mes ? 'mejor' : ''}`} style={{ '--p': m.n / max, '--k': k }}>
-            <span className="num ano-mes-n" aria-hidden="true">{m.n || ''}</span>
-            <span className="ano-mes-barra" aria-hidden="true" />
-            <span className="ano-mes-letra" aria-hidden="true">{MESES[m.mes].charAt(0).toUpperCase()}</span>
-          </span>
-        ))}
-      </div>
-      <p className="ano-texto">{max} {pl(max, 'foto', 'fotos')} en {MESES[h.mejor.mes]}</p>
-    </>
-  );
-}
-
-function Foto({ h, fotoUrl }) {
-  const reacciones = ['yo', 'ella'].filter((q) => h.reacciones[q]);
-  const favorita = ['yo', 'ella'].filter((q) => h.favBy.includes(q));
-  return (
-    <>
-      <p className="ano-etiqueta">La favorita</p>
+      <p className="ano-etiqueta">{comentada ? 'La más comentada' : 'La favorita'}</p>
       <figure className="ano-polaroid">
-        {fotoUrl
-          ? <img src={fotoUrl} alt="La foto con más corazones del año" draggable={false} />
-          : <span className="ano-polaroid-hueco" aria-hidden="true" />}
+        <Miniatura
+          foto={h.foto} thumbs={thumbs} alt={comentada ? 'La foto más comentada del año' : 'La foto con más corazones del año'}
+          sin={<span className="ano-polaroid-sello">{selloDeFoto(h.foto)}</span>}
+        />
         <figcaption className="ano-reacciones num">
-          {reacciones.map((q) => <span key={q}>{WHO[q]} {h.reacciones[q]}</span>)}
+          {comentada
+            ? <span className="ano-comentarios">{h.comentarios} comentarios en esta</span>
+            : reacciones.map((q) => <span key={q}>{WHO[q]} {h.reacciones[q]}</span>)}
         </figcaption>
       </figure>
       {favorita.length > 0 && <p className="ano-texto">Favorita de {favorita.map((q) => WHO[q]).join(' ')}</p>}
@@ -156,34 +292,97 @@ function Foto({ h, fotoUrl }) {
   );
 }
 
-function Notas({ h }) {
+// The first and the last photo of the year, as two prints across the page, each with its day as a postmark
+function Extremos({ h, thumbs }) {
+  const copia = (foto, alt, clase) => {
+    const [dia, mes] = diaYMes(foto.fecha);
+    return (
+      <figure className={`ano-polaroid ano-extremo ${clase}`}>
+        <Miniatura foto={foto} thumbs={thumbs} alt={alt} sin={<span className="ano-polaroid-sello">{selloDeFoto(foto)}</span>} />
+        <span className="ano-extremo-fecha" aria-hidden="true">
+          <span className="ano-extremo-dia num">{dia}</span>
+          <span className="ano-extremo-mes">{abrev(mes)}</span>
+        </span>
+      </figure>
+    );
+  };
   return (
     <>
-      <p className="ano-etiqueta">Notas</p>
-      <p className="ano-num">{h.total}</p>
-      <p className="ano-gran">{pl(h.total, 'notita escrita', 'notitas escritas')}</p>
-      <Personas yo={h.yo} ella={h.ella} />
+      <p className="ano-gran ano-extremo-txt">Empezó así…</p>
+      {copia(h.primera, `La primera foto del año, del ${diaMes(h.primera.fecha)}`, 'primera')}
+      {copia(h.ultima, `La última foto del año, del ${diaMes(h.ultima.fecha)}`, 'ultima')}
+      <p className="ano-gran ano-extremo-txt fin">…y acabó así</p>
     </>
   );
 }
 
-function Canciones({ h }) {
+// '2 h 14 min', '48 min'
+function duracion(segundos) {
+  const min = Math.round(segundos / 60);
+  const h = Math.floor(min / 60);
+  return h ? `${h} h${min % 60 ? ` ${min % 60} min` : ''}` : `${min} min`;
+}
+
+// Notes and songs side by side, with a rule of ink between them, and the minutes of new music under
+function Escrito({ h }) {
+  const { notas, canciones, musica } = h;
   return (
     <>
-      <p className="ano-etiqueta">Música</p>
-      <p className="ano-num">{h.total}</p>
-      <p className="ano-gran">{pl(h.total, 'canción nueva', 'canciones nuevas')} 🎵</p>
-      <Personas yo={h.yo} ella={h.ella} />
+      <p className="ano-etiqueta">Notas y música</p>
+      <div className="ano-columnas">
+        {notas.total > 0 && (
+          <div className="ano-columna">
+            <p className="ano-num ano-num-medio">{notas.total}</p>
+            <p className="ano-columna-que">{pl(notas.total, 'notita', 'notitas')}</p>
+            <Personas yo={notas.yo} ella={notas.ella} />
+          </div>
+        )}
+        {canciones.total > 0 && (
+          <div className="ano-columna">
+            <p className="ano-num ano-num-medio">{canciones.total}</p>
+            <p className="ano-columna-que">{pl(canciones.total, 'canción', 'canciones')} 🎵</p>
+            <Personas yo={canciones.yo} ella={canciones.ella} />
+          </div>
+        )}
+      </div>
+      {musica?.segundos >= 60 && <p className="ano-texto">{duracion(musica.segundos)} de música nueva</p>}
+      {musica?.primera && <p className="ano-texto ano-primera">La primera: «{musica.primera}»</p>}
     </>
   );
 }
 
-function Cierre({ onCerrar }) {
+// Everything at the end: a sheet of contact prints that fills in one by one
+function Collage({ h, thumbs }) {
+  return (
+    <>
+      <h2 className="ano-gran">Y todo esto.</h2>
+      <ul className="ano-collage" aria-label={`${h.fotos.length} fotos del año`}>
+        {h.fotos.map((foto, k) => (
+          <li key={`${foto.id}-${k}`} style={{ '--k': k }}>
+            <Miniatura
+              foto={foto} thumbs={thumbs}
+              sin={<span className="ano-collage-papel" aria-hidden="true"><Icon name="latido" size={18} filled /></span>}
+            />
+          </li>
+        ))}
+      </ul>
+    </>
+  );
+}
+
+function Cierre({ h, onCerrar }) {
+  const capsulas = h.capsulas;
   return (
     <>
       <h2 className="ano-gran">Y los que vengan.</h2>
       <div className="ano-carta">
         <p>Otro año de planes, de fotos y de notitas. Gracias por cada día de este, y por todos los que faltan.</p>
+        {capsulas?.n > 0 && (
+          <p className="ano-capsulas">
+            Y {capsulas.n} {pl(capsulas.n, 'cápsula sellada', 'cápsulas selladas')} este año
+            {capsulas.proxima ? `: la próxima se abre el ${fecha(capsulas.proxima)}.` : '.'}
+          </p>
+        )}
       </div>
       <div className="ano-firma">
         <span className="serif italic text-[20px]">Con cariño, <span className="not-italic">🍪🫒</span></span>
@@ -195,16 +394,18 @@ function Cierre({ onCerrar }) {
 }
 
 const PANTALLA = {
-  portada: Portada, dias: Dias, encuentros: Encuentros, largo: Largo, sitio: Sitio, planes: Planes, fotos: Fotos,
-  meses: Meses, foto: Foto, notas: Notas, canciones: Canciones, cierre: Cierre,
+  portada: Portada, dias: Dias, 'capitulo-1': Capitulo, encuentros: Encuentros, largo: Largo, espera: Espera,
+  'capitulo-2': Capitulo, sitio: Sitio, planes: Planes, 'capitulo-3': Capitulo, fotos: Fotos, 'capitulo-4': Capitulo,
+  foto: Foto, extremos: Extremos, escrito: Escrito, collage: Collage, cierre: Cierre,
 };
 
 // Swipe: far enough, and more across than down. Anything shorter is a tap
 const SWIPE = 48;
 
 // The stories over everything: a tap on the left third goes back, anywhere else goes on; so does a swipe, and
-// the arrows. Escape and ✕ close. `historias` come from construirHistorias; `fotoUrl` is the thumb of the «foto» one
-export function Historias({ historias, fotoUrl = '', onCerrar, inicial = 0 }) {
+// the arrows. Escape and ✕ close. `historias` come from construirHistorias; `thumbs` (id → URL, '' when it could
+// not be had) are the photos they show, which keep arriving while the stories are open
+export function Historias({ historias, thumbs = {}, onCerrar, inicial = 0 }) {
   const [i, setI] = useState(Math.min(inicial, historias.length - 1));
   const raiz = useRef(null);
   const inicio = useRef(null);
@@ -212,6 +413,17 @@ export function Historias({ historias, fotoUrl = '', onCerrar, inicial = 0 }) {
   const h = historias[i];
   const Pantalla = PANTALLA[h.id];
   const ir = (d) => setI((k) => Math.max(0, Math.min(historias.length - 1, k + d)));
+
+  // The photos of the next story are decoded ahead, so they are there when it opens
+  const siguiente = historias[i + 1];
+  useEffect(() => {
+    for (const foto of fotosDe(siguiente)) {
+      if (!thumbs[foto.id]) continue;
+      const img = new Image();
+      img.src = thumbs[foto.id];
+      img.decode?.().catch(() => {});
+    }
+  }, [siguiente, thumbs]);
 
   useEffect(() => {
     const antes = document.activeElement;
@@ -264,7 +476,7 @@ export function Historias({ historias, fotoUrl = '', onCerrar, inicial = 0 }) {
         </button>
       </header>
       <div key={h.id} className={`ano-escena ano-en-${h.id}`} aria-live="polite">
-        <Pantalla h={h} fotoUrl={fotoUrl} onCerrar={onCerrar} />
+        <Pantalla h={h} thumbs={thumbs} onCerrar={onCerrar} />
       </div>
       {/* aria-disabled, not disabled: a disabled button may swallow the pointer events, and a swipe has to start anywhere */}
       <button type="button" aria-label="Anterior" aria-disabled={i === 0} onClick={toque(-1)} className="ano-zona ano-zona-atras" />
@@ -299,6 +511,9 @@ export default function NuestroAno() {
   const [intento, setIntento] = useState(0);
   const volver = () => navigate(location.state?.volver || '/recuerdos');
 
+  const [urls, poner] = useMiniaturas();
+  const [fallidas, setFallidas] = useState({});
+
   useEffect(() => {
     if (!abierto) return undefined;
     let cancelado = false;
@@ -306,10 +521,7 @@ export default function NuestroAno() {
     (async () => {
       try {
         const stats = await cargarNuestroAno(pairId, { ensayo });
-        // The thumb of the favourite one is the only thing fetched besides the numbers: no thumb, no story
-        const favorita = stats.fotos.favorita;
-        const fotoUrl = favorita ? await getPhotoThumbUrl(pairId, favorita.fotoId) : '';
-        if (!cancelado) setEstado({ fase: 'lista', stats, fotoUrl });
+        if (!cancelado) setEstado({ fase: 'lista', stats });
       } catch {
         if (!cancelado) setEstado({ fase: 'error' });
       }
@@ -317,11 +529,31 @@ export default function NuestroAno() {
     return () => { cancelado = true; };
   }, [pairId, ensayo, abierto, intento]);
 
-  const historias = useMemo(() => (
-    estado.fase === 'lista'
-      ? construirHistorias(estado.stats).filter((x) => x.id !== 'foto' || estado.fotoUrl)
-      : []
-  ), [estado]);
+  const historias = useMemo(() => (estado.fase === 'lista' ? construirHistorias(estado.stats) : []), [estado]);
+
+  // The stories open as soon as the numbers are in; their photos come behind, in the order they are shown and 6 at a
+  // time, each by the URL its doc already had (thumbDeItem: the cached blob first, no read of the doc). That is a
+  // few dozen thumbs at most, and the collage mostly repeats the ones before it
+  useEffect(() => {
+    if (!historias.length) return undefined;
+    let cancelado = false;
+    const vistas = new Set();
+    const cola = historias.flatMap(fotosDe).filter((f) => !vistas.has(f.id) && vistas.add(f.id));
+    let k = 0;
+    const trabajar = async () => {
+      while (!cancelado && k < cola.length) {
+        const foto = cola[k];
+        k += 1;
+        const url = await thumbDeItem(pairId, foto).catch(() => '');
+        if (url) poner(foto.id, url);
+        else if (!cancelado) setFallidas((x) => ({ ...x, [foto.id]: true }));
+      }
+    };
+    for (let n = 0; n < 6; n += 1) trabajar();
+    return () => { cancelado = true; };
+  }, [historias, pairId, poner]);
+
+  const thumbs = useMemo(() => ({ ...Object.fromEntries(Object.keys(fallidas).map((id) => [id, ''])), ...urls }), [urls, fallidas]);
 
   if (!abierto) {
     const abre = new Intl.DateTimeFormat('es-ES', { day: 'numeric', month: 'long', timeZone: 'Europe/Madrid' }).format(ventanaAniversario().abre);
@@ -334,7 +566,7 @@ export default function NuestroAno() {
       </Hoja>
     );
   }
-  if (estado.fase === 'lista') return <Historias historias={historias} fotoUrl={estado.fotoUrl} onCerrar={volver} />;
+  if (estado.fase === 'lista') return <Historias historias={historias} thumbs={thumbs} onCerrar={volver} />;
   return (
     <Hoja volver={volver}>
       {estado.fase === 'error' ? (

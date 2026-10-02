@@ -16,16 +16,17 @@
 .ano {
   position: fixed; inset: 0; z-index: 9000; display: flex; flex-direction: column; overflow: hidden; outline: none;
   --acento: var(--accent-ink);
-  color: var(--ink); background-color: var(--paper);
+  color: var(--ink); background-color: var(--tono, var(--paper));
   touch-action: pan-y; user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent;
   transition: background-color var(--dur-paso) var(--ease-suave);
 }
-.ano-papel { background-color: var(--paper); }
-.ano-rosa { background-color: var(--lacre-soft); }
-.ano-sunk { background-color: var(--sunk); }
-.ano-el { background-color: var(--sello-el); --acento: var(--sello-el-ink); }
-.ano-ella { background-color: var(--sello-ella); --acento: var(--sello-ella-ink); }
-.ano-lacre { background-color: var(--lacre); color: var(--on-lacre); --acento: var(--on-lacre); }
+/* --tono is the paper, also what the veil over a photo fades into */
+.ano-papel { --tono: var(--paper); }
+.ano-rosa { --tono: var(--lacre-soft); }
+.ano-sunk { --tono: var(--sunk); }
+.ano-el { --tono: var(--sello-el); --acento: var(--sello-el-ink); }
+.ano-ella { --tono: var(--sello-ella); --acento: var(--sello-ella-ink); }
+.ano-lacre { --tono: var(--lacre); color: var(--on-lacre); --acento: var(--on-lacre); }
 
 /* Progress: one bar for each story, filled up to the one in view; ✕ beside them */
 .ano-tope {
@@ -81,29 +82,178 @@
   border: 1.5px solid color-mix(in oklch, currentColor 30%, transparent);
 }
 
-/* Month by month: 12 bars from the month the year starts in, the best one in lacre */
-.ano-meses { display: grid; grid-template-columns: repeat(12, 1fr); gap: 5px; align-items: end; height: 190px; padding-top: 8px; }
-.ano-mes { display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 4px; height: 100%; }
-.ano-mes-n { font-size: 12px; line-height: 1; color: var(--ink-2); min-height: 12px; }
-.ano-mes-barra {
-  width: 100%; height: max(4px, calc(var(--p) * (100% - 40px))); border-radius: 4px 4px 2px 2px; transform-origin: bottom;
-  background-color: color-mix(in oklch, var(--acento) 32%, transparent);
-  animation: ano-crece 640ms var(--ease-suave) both; animation-delay: calc(240ms + var(--k) * 45ms);
+/* Photos: a soft hole with the gallery's shine while a thumb comes, then the image fades in. Rotations go in
+   `rotate`, not `transform`: the entry animation of a story owns the transform */
+.ano-hueco { position: relative; display: block; width: 100%; aspect-ratio: 1; overflow: hidden; border-radius: 2px; background-color: var(--sunk); }
+.ano-hueco::after {
+  content: ""; position: absolute; inset: 0;
+  background: linear-gradient(100deg, transparent 30%, var(--shine) 50%, transparent 70%);
+  transform: translateX(-100%); animation: recuerdo-brillo 1500ms var(--ease-suave) infinite;
 }
-.ano-mes.mejor .ano-mes-barra { background-color: var(--lacre); }
-.ano-mes.mejor .ano-mes-n { color: var(--accent-ink); font-weight: 600; }
-.ano-mes-letra { font-size: 12px; line-height: 1; font-weight: 600; color: var(--ink-2); }
-@keyframes ano-crece { from { transform: scaleY(0); } to { transform: none; } }
+.ano-mini img, .ano-polaroid img, .ano-collage img { animation: ano-funde 240ms var(--ease-suave) both; }
+@keyframes ano-funde { from { opacity: 0; } to { opacity: 1; } }
+
+/* A perforated postage stamp (the mask of the stamps in Así era): a month with no photo, the stamps of the year */
+.ano-sello-postal { display: block; filter: drop-shadow(0 1px 2px oklch(0.3 0.03 30 / 0.22)); }
+.ano-sello-postal-in {
+  container-type: inline-size; aspect-ratio: 5 / 6; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+  background-color: var(--raised); color: var(--ink-2); line-height: 1;
+  box-shadow: inset 0 0 0 6px var(--raised), inset 0 0 0 7px var(--line);
+  -webkit-mask: linear-gradient(#000 0 0) center / calc(100% - 8px) calc(100% - 8px) no-repeat,
+    radial-gradient(circle, transparent 2.4px, #000 2.9px) -4px -4px / 8px 8px round;
+  mask: linear-gradient(#000 0 0) center / calc(100% - 8px) calc(100% - 8px) no-repeat,
+    radial-gradient(circle, transparent 2.4px, #000 2.9px) -4px -4px / 8px 8px round;
+}
+.ano-sello-arriba { font-size: 10px; font-size: 9cqi; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; }
+.ano-sello-num { font-family: var(--font-serif); font-size: 18px; font-size: 36cqi; color: var(--accent-ink); }
+.ano-sello-abajo { font-size: 10px; font-size: 13cqi; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; }
+
+/* The days together: the 12 stamps of this year, the ones still to come faded */
+.ano-sellitos { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px 8px; padding-top: 14px; }
+.ano-sellitos li { animation: ano-sube 420ms var(--ease-suave) both; animation-delay: calc(320ms + var(--k) * 45ms); }
+.ano-sellitos li:nth-child(odd) .ano-sello-postal { rotate: -4deg; }
+.ano-sellitos li:nth-child(even) .ano-sello-postal { rotate: 3deg; }
+.ano-sellitos li:not(.ganado) .ano-sello-postal { opacity: 0.4; }
+
+/* A chapter: its months as small prints scattered in a zigzag, each with its name written under the photo */
+.ano-postales { display: flex; flex-direction: column; padding-top: 6px; }
+.ano-postal {
+  position: relative; width: min(40vw, 165px);
+  animation: ano-sube 560ms var(--ease-suave) both; animation-delay: calc(200ms + var(--k) * 130ms);
+}
+.ano-postal:nth-child(odd) { align-self: flex-start; margin-left: 3%; }
+.ano-postal:nth-child(even) { align-self: flex-end; margin-right: 3%; }
+.ano-postal + .ano-postal { margin-top: -58px; }
+.ano-postales-4 { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 18px; }
+.ano-postales-4 .ano-postal { width: auto; margin: 0; }
+.ano-postales-4 .ano-postal:nth-child(even) { margin-top: 30px; }
+.ano-postales-4 .ano-postal:nth-child(3) { margin-top: -24px; }
+.ano-mini {
+  position: relative; margin: 0; padding: 7px 7px 9px; border-radius: 4px; rotate: -5deg;
+  background-color: var(--raised); border: 1px solid var(--line); box-shadow: var(--sh-2);
+}
+.ano-postal:nth-child(2) .ano-mini { rotate: 3deg; }
+.ano-postal:nth-child(3) .ano-mini { rotate: -2deg; }
+.ano-postal:nth-child(4) .ano-mini { rotate: 4deg; }
+.ano-mini img { display: block; width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 2px; background-color: var(--sunk); }
+.ano-mini.sin-foto { background: none; border: 0; box-shadow: none; padding: 4px 0 0; }
+.ano-mini.sin-foto .ano-sello-postal { width: 78%; margin: 0 auto; }
+.ano-pie { display: flex; flex-direction: column; gap: 1px; padding: 7px 2px 0; line-height: 1.15; }
+.ano-pie-mes { font-family: var(--font-serif); font-style: italic; font-size: 19px; color: var(--ink); }
+.ano-pie-n { font-size: 13px; color: var(--ink-2); }
+.ano-mini.sin-foto .ano-pie { align-items: center; text-align: center; }
+.ano-pie-mejor { padding-top: 2px; font-size: 9.5px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; white-space: nowrap; color: var(--accent-ink); }
+.ano-mini-lacre {
+  position: absolute; top: -12px; right: -12px; z-index: 1; display: inline-flex; align-items: center; justify-content: center;
+  width: 36px; height: 36px; border-radius: 47% 53% 50% 50% / 52% 48% 52% 48%; color: var(--on-lacre); rotate: 10deg;
+  background: radial-gradient(circle at 34% 30%, color-mix(in oklch, var(--lacre) 72%, white), var(--lacre) 58%, color-mix(in oklch, var(--lacre) 80%, black));
+  box-shadow: var(--sh-1), inset 0 0 0 2.5px color-mix(in oklch, var(--lacre) 85%, black);
+  animation: ano-lacre 520ms var(--ease-latido) calc(700ms + var(--k) * 130ms) backwards;
+}
+
+/* The longest one, over one of its photos: a slow Ken Burns under a veil of the story's paper, words at the foot.
+   With reduced motion the photo stays still at its size */
+.ano-escena > .ano-fondo { position: fixed; inset: 0; z-index: -1; overflow: hidden; animation: ano-funde 600ms var(--ease-suave) both; }
+.ano-fondo img { display: block; width: 100%; height: 100%; object-fit: cover; transform-origin: 62% 38%; animation: ano-funde 400ms var(--ease-suave) both, ano-kb 9s ease-out both; }
+.ano-fondo .ano-hueco { display: none; }
+.ano-fondo::after {
+  content: ""; position: absolute; inset: 0;
+  background: linear-gradient(to bottom, color-mix(in oklch, var(--tono) 72%, transparent) 0, transparent 16%, transparent 42%, color-mix(in oklch, var(--tono) 88%, transparent) 62%, var(--tono) 76%);
+}
+html[data-tema='oscuro'] .ano-fondo img { filter: brightness(0.85); }
+.ano-en-largo:has(.ano-fondo) { justify-content: flex-end; }
+@keyframes ano-kb { from { transform: scale(1); } to { transform: scale(1.08) translate(-1.5%, -1%); } }
+@media (prefers-reduced-motion: reduce) { .ano-fondo img { animation: none; } }
+
+/* The longest wait: two postmarks, the day it went on the calendar and the day it came, joined by a dashed road */
+.ano-ruta { display: flex; align-items: center; gap: 8px; padding-top: 12px; color: var(--acento); }
+.ano-ruta-marca {
+  position: relative; flex: none; width: 78px; height: 78px; border-radius: 50%; border: 1.5px solid currentColor; rotate: -10deg;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+  font-size: 8.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase;
+}
+.ano-ruta-marca::before { content: ""; position: absolute; inset: 4px; border-radius: 50%; border: 1px dashed currentColor; opacity: 0.6; }
+.ano-ruta-marca .num { font-family: var(--font-serif); font-size: 17px; font-weight: 400; letter-spacing: 0; text-transform: none; }
+.ano-ruta-marca.llega { rotate: 8deg; color: var(--on-lacre); background-color: var(--lacre); border-color: var(--lacre); }
+.ano-ruta-marca.llega::before { border-color: var(--on-lacre); }
+.ano-ruta-linea { flex: 1; border-top: 2px dashed color-mix(in oklch, currentColor 45%, transparent); }
+
+/* The other places, as small postmarks */
+.ano-otros { display: flex; flex-wrap: wrap; gap: 10px 8px; padding-top: 14px; color: var(--acento); }
+.ano-otro {
+  position: relative; width: 74px; height: 74px; border-radius: 50%; border: 1.5px solid currentColor; padding: 9px;
+  display: flex; align-items: center; justify-content: center; text-align: center; rotate: calc(-12deg + var(--k) * 9deg);
+  font-size: 10px; font-weight: 600; line-height: 1.15; letter-spacing: 0.03em; text-transform: uppercase; opacity: 0.85;
+}
+.ano-otro.largo { font-size: 8.5px; letter-spacing: 0; }
+.ano-otro::before { content: ""; position: absolute; inset: 4px; border-radius: 50%; border: 1px dashed currentColor; opacity: 0.6; }
+.ano-otro span { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: break-word; hyphens: auto; }
+
+/* The hour: a clock of 24 marks, the busiest one in lacre */
+.ano-hora { display: flex; align-items: center; gap: 14px; padding-top: 10px; }
+.ano-hora .ano-texto { font-size: 19px; }
+.ano-reloj { width: 124px; height: 124px; flex: none; }
+.ano-reloj line { stroke: currentColor; stroke-opacity: 0.5; stroke-width: 2.6; stroke-linecap: round; }
+.ano-reloj line.punta { stroke: var(--lacre); stroke-opacity: 1; stroke-width: 4; }
+.ano-reloj-esfera { fill: color-mix(in oklch, var(--raised) 60%, transparent); stroke: currentColor; stroke-opacity: 0.22; stroke-width: 1; }
+.ano-reloj text { font-size: 7px; fill: var(--ink-2); text-anchor: middle; dominant-baseline: central; }
 
 /* The favourite photo, as a print with a white border and its hearts under it */
 .ano-polaroid {
-  margin: 4px auto 0; width: min(74vw, 300px); padding: 10px 10px 14px; border-radius: 6px; transform: rotate(-2deg);
+  margin: 4px auto 0; width: min(74vw, 300px); padding: 10px 10px 14px; border-radius: 6px; rotate: -2deg;
   background-color: var(--raised); border: 1px solid var(--line); box-shadow: var(--sh-2);
 }
-.ano-polaroid img, .ano-polaroid-hueco { display: block; width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 3px; background-color: var(--sunk); }
+.ano-polaroid img { display: block; width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 3px; background-color: var(--sunk); }
+.ano-polaroid-sello { display: flex; justify-content: center; align-items: center; aspect-ratio: 1; border-radius: 3px; background-color: var(--sunk); }
+.ano-polaroid-sello .ano-sello-postal { width: 52%; rotate: 5deg; }
+.ano-mini .ano-polaroid-sello { border-radius: 2px; }
+.ano-mini .ano-polaroid-sello .ano-sello-postal { width: 64%; }
 html[data-tema='oscuro'] .ano-polaroid img { filter: brightness(0.9); }
 .ano-reacciones { display: flex; justify-content: center; gap: 18px; padding-top: 10px; font-size: 26px; line-height: 1.1; min-height: 36px; }
+.ano-comentarios { font-family: var(--font-serif); font-style: italic; font-size: 19px; color: var(--ink-2); }
 .ano-en-foto { align-items: center; text-align: center; }
+
+/* The first and the last: two prints across the page, each with its day as a postmark on a corner */
+.ano-en-extremos { gap: 0; }
+.ano-extremo-txt { font-style: italic; }
+.ano-extremo-txt.fin { align-self: flex-end; padding-top: 22px; }
+.ano-extremo { position: relative; width: min(54vw, 216px); margin: 14px 0 0; padding: 8px 8px 10px; }
+.ano-extremo.primera { align-self: flex-start; rotate: -4deg; }
+.ano-extremo.ultima { align-self: flex-end; rotate: 3deg; margin-top: -36px; }
+.ano-extremo-fecha {
+  position: absolute; right: -16px; bottom: -14px; width: 64px; height: 64px; border-radius: 50%; rotate: -14deg;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1; color: var(--accent-ink);
+  border: 1.5px solid currentColor; background-color: color-mix(in oklch, var(--raised) 86%, transparent);
+}
+.ano-extremo-fecha::before { content: ""; position: absolute; inset: 4px; border-radius: 50%; border: 1px dashed currentColor; opacity: 0.6; }
+.ano-extremo-dia { font-family: var(--font-serif); font-size: 22px; }
+.ano-extremo-mes { font-size: 9px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; }
+.ano-extremo.primera .ano-extremo-fecha { right: auto; left: -16px; rotate: 12deg; }
+
+/* Notes and songs in two columns with a rule of ink between them */
+.ano-columnas { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; padding-top: 4px; }
+.ano-columna { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.ano-columna + .ano-columna { padding-left: 20px; border-left: 1.5px solid color-mix(in oklch, var(--ink) 50%, transparent); }
+.ano-columna:has(+ .ano-columna) { padding-right: 20px; }
+.ano-num-medio { font-size: clamp(64px, 21vw, 104px); }
+.ano-columna-que { font-family: var(--font-serif); font-size: 25px; line-height: 1.1; }
+.ano-columna .ano-personas { font-size: 21px; gap: 12px; flex-wrap: wrap; }
+.ano-primera { font-style: italic; overflow-wrap: anywhere; }
+
+/* The collage: a sheet of contact prints filling in one by one. In dark, a veil instead of a filter on 24 photos */
+.ano-collage {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; padding: 8px; border-radius: 6px; rotate: -1deg;
+  background-color: var(--raised); border: 1px solid var(--line); box-shadow: var(--sh-2);
+}
+.ano-collage li {
+  position: relative; aspect-ratio: 1; overflow: hidden; border-radius: 2px; background-color: var(--sunk);
+  animation: ano-pon 420ms var(--ease-suave) both; animation-delay: calc(260ms + var(--k) * 45ms);
+}
+.ano-collage img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.ano-collage .ano-hueco { height: 100%; border-radius: 0; }
+.ano-collage-papel { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; background-color: var(--paper); color: color-mix(in oklch, var(--lacre) 55%, transparent); }
+html[data-tema='oscuro'] .ano-collage li::after { content: ""; position: absolute; inset: 0; background-color: oklch(0 0 0 / 0.1); pointer-events: none; }
+@keyframes ano-pon { from { opacity: 0; transform: scale(0.85); } to { opacity: 1; transform: none; } }
 
 /* Postmark on the cover: two rings, in the on-lacre ink */
 .ano-matasellos {
@@ -122,6 +272,7 @@ html[data-tema='oscuro'] .ano-polaroid img { filter: brightness(0.9); }
   background: repeating-linear-gradient(-45deg, var(--lacre) 0 10px, transparent 10px 20px, var(--sello-el-ink) 20px 30px, transparent 30px 40px);
 }
 .ano-carta { font-family: var(--font-serif); font-size: 21px; line-height: 1.45; color: var(--ink-2); }
+.ano-capsulas { padding-top: 10px; font-size: 18px; }
 .ano-firma { display: flex; align-items: center; justify-content: space-between; padding-top: 10px; }
 .ano .ano-volver { align-self: flex-start; margin-top: 14px; position: relative; z-index: 4; pointer-events: auto; }
 .ano-sello {
