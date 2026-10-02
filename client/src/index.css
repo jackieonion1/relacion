@@ -137,6 +137,11 @@ html[data-tema='oscuro'] {
   --color-rose-900: color-mix(in oklab, var(--accent-ink) 55%, var(--ink));
   --color-red-600: var(--danger);
   --color-red-700: color-mix(in oklab, var(--danger) 85%, var(--ink));
+
+  /* Tailwind 3.4 drop shadows (two layers). Inline: as a var() reference Tailwind wrapped both layers in a single
+     drop-shadow(), which is invalid, and the filter painted nothing */
+  --drop-shadow-sm: 0 1px 2px rgb(0 0 0 / 0.1), 0 1px 1px rgb(0 0 0 / 0.06);
+  --drop-shadow-lg: 0 10px 8px rgb(0 0 0 / 0.04), 0 4px 3px rgb(0 0 0 / 0.1);
 }
 
 @theme {
@@ -155,10 +160,7 @@ html[data-tema='oscuro'] {
   --ease-hoja: cubic-bezier(0.32, 0.72, 0, 1);
   --ease-latido: cubic-bezier(0.34, 1.56, 0.64, 1);
 
-  /* Tailwind 3.4 values for what v4 changed, and the v3 hex of the other palettes the old screens use */
-  --drop-shadow-sm: 0 1px 2px rgb(0 0 0 / 0.1), 0 1px 1px rgb(0 0 0 / 0.06);
-  --drop-shadow-lg: 0 10px 8px rgb(0 0 0 / 0.04), 0 4px 3px rgb(0 0 0 / 0.1);
-
+  /* The v3 hex of the other palettes the old screens use */
   --color-yellow-50: #fefce8;
   --color-yellow-100: #fef9c3;
   --color-yellow-500: #eab308;
