@@ -442,6 +442,64 @@ html, body, #root { height: 100%; }
   .masonry-grid { display: flex; gap: 12px; align-items: flex-start; }
   .masonry-col { flex: 1 1 0%; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 
+  /* Cáscara (R2). MarcaSuperior: sticky inside .app-scroll, so it takes its own room and needs no spacer */
+  .marca {
+    position: sticky; top: 0; z-index: 20;
+    padding-top: env(safe-area-inset-top, 0px);
+    background-color: color-mix(in oklab, var(--paper) 88%, transparent);
+    -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px);
+  }
+  .sin-conexion {
+    height: 34px; padding: 0 14px; border-radius: 17px; display: inline-flex; align-items: center; gap: 8px;
+    background-color: var(--sunk); border: 1px solid var(--line); font-size: 13px; font-weight: 600; color: var(--ink-2);
+    animation: aviso-in var(--dur-paso) var(--ease-suave) backwards;
+  }
+
+  /* Bottom bar (Prototipo.dc.html, "BARRA INFERIOR") */
+  .barra {
+    background-color: var(--bar); border-top: 1px solid var(--line);
+    -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px);
+  }
+  .barra-pill { transition: transform 380ms var(--ease-hoja), opacity var(--dur-fundido); }
+  .tab {
+    position: relative; display: flex; flex-direction: column; align-items: center; gap: 4px; padding-top: 10px;
+    font-size: 12px; line-height: 16px; font-weight: 500; white-space: nowrap; color: var(--ink-2);
+    -webkit-tap-highlight-color: transparent;
+    transition: color var(--dur-fundido) var(--ease-suave), transform var(--dur-toque) var(--ease-suave);
+  }
+  .tab:active { transform: scale(0.94); }
+  .tab:focus-visible { outline: 2px solid var(--lacre); outline-offset: -4px; border-radius: 14px; }
+  .tab.is-on { color: var(--accent-ink); font-weight: 600; }
+  .mas-item {
+    min-height: 96px; gap: 8px; border-radius: var(--radius-tarjeta); background-color: var(--paper); border: 1px solid var(--line);
+    display: flex; flex-direction: column; align-items: flex-start; justify-content: space-between; padding: 14px 16px;
+    text-align: left; color: var(--ink);
+    animation: aviso-in var(--dur-paso) var(--ease-suave) backwards;
+    transition: transform var(--dur-toque) var(--ease-suave), background-color var(--dur-fundido) var(--ease-suave);
+  }
+  .mas-item:active { transform: scale(0.97); background-color: var(--sunk); }
+  .mas-item[aria-current='page'] { border-color: var(--lacre); }
+
+  /* The one notice slot (Aviso-version.dc.html): above the tab bar, and above the /music mini-player */
+  .avisos {
+    position: fixed; z-index: 60; left: 12px; right: 12px; max-width: calc(48rem - 24px); margin: 0 auto;
+    bottom: calc(var(--navbar-height) + env(safe-area-inset-bottom, 0px) + 12px);
+    pointer-events: none;
+  }
+  .con-mini .avisos { bottom: calc(var(--navbar-height) + env(safe-area-inset-bottom, 0px) + 84px); }
+  .aviso {
+    pointer-events: auto; display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 8px 4px 8px 16px;
+    border-radius: 20px; background-color: var(--ink); color: var(--paper); box-shadow: var(--sh-2);
+    animation: aviso-in var(--dur-hoja) var(--ease-hoja) backwards;
+  }
+  .aviso .btn-inv { padding: 0 16px; }
+  .aviso-txt { padding: 0 12px; color: var(--paper); }
+  .aviso-cerrar {
+    width: 44px; height: 44px; flex: none; border-radius: 22px; display: flex; align-items: center; justify-content: center;
+  }
+  .aviso-txt:active, .aviso-cerrar:active { background-color: color-mix(in oklab, var(--paper) 14%, transparent); }
+  .aviso-cerrar:focus-visible { outline: 2px solid var(--paper); outline-offset: -2px; }
+
   /* Safe-area helpers and FAB placement */
   .navbar-safe { padding-bottom: env(safe-area-inset-bottom); }
   .fab { position: fixed; right: 1rem; bottom: calc(4rem + env(safe-area-inset-bottom) + 0.75rem); z-index: 50; }
@@ -504,6 +562,10 @@ html, body, #root { height: 100%; }
 @keyframes fundido-in {
   from { opacity: 0; }
   to { opacity: 1; }
+}
+@keyframes aviso-in {
+  from { opacity: 0; transform: translateY(24px); }
+  to { opacity: 1; transform: none; }
 }
 @layer components {
   .hoja { animation: hoja-in var(--dur-hoja) var(--ease-hoja) backwards; }

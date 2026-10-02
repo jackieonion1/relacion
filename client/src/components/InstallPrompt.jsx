@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import Icon from './Icon';
+import Aviso, { useAvisoTurn } from './Aviso';
 
 function isIOS() {
   if (typeof navigator === 'undefined') return false;
@@ -23,7 +24,6 @@ export default function InstallPrompt() {
     if (!dismissed && !shown && isIOS() && !isStandalone()) {
       setMode('ios');
       setVisible(true);
-      localStorage.setItem('installPromptShown', '1');
     }
 
     // Android: listen for the install prompt
@@ -36,7 +36,6 @@ export default function InstallPrompt() {
       setDeferredPrompt(e);
       setMode('android');
       setVisible(true);
-      localStorage.setItem('installPromptShown', '1');
     };
 
     const onInstalled = () => {
@@ -54,7 +53,13 @@ export default function InstallPrompt() {
     };
   }, []);
 
-  if (!visible) return null;
+  // «Ya mostrado» cuenta desde que se ve, no desde que lo pide: si espera turno detrás de otro aviso no se pierde
+  const myTurn = useAvisoTurn('install', visible);
+  useEffect(() => {
+    if (myTurn) localStorage.setItem('installPromptShown', '1');
+  }, [myTurn]);
+
+  if (!myTurn) return null;
 
   const dismiss = () => {
     localStorage.setItem('installPromptDismissed', '1');
@@ -77,31 +82,17 @@ export default function InstallPrompt() {
     }
   };
 
-  return (
-    <div className="mx-auto w-full max-w-(--breakpoint-md) px-4 pt-3">
-      {mode === 'ios' ? (
-        <div className="rounded-xl border border-rose-200 bg-rose-50 text-rose-900 px-4 py-3 text-sm flex items-start gap-3">
-          <div>
-            ¿Quieres añadir esta app a tu pantalla de inicio?
-            <div className="mt-1 text-rose-700">
-              En iPhone: pulsa <span className="font-semibold">Compartir</span> y luego <span className="font-semibold">“Añadir a pantalla de inicio”</span>.
-            </div>
-          </div>
-          <button
-            aria-label="Cerrar"
-            onClick={dismiss}
-            className="ml-auto text-rose-600"
-          ><Icon name="cerrar" size={18} /></button>
-        </div>
-      ) : (
-        <div className="rounded-xl border border-rose-200 bg-rose-50 text-rose-900 px-4 py-3 text-sm flex items-center gap-3">
-          <div className="flex-1">
-            ¿Quieres añadir esta app a tu pantalla de inicio?
-          </div>
-          <button onClick={installAndroid} className="btn-primary text-xs">Instalar</button>
-          <button onClick={dismiss} className="btn-ghost text-xs">Ahora no</button>
-        </div>
-      )}
-    </div>
+  return mode === 'ios' ? (
+    <Aviso
+      title="¿Quieres añadir esta app a tu pantalla de inicio?"
+      text={<>En iPhone: pulsa <span className="font-semibold">Compartir</span> y luego <span className="font-semibold">“Añadir a pantalla de inicio”</span>.</>}
+    >
+      <button aria-label="Cerrar" onClick={dismiss} className="aviso-cerrar"><Icon name="cerrar" size={20} /></button>
+    </Aviso>
+  ) : (
+    <Aviso title="¿Quieres añadir esta app a tu pantalla de inicio?">
+      <button onClick={installAndroid} className="btn btn-inv">Instalar</button>
+      <button onClick={dismiss} className="btn aviso-txt">Ahora no</button>
+    </Aviso>
   );
 }
