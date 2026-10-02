@@ -7,7 +7,7 @@ describe('pairCode', () => {
   });
 
   test('acepta códigos de 4 a 12 letras o números', () => {
-    expect(isValidPairCode('241124')).toBe(true);
+    expect(isValidPairCode('135790')).toBe(true);
     expect(isValidPairCode('seb1998')).toBe(true);
     expect(isValidPairCode('ABCD')).toBe(true);
     expect(isValidPairCode('ABCDEFGHIJKL')).toBe(true);
