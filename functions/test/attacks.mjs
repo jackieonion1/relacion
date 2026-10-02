@@ -276,6 +276,13 @@ await getAuth().importUsers([
   check(await commit('yo-C', [crear(P, 'j6', FUTURO, 'carta')[0]]) === 403, 'J sobre sin contenido');
 }
 
+// K. El candado de morningReminders: si un cliente lo cogiera antes (create de mañana), no saldría ninguna push
+{
+  const manana = new Date(Date.now() + 86400e3).toISOString().slice(0, 10);
+  check(await req('PATCH', `/reminderLocks/ATKJ_${manana}`, 'yo-D', note) === 403, 'K un miembro no crea el candado de mañana');
+  check(await req('PATCH', `/reminderLocks/ATKJ2_${manana}`, 'stranger', note) === 403, 'K en una pareja abierta, tampoco un extraño');
+}
+
 if (failures.length) { console.error(`ataques FALLÓ: ${failures.length} check(s) en rojo`); process.exit(1); }
 console.log('ataques OK');
 process.exit(0);

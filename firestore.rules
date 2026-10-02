@@ -74,6 +74,7 @@ service cloud.firestore {
       allow create, update: if canUse(pairId) && request.resource.data.get('uid', '') == request.auth.uid;
     }
 
-    // pairInvites/{hash}: Admin SDK only (createInvite, joinPair); no rule, so the client never reaches it
+    // pairInvites/{hash} (createInvite, joinPair) and reminderLocks/{pair}_{day} (morningReminders): Admin SDK only;
+    // no rule, so the client never reaches them
   }
 }

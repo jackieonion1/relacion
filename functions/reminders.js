@@ -26,6 +26,23 @@ export function skipPairs(raw = '') {
   return new Set(String(raw).split(',').map((id) => id.trim()).filter(Boolean));
 }
 
+// Runs fn over items with at most `limit` at a time, in order of start. One that throws is logged and the rest go on:
+// a pair that fails never leaves the others without their morning
+export async function eachLimit(items, limit, fn) {
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) {
+      const item = items[next++];
+      try {
+        await fn(item);
+      } catch (e) {
+        console.warn('eachLimit error', e);
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+}
+
 // "N meses", "N años" or "N años y M meses"
 function spanText(totalMonths) {
   if (totalMonths < 12) return `${totalMonths} ${totalMonths === 1 ? 'mes' : 'meses'}`;
