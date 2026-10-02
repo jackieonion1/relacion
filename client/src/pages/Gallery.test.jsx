@@ -1,6 +1,6 @@
 import React from 'react';
 import { render, act, screen, within, fireEvent } from '@testing-library/react';
-import { MemoryRouter, Routes, Route, useLocation } from 'react-router';
+import { MemoryRouter, Routes, Route, useLocation, useNavigate } from 'react-router';
 import Gallery from './Gallery';
 import { whenAuthed } from '../lib/firebase';
 import { listPhotosPage, listPendingPhotos, getPendingIds, retryPendingPhotos, getOriginal, getOriginalUrl, deletePhoto } from '../lib/photos';
@@ -194,6 +194,28 @@ describe('cerrar el visor abierto con ?photo=', () => {
 
   test('sin state.volver se queda en la Galería, sin el ?photo=', async () => {
     expect(await abrir('/gallery?photo=D1')).toBe('/gallery');
+  });
+
+  test('si Recuerdos estaba justo antes en el historial, vuelve a él sin duplicarlo (el primer «atrás» sirve)', async () => {
+    getOriginal.mockResolvedValue(null);
+    getOriginalUrl.mockResolvedValue('https://example.test/orig.jpg');
+    function Atras() {
+      const navigate = useNavigate();
+      return <button type="button" onClick={() => navigate(-1)}>Atrás</button>;
+    }
+    render(
+      <MemoryRouter initialEntries={['/', '/recuerdos', { pathname: '/gallery', search: '?photo=D1', state: { volver: '/recuerdos' } }]} initialIndex={2}>
+        <Routes>
+          <Route path="/gallery" element={<><Gallery /><Ruta /></>} />
+          <Route path="*" element={<><Ruta /><Atras /></>} />
+        </Routes>
+      </MemoryRouter>
+    );
+    await act(flush);
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Cerrar' })); await flush(); });
+    expect(screen.getByTestId('ruta').textContent).toBe('/recuerdos');
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Atrás' })); await flush(); });
+    expect(screen.getByTestId('ruta').textContent).toBe('/');
   });
 });
 

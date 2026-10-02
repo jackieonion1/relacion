@@ -695,9 +695,12 @@ export default function Gallery() {
     revokeViewerUrls();
     setViewer({ open: false, id: null, url: '', fallbackUrl: '', loading: false });
     // Navigate to clear the URL parameter, preventing the viewer from re-opening. Opened from an album, a stamp or
-    // «hace un año» (Recuerdos), it goes back there instead of staying on the Gallery
+    // «hace un año» (Recuerdos), it goes back there instead of staying on the Gallery: one step back in the history
+    // when there is a page before (the one that opened it), since replacing would leave that page twice in a row
+    // and the first «atrás» of Android would seem to do nothing
     const volver = location.state?.volver;
-    navigate(typeof volver === 'string' && volver.startsWith('/') ? volver : '/gallery', { replace: true });
+    if (typeof volver === 'string' && volver.startsWith('/') && location.key !== 'default') navigate(-1);
+    else navigate(typeof volver === 'string' && volver.startsWith('/') ? volver : '/gallery', { replace: true });
   }
 
   async function onDeleteCurrent() {
