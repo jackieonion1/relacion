@@ -100,6 +100,7 @@ export default function Music() {
   const isScrubbingRef = useRef(false);
   const [player, setPlayer] = useState({ id: '', name: '', duration: 0 });
   const [audioUrl, setAudioUrl] = useState('');
+  const [playError, setPlayError] = useState(null); // the song getOriginal could not bring (no network, CORS, download)
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [expanded, setExpanded] = useState(false);
@@ -473,9 +474,11 @@ export default function Music() {
         togglePlay();
         return;
       }
-      // Load blob (cached or remote) and create object URL
+      // Load blob (cached or remote) and create object URL. Without it the current song keeps playing and the
+      // notice offers to try again (it used to do nothing)
+      setPlayError(null);
       const blob = await getOriginal(pairId, it.id);
-      if (!blob) return;
+      if (!blob) { setPlayError(it); return; }
       const url = URL.createObjectURL(blob);
       if (audioRef.current) {
         try { audioRef.current.pause(); } catch {}
@@ -498,7 +501,7 @@ export default function Music() {
           audioRef.current.play().catch(() => {});
         }
       });
-    } catch {}
+    } catch { setPlayError(it); }
   }
 
   function togglePlay() {
@@ -808,6 +811,16 @@ export default function Music() {
               Subiendo canción…
             </div>
           )}
+          {playError && !expanded && (
+            <div role="alert" className="card flex items-center gap-2 py-2 pr-2 text-ink">
+              <span className="flex-1 min-w-0 flex flex-col">
+                <span className="text-[15px] font-semibold">No se pudo cargar la canción</span>
+                <span className="text-[13px] text-ink-2 truncate">{playError.name || playError.id}</span>
+              </span>
+              <Button variant="sec" onClick={() => playItem(playError)}>Reintentar</Button>
+              <Button icon="cerrar" label="Cerrar aviso" onClick={() => setPlayError(null)} />
+            </div>
+          )}
           {loading ? (
             <div role="status" aria-label="Cargando canciones" className="flex flex-col gap-3 py-1.5">
               <span className="musica-hueco" />
@@ -991,6 +1004,13 @@ export default function Music() {
             <h2 className="serif text-[26px] leading-tight font-normal max-w-full truncate">{player.name}</h2>
             <p className="text-sm text-ink-2">{currentWho ? `Subida por ${currentWho}` : 'La lista de los dos'}</p>
           </div>
+          {/* ⏮ / ⏭ that could not bring the next one: this one keeps playing */}
+          {playError && (
+            <div role="alert" className="-my-1.5 flex items-center gap-1 text-sm">
+              <span className="text-danger">No se pudo cargar la canción</span>
+              <Button variant="txt" accent onClick={() => playItem(playError)}>Reintentar</Button>
+            </div>
+          )}
           <div className="w-[220px] shrink-0">
             <ViewSwitcher views={['lyrics', 'viz']} activeView={viewMode} onChange={setViewMode} labels={{ lyrics: 'Letra', viz: 'Visual' }} />
           </div>

@@ -72,6 +72,14 @@ test('«nos vemos» lleva su propia cuenta atrás y esconde la franja si es el m
   expect(screen.queryByRole('region', { name: 'Próximo evento de los dos' })).toBeNull();
 });
 
+test('tocar «Nos vemos» abre ese evento en el calendario (?y&m&d&ev)', async () => {
+  list[0].seeEachOther = true;
+  const d = list[0].start.toDate();
+  await mount();
+  fireEvent.click(screen.getByRole('button', { name: 'Abrir «Cena juntos» en el calendario' }));
+  expect(screen.getByTestId('where').textContent).toBe(`/calendar?y=${d.getFullYear()}&m=${d.getMonth()}&d=${d.getDate()}&ev=e1`);
+});
+
 test('el clima pinta la luna y el emoji a la vez y el cielo de la tabla 7 × 4', async () => {
   const { container } = await mount();
   const sky = container.querySelector('.cielo');
@@ -83,6 +91,29 @@ test('el clima pinta la luna y el emoji a la vez y el cielo de la tabla 7 × 4',
   expect(sky.textContent).toMatch('Ciudad A');
   // la otra ciudad sin ubicación
   expect(screen.getByText('Sin ubicación')).not.toBeNull();
+});
+
+test('sin conexión el clima dice «Sin conexión» y no «Sin ubicación»', async () => {
+  fetchCityWeather.mockImplementation(async (city) => { if (city) throw new TypeError('Failed to fetch'); return null; });
+  const online = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
+  try {
+    await mount();
+    const clima = screen.getByRole('region', { name: 'Clima ahora' });
+    expect(clima.textContent).toMatch('Sin conexión');
+    expect(clima.textContent).toMatch('Ciudad A');
+    expect(clima.textContent).not.toMatch('Sin ubicación');
+  } finally {
+    online.mockRestore();
+  }
+});
+
+test('con red y una ciudad sin parte del tiempo dice «Sin datos del tiempo»', async () => {
+  fetchCityWeather.mockResolvedValue(null);
+  await mount();
+  const clima = screen.getByRole('region', { name: 'Clima ahora' });
+  expect(clima.textContent).toMatch('Sin datos del tiempo');
+  expect(clima.textContent).toMatch('Ciudad A');
+  expect(screen.getAllByText('Sin ubicación')).toHaveLength(1); // la de ella, que no tiene ciudad
 });
 
 test('la hora local de la ciudad sale junto a su nombre y se oculta sin zona horaria (C8)', async () => {

@@ -55,7 +55,7 @@ export function weatherEmoji(code) {
   if ([45, 48].includes(code)) return '🌫️';
   if ([51,53,55,56,57,61,63,65,66,67,80,81,82].includes(code)) return '🌧️';
   if ([71,73,75,77,85,86].includes(code)) return '❄️';
-  if ([95,96,99].includes(code)) return '⛈️';
+  if ([95,96,97,98,99].includes(code)) return '⛈️';
   return '🌡️';
 }
 
@@ -88,7 +88,8 @@ export function weatherType(code) {
   if ([3].includes(code)) return 'nublado';
   if ([45, 48].includes(code)) return 'niebla';
   if ([71,73,75,77,85,86].includes(code)) return 'nieve';
-  if ([95,96,99].includes(code)) return 'tormenta';
+  // 95-99: every WMO thunderstorm (Open-Meteo documents 95, 96 and 99; 97 is a heavy one, 98 with dust)
+  if ([95,96,97,98,99].includes(code)) return 'tormenta';
   if ([51,53,55,56,57,61,63,65,66,67,80,81,82].includes(code)) return 'lluvia';
   return 'parcial';
 }

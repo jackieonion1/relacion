@@ -8,7 +8,7 @@ vi.mock('./firebase', () => ({
   db: {},
   storage: {},
   authReady: Promise.resolve(),
-  whenAuthed: () => Promise.resolve({ uid: 'u1' }),
+  whenAuthed: vi.fn(() => Promise.resolve({ uid: 'u1' })),
 }));
 vi.mock('./photoCache', () => ({
   getThumb: vi.fn(),
@@ -347,6 +347,19 @@ describe('listPhotosPage', () => {
     getThumb.mockImplementation(async (id) => { if (id === 'D1') throw new Error('idb'); return null; });
     const page = await listPhotosPage(PAIR, { pageSize: 60 });
     expect(page.items.map((it) => it.thumbUrl)).toEqual(['https://t/0?alt=media', '', 'https://t/2?alt=media']);
+  });
+
+  // Antes caía a lo local y la galería decía «Aún no hay fotos» (le pasó en el iPhone)
+  test('si falla la primera página lanza en vez de devolver una galería vacía', async () => {
+    getDocs.mockRejectedValue(new Error('permission-denied'));
+    await expect(listPhotosPage(PAIR, { pageSize: 60 })).rejects.toThrow('permission-denied');
+  });
+
+  test('sin sesión tras la espera también es un error, y no lee Firestore', async () => {
+    const { whenAuthed } = await import('./firebase');
+    whenAuthed.mockResolvedValueOnce(null);
+    await expect(listPhotosPage(PAIR, { pageSize: 60 })).rejects.toMatchObject({ code: 'no-auth' });
+    expect(getDocs).not.toHaveBeenCalled();
   });
 });
 

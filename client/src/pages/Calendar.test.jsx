@@ -184,6 +184,20 @@ test('O3: «Borrar evento» y «Cancelar» dentro del formulario deja todos los 
   expect(updateEvent).toHaveBeenCalledWith('SEB1998', 'ev1', expect.objectContaining({ title: 'Comida', location: 'Parque', seeEachOther: true }));
 });
 
+test('el deep-link con ?ev abre la hoja de ese evento y volver deja la hoja de su día', async () => {
+  listEvents.mockResolvedValue([cena]);
+  await mount('/calendar?y=2099&m=4&d=10&ev=ev1');
+  const sheet = screen.getByRole('dialog', { name: 'Cena en casa' });
+  expect(sheet.textContent).toMatch('Casa');
+  fireEvent.keyDown(document, { key: 'Escape' });
+  expect(screen.queryByRole('dialog', { name: /10 de mayo/ })).not.toBeNull();
+});
+
+test('un ?ev que ya no existe deja abierta la hoja del día', async () => {
+  await mount('/calendar?y=2099&m=4&d=10&ev=borrado');
+  expect(screen.queryByRole('dialog', { name: /10 de mayo/ })).not.toBeNull();
+});
+
 test('O1: la hoja del evento abierta desde un día con lluvia deja sitio a «Parar la fiesta»', async () => {
   const { eventToFormValues } = await import('../lib/calendar');
   eventToFormValues.mockReturnValue({ title: 'Cena en casa', location: 'Casa', date: '2026-11-24', time: '21:00', endDate: '', eventType: 'novia', seeEachOther: false });

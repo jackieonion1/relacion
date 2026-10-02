@@ -52,6 +52,20 @@ describe('weatherEmoji y weatherType', () => {
     expect(codes.map(weatherEmoji)).toEqual(['☀️', '🌤️', '☁️', '🌫️', '🌧️', '❄️', '⛈️', '🌡️']);
     expect(codes.map(weatherType)).toEqual(['soleado', 'parcial', 'nublado', 'niebla', 'lluvia', 'nieve', 'tormenta', 'parcial']);
   });
+
+  // La tabla entera de Open-Meteo, más 97 (tormenta fuerte), que antes salía «parcial»
+  test.each([
+    [[0], 'soleado', '☀️'],
+    [[1, 2], 'parcial', '🌤️'],
+    [[3], 'nublado', '☁️'],
+    [[45, 48], 'niebla', '🌫️'],
+    [[51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 80, 81, 82], 'lluvia', '🌧️'],
+    [[71, 73, 75, 77, 85, 86], 'nieve', '❄️'],
+    [[95, 96, 97, 98, 99], 'tormenta', '⛈️'],
+  ])('%j son %s', (codes, type, emoji) => {
+    expect(codes.map(weatherType)).toEqual(codes.map(() => type));
+    expect(codes.map(weatherEmoji)).toEqual(codes.map(() => emoji));
+  });
 });
 
 describe('moonPhaseEmoji', () => {
