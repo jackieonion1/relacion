@@ -1,8 +1,8 @@
 import React from 'react';
-import { render, act } from '@testing-library/react';
+import { render, act, screen, within, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 import Gallery from './Gallery';
-import { listPhotosPage, listPendingPhotos, getPendingIds, retryPendingPhotos } from '../lib/photos';
+import { listPhotosPage, listPendingPhotos, getPendingIds, retryPendingPhotos, getOriginal, getOriginalUrl } from '../lib/photos';
 
 vi.mock('../lib/photos', () => ({
   listPhotosPage: vi.fn(),
@@ -39,11 +39,13 @@ async function mount() {
   return utils;
 }
 
+// Celdas de foto de la cuadrícula (botones «Foto del …»), en el orden en que se pintan
+const cells = () => screen.queryAllByRole('button', { name: /^Foto del / });
+
 test('la cuadrícula sale con huecos y cada miniatura rellena el suyo al llegar, en orden', async () => {
-  const { container } = await mount();
-  const cells = () => [...container.querySelectorAll('.grid > button')];
+  await mount();
   expect(cells()).toHaveLength(3);
-  expect(container.querySelectorAll('.grid img')).toHaveLength(0);
+  expect(cells().filter((c) => c.querySelector('img'))).toHaveLength(0);
   await act(async () => { onThumb('D1', 'blob:d1'); await flush(); });
   expect(cells()[1].querySelector('img').getAttribute('src')).toBe('blob:d1');
   expect(cells()[0].querySelector('img')).toBeNull();
@@ -62,6 +64,43 @@ test('la que llega antes de que la página esté en la cuadrícula no se pierde'
     opts.onThumb('D0', 'blob:early'); // resuelta antes de que load() pinte la lista
     return { items: items(2), cursor: null, hasMore: false, thumbsDone: Promise.resolve() };
   });
-  const { container } = await mount();
-  expect(container.querySelector('.grid > button img').getAttribute('src')).toBe('blob:early');
+  await mount();
+  expect(cells()[0].querySelector('img').getAttribute('src')).toBe('blob:early');
+});
+
+test('C9: las fotos se agrupan por mes de createdAt y el cambio de mes abre otro grupo', async () => {
+  const at = (y, m, d) => new Date(y, m, d, 12).getTime();
+  listPhotosPage.mockResolvedValue({
+    items: [
+      { id: 'A', thumbUrl: '', createdAt: at(2026, 9, 1) },
+      { id: 'B', thumbUrl: '', createdAt: at(2026, 8, 30) },
+      { id: 'C', thumbUrl: '', createdAt: at(2026, 8, 1) },
+    ],
+    cursor: null, hasMore: false, thumbsDone: Promise.resolve(),
+  });
+  await mount();
+  const headings = screen.getAllByRole('heading', { level: 2 }).map((h) => h.textContent);
+  expect(headings).toEqual(['Octubre 2026', 'Septiembre 2026']);
+  const sept = screen.getByRole('heading', { name: 'Septiembre 2026' }).parentElement;
+  expect(within(sept).getAllByRole('button', { name: /^Foto del / })).toHaveLength(2);
+});
+
+test('C11: el visor dice quién la subió solo si la foto lo guarda', async () => {
+  listPhotosPage.mockResolvedValue({
+    items: [
+      { id: 'N', thumbUrl: '', createdAt: new Date(2025, 2, 12, 12).getTime(), identity: 'ella' },
+      { id: 'O', thumbUrl: '', createdAt: new Date(2025, 2, 11, 12).getTime(), identity: '' },
+    ],
+    cursor: null, hasMore: false, thumbsDone: Promise.resolve(),
+  });
+  getOriginal.mockResolvedValue(null);
+  getOriginalUrl.mockResolvedValue('https://example.test/orig.jpg');
+  await mount();
+  await act(async () => { fireEvent.click(cells()[0]); await flush(); });
+  expect(screen.getByText('La subió 🍪')).toBeTruthy();
+  expect(screen.getByText('12 mar 2025')).toBeTruthy();
+  await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Cerrar' })); await flush(); });
+  await act(async () => { fireEvent.click(cells()[1]); await flush(); });
+  expect(screen.queryByText(/La subió/)).toBeNull();
+  expect(screen.getByRole('button', { name: 'Borrar foto' })).toBeTruthy();
 });
