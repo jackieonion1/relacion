@@ -4,6 +4,7 @@ import { onDocumentCreated } from 'firebase-functions/v2/firestore';
 import { setGlobalOptions } from 'firebase-functions/v2/options';
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import webpush from 'web-push';
+import { eventBody } from './pushLogic.js';
 
 // Global options
 setGlobalOptions({ region: 'europe-southwest1', maxInstances: 5 });
@@ -125,10 +126,9 @@ export const onNewEvent = onDocumentCreated('pairs/{pairId}/events/{eventId}', a
     const data = event.data?.data();
     if (!data) return;
     const title = data.title && String(data.title).trim() ? `Nuevo evento: ${data.title}` : 'Nuevo evento';
-    const desc = data.description || data.notes || '';
     await sendToPair(pairId, {
       title,
-      body: truncate(desc),
+      body: truncate(eventBody(data)),
       url: '/calendar',
       icon: '/icon.svg',
       badge: '/icon.svg',
