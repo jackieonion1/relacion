@@ -13,7 +13,7 @@ function escapeHtml(str = '') {
 function renderInline(text) {
   let s = escapeHtml(text);
   // Links: [text](http...)
-  s = s.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener" class="text-rose-600 underline">$1<\/a>');
+  s = s.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener" class="text-lacre underline">$1<\/a>');
   // Bold: **text**
   s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1<\/strong>');
   // Italic: *text* (not **)
@@ -45,12 +45,12 @@ function toHtml(md = '') {
     // Headings #, ## (map to h3/h4 for consistency)
     if (/^##\s+/.test(line)) {
       closeList();
-      html += `<h4 class="font-semibold text-gray-900 mb-1">${renderInline(line.replace(/^##\s+/, ''))}</h4>`;
+      html += `<h4 class="font-semibold text-ink mb-1">${renderInline(line.replace(/^##\s+/, ''))}</h4>`;
       continue;
     }
     if (/^#\s+/.test(line)) {
       closeList();
-      html += `<h3 class="font-semibold text-gray-900 mb-1">${renderInline(line.replace(/^#\s+/, ''))}</h3>`;
+      html += `<h3 class="font-semibold text-ink mb-1">${renderInline(line.replace(/^#\s+/, ''))}</h3>`;
       continue;
     }
 

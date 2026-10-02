@@ -10,6 +10,7 @@ import { getResyncInfo } from '../lib/pushResync';
 import { applyUpdate, checkForUpdate, getRegistration } from '../lib/appUpdate';
 import { normalizePairCode, isValidPairCode } from '../lib/pairCode';
 import { versionLabel } from '../lib/buildInfo';
+import { readTheme, setTheme } from '../lib/theme';
 
 const IDENTITY_KEY = 'identity'; // 'yo' | 'ella'
 const PAIR_KEY = 'pairId';
@@ -31,6 +32,10 @@ function Seccion({ title, children }) {
 }
 
 const tarjeta = 'rounded-tarjeta bg-card border border-line';
+
+const TEMAS = [['sistema', 'Sistema'], ['claro', 'Claro'], ['oscuro', 'Oscuro']];
+// How long «Comprobando…» waits for the service worker before saying what it knows (adversario-cascara O1)
+const CHECK_TIMEOUT_MS = 4000;
 
 export default function Settings() {
   // `pair` es el código guardado; lo que se escribe en el input vive aparte hasta confirmar uno válido
@@ -69,6 +74,12 @@ export default function Settings() {
     setIdentity(id);
   }
 
+  const [tema, setTema] = useState(() => readTheme(localStorage));
+  function chooseTheme(t) {
+    setTheme(t);
+    setTema(t);
+  }
+
   // Notifications (step 1): UI and permission only
   const [notifPerm, setNotifPerm] = useState(() => {
     try { return (typeof window !== 'undefined' && 'Notification' in window) ? Notification.permission : 'unsupported'; } catch { return 'unsupported'; }
@@ -89,13 +100,17 @@ export default function Settings() {
       if ('Notification' in window) setNotifPerm(Notification.permission);
     } catch {}
   }, []);
+  // A service worker that never gets ready must not leave «Comprobando…» for ever; a late answer still wins
+  const [checkSlow, setCheckSlow] = useState(false);
   useEffect(() => {
+    const slow = setTimeout(() => setCheckSlow(true), CHECK_TIMEOUT_MS);
     (async () => {
       try {
         const sub = await getPushSubscription();
         setSubscribed(!!sub);
       } catch {}
     })();
+    return () => clearTimeout(slow);
   }, []);
   useEffect(() => {
     // Refresh diagnostics when permission/sub state changes
@@ -179,11 +194,13 @@ export default function Settings() {
   }
 
   const notifState = supports.notif
-    ? (notifPerm === 'granted' ? (subscribed === null ? 'Comprobando…' : subscribed ? 'Suscrito' : 'Permiso concedido, sin suscripción') : notifPerm === 'denied' ? 'Bloqueadas' : 'No activadas')
+    ? (notifPerm === 'granted' ? (subscribed === null ? (checkSlow ? 'No se pudo comprobar' : 'Comprobando…') : subscribed ? 'Suscrito' : 'Permiso concedido, sin suscripción') : notifPerm === 'denied' ? 'Bloqueadas' : 'No activadas')
     : 'No soportadas';
-  const checking = notifState === 'Comprobando…';
+  const checking = notifPerm === 'granted' && subscribed === null;
   const notifLine = notifState === 'Bloqueadas'
     ? 'Desbloquéalas en los ajustes del móvil: Notificaciones › 🍪🫒.'
+    : notifState === 'No se pudo comprobar'
+      ? (syncedAt ? `Permiso concedido. Última sincronización con el servidor: ${new Date(syncedAt).toLocaleDateString()}` : 'Permiso concedido, pero el móvil aún no ha dicho si está suscrito. Vuelve a mirarlo en un rato.')
     : checking
       ? 'Mirando si este móvil ya está suscrito.'
       : subscribed && notifPerm === 'granted'
@@ -233,7 +250,7 @@ export default function Settings() {
               return (
                 <button
                   key={q.id} type="button" aria-pressed={on} onClick={() => chooseIdentity(q.id)}
-                  className={`h-11 rounded-full flex items-center justify-center gap-2 text-base font-semibold transition-colors duration-200 ease-suave focus-visible:outline-2 focus-visible:outline-lacre ${on ? 'bg-card text-ink shadow-carta' : 'text-ink-2'}`}
+                  className={`h-11 rounded-full flex items-center justify-center gap-2 text-base font-semibold transition-colors duration-200 ease-suave focus-visible:outline-2 focus-visible:outline-lacre ${on ? 'bg-raised text-ink shadow-carta' : 'text-ink-2'}`}
                 >
                   <span aria-hidden="true">{q.emoji}</span>{q.label}
                 </button>
@@ -276,7 +293,21 @@ export default function Settings() {
           </div>
         </Seccion>
 
-        {/* Apariencia (Sistema / Claro / Oscuro, Claro por defecto) goes here, between Avisos and La app: it arrives in R10 */}
+        <Seccion title="Apariencia">
+          <div className="grid grid-cols-3 gap-1 p-1 rounded-[26px] bg-sunk">
+            {TEMAS.map(([id, label]) => {
+              const on = tema === id;
+              return (
+                <button
+                  key={id} type="button" aria-pressed={on} onClick={() => chooseTheme(id)}
+                  className={`h-11 rounded-full text-[15px] font-semibold transition-colors duration-200 ease-suave focus-visible:outline-2 focus-visible:outline-lacre ${on ? 'bg-raised text-ink shadow-carta' : 'text-ink-2'}`}
+                >
+                  {label}
+                </button>
+              );
+            })}
+          </div>
+        </Seccion>
 
         <Seccion title="La app">
           <div className={`${tarjeta} overflow-hidden divide-y divide-line`}>

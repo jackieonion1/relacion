@@ -8,7 +8,7 @@ import Sheet from '../components/Sheet';
 
 // Development only (/dev/componentes, see index.jsx): every Carta base component in its states, the tokens and
 // the contrast of the pairs that matter, measured in the browser with the real computed colours.
-// ?tema=oscuro shows the dark theme, ?hoja=1 opens the sheet
+// The theme is the one chosen in Ajustes › Apariencia (localStorage.tema); ?hoja=1 opens the sheet
 const TOKENS = ['paper', 'card', 'sunk', 'line', 'ink', 'ink-2', 'lacre', 'lacre-soft', 'accent-ink', 'on-lacre', 'danger', 'el', 'ella', 'sello-el', 'sello-ella'];
 const PAIRS = [
   ['on-lacre', 'lacre', 'Botón principal'],
@@ -163,25 +163,6 @@ export default function Muestra() {
             ))}
           </tbody>
         </table>
-      </Section>
-
-      <Section title="Pantallas viejas (puente)">
-        <div className="card flex flex-col gap-3">
-          <p className="text-gray-600">Texto gris-600 dentro de .card</p>
-          <div className="flex gap-2">
-            <button className="btn-primary">btn-primary</button>
-            <button className="btn-ghost">btn-ghost</button>
-            <button className="btn-link">btn-link</button>
-          </div>
-          <div className="flex gap-2 flex-wrap">
-            <span className="chip">chip</span>
-            <span className="px-2 py-1 rounded-lg bg-rose-50 text-rose-700 text-xs border border-rose-100">rose-50/700</span>
-            <span className="px-2 py-1 rounded-lg bg-rose-500 text-white text-xs">rose-500 + white</span>
-            <span className="px-2 py-1 rounded-lg bg-red-600 text-white text-xs">red-600 + white</span>
-            <span className="px-2 py-1 rounded-lg bg-white text-gray-800 text-xs border">bg-white</span>
-          </div>
-          <input className="input w-full" placeholder="input viejo" />
-        </div>
       </Section>
 
       <Sheet isOpen={sheet} onClose={() => setSheet(false)}>

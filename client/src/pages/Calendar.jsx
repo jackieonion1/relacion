@@ -502,7 +502,7 @@ export default function CalendarPage() {
                 className="peer absolute inset-0 z-10 m-0 opacity-0 cursor-pointer"
               />
               <span aria-hidden="true" className="absolute inset-0 rounded-full bg-line transition-colors peer-checked:bg-lacre peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-lacre" />
-              <span aria-hidden="true" className="absolute top-[3px] left-[3px] size-[26px] rounded-full bg-card shadow-carta transition-transform peer-checked:translate-x-5" />
+              <span aria-hidden="true" className="absolute top-[3px] left-[3px] size-[26px] rounded-full bg-knob shadow-carta transition-transform peer-checked:translate-x-5" />
             </span>
           </div>
           {error && <p role="alert" className="text-sm text-danger">{error}</p>}

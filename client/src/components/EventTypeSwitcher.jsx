@@ -15,7 +15,7 @@ export default function EventTypeSwitcher({ activeType, onChange, label = 'De qu
             aria-checked={on}
             onClick={() => onChange(type.value)}
             className={`min-w-0 flex items-center justify-center gap-1.5 rounded-full text-[15px] font-semibold transition-colors ${
-              on ? 'bg-card text-ink shadow-carta' : 'text-ink-2'
+              on ? 'bg-raised text-ink shadow-carta' : 'text-ink-2'
             }`}
           >
             <span aria-hidden="true" className="leading-none">{type.emoji}</span>

@@ -5,9 +5,10 @@ import App from './App';
 import './index.css';
 import './lib/firebase';
 import { guardShell } from './lib/shellGuard';
-import { applyDevTheme } from './lib/theme';
+import { applyTheme, watchSystemTheme } from './lib/theme';
 
-applyDevTheme(); // development only: ?tema=oscuro or localStorage.tema
+applyTheme(); // index.html already painted it; this also covers the theme-color
+watchSystemTheme();
 
 // Component sample page, development only and outside the pair/identity gates; the build drops it
 const Muestra = import.meta.env.DEV && window.location.pathname === '/dev/componentes'

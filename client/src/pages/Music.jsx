@@ -923,8 +923,8 @@ export default function Music() {
         </div>
       </Sheet>
 
-      {/* Mini-player above the tab bar, only on /music (Q6). The shell exposes no --shell-bottom: same offset as the
-          tab bar plus 12 px, the room .con-mini .avisos already leaves */}
+      {/* Mini-player above the tab bar, only on /music (Q6). Not on --shell-bottom, which rises over the notice: here
+          the notice goes above the mini-player instead (.con-mini .avisos), so this keeps the tab bar plus 12 px */}
       {isMusicRoute && player.id && !expanded && (
         <div
           className="fixed z-40 left-3 right-3 mx-auto h-[60px] rounded-tarjeta bg-card border border-line shadow-flota flex items-center gap-3 pl-2.5 pr-1.5"

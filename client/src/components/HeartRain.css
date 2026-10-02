@@ -38,12 +38,12 @@
   animation: heartFireworks 3s ease-out both;
 }
 
-/* Centred above the bottom bar (same offset as .fab), clear of the home indicator */
+/* Centred above the bottom bar and the notice, if any (same offset as .fab), clear of the home indicator */
 .heart-rain-bar {
   position: fixed;
   left: 0;
   right: 0;
-  bottom: calc(4.75rem + env(safe-area-inset-bottom));
+  bottom: calc(var(--shell-bottom) + 0.75rem);
   display: flex;
   flex-direction: column;
   align-items: center;
