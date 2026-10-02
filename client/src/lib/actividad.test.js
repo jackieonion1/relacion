@@ -1,6 +1,6 @@
 import {
   entradaActividad, registrarActividad, textoActividad, lineaActividad, tiempoRelativo, paraMi, noLeidas, insignia,
-  agruparActividad, destinoActividad, escucharActividad, marcarVisto, MOSTRADAS,
+  agruparActividad, destinoActividad, escucharActividad, escucharVisto, marcarVisto, MOSTRADAS, NUNCA,
 } from './actividad';
 import { collection, doc, setDoc, onSnapshot, query, orderBy, limit, where, serverTimestamp, Timestamp } from 'firebase/firestore';
 
@@ -30,6 +30,8 @@ vi.mock('firebase/firestore', () => ({
 
 // The first dynamic import of firebase/firestore takes more than a few microtasks
 const flush = () => new Promise((r) => setTimeout(r, 0));
+// A Timestamp-like of whole milliseconds
+const T = (ms) => ({ seconds: Math.floor(ms / 1000), nanoseconds: (ms % 1000) * 1e6 });
 
 beforeEach(() => {
   collection.mockImplementation((d, ...p) => ({ path: p.join('/') }));
@@ -148,31 +150,46 @@ describe('textos', () => {
 
 describe('listas', () => {
   const lista = [
-    { id: 'a', para: 'ella', ms: 10 },
-    { id: 'b', para: 'yo', ms: 30 },
-    { id: 'c', para: 'ella', ms: 20 },
-    { id: 'd', para: 'ella', ms: 40 },
+    { id: 'a', para: 'ella', ms: 10, ts: T(10) },
+    { id: 'b', para: 'yo', ms: 30, ts: T(30) },
+    { id: 'c', para: 'ella', ms: 20, ts: T(20) },
+    { id: 'd', para: 'ella', ms: 40, ts: T(40) },
   ];
 
   test('paraMi: solo lo de esta persona, lo último primero', () => {
     expect(paraMi(lista, 'ella').map((e) => e.id)).toEqual(['d', 'c', 'a']);
-    const muchas = Array.from({ length: 50 }, (_, i) => ({ id: `x${i}`, para: 'yo', ms: i }));
+    const muchas = Array.from({ length: 50 }, (_, i) => ({ id: `x${i}`, para: 'yo', ms: i, ts: T(i) }));
     expect(paraMi(muchas, 'yo')).toHaveLength(MOSTRADAS);
   });
 
   test('no leídas: lo posterior a vistoHasta, y 9+ como mucho', () => {
     const mias = paraMi(lista, 'ella');
-    expect(noLeidas(mias, 15)).toBe(2);
-    expect(noLeidas(mias, 0)).toBe(3);
-    expect(noLeidas(mias, 40)).toBe(0);
+    expect(noLeidas(mias, T(15))).toBe(2);
+    expect(noLeidas(mias, NUNCA)).toBe(3);
+    expect(noLeidas(mias, T(40))).toBe(0);
     expect(insignia(3)).toBe('3');
     expect(insignia(12)).toBe('9+');
   });
 
   test('agrupar en «Nuevas» y «Antes»', () => {
-    const { nuevas, antes } = agruparActividad(paraMi(lista, 'ella'), 15);
+    const { nuevas, antes } = agruparActividad(paraMi(lista, 'ella'), T(15));
     expect(nuevas.map((e) => e.id)).toEqual(['d', 'c']);
     expect(antes.map((e) => e.id)).toEqual(['a']);
+  });
+
+  // The server's time has microseconds: through a double of ms the «visto» came out a microsecond short
+  test('se compara por el Timestamp entero, con los microsegundos', () => {
+    const s = 1792987664;
+    const e = { id: 'a', para: 'ella', ms: 1792987664815.637, ts: { seconds: s, nanoseconds: 815637000 } };
+    expect(noLeidas([e], { seconds: s, nanoseconds: 815637000 })).toBe(0);
+    expect(noLeidas([e], { seconds: s, nanoseconds: 815636000 })).toBe(1);
+    expect(agruparActividad([e], { seconds: s, nanoseconds: 815637000 }).nuevas).toEqual([]);
+    const otra = { id: 'b', para: 'ella', ms: 1792987664815.637, ts: { seconds: s, nanoseconds: 815638000 } };
+    expect(paraMi([e, otra], 'ella').map((x) => x.id)).toEqual(['b', 'a']);
+  });
+
+  test('una entrada aún sin hora del servidor no cuenta como nueva', () => {
+    expect(noLeidas([{ id: 'p', para: 'ella', ms: 0, ts: null }], NUNCA)).toBe(0);
   });
 });
 
@@ -199,16 +216,32 @@ describe('Firebase', () => {
     expect(query).toHaveBeenCalledTimes(1);
     const next = onSnapshot.mock.calls[0][1];
     next({ docs: [
-      { id: 'a', data: () => ({ tipo: 'fotos', quien: 'ella', para: 'yo', n: 3, ref: { photoId: 'F1' }, createdAt: { toMillis: () => 5 } }) },
+      { id: 'a', data: () => ({ tipo: 'fotos', quien: 'ella', para: 'yo', n: 3, ref: { photoId: 'F1' }, createdAt: { seconds: 0, nanoseconds: 5e6, toMillis: () => 5 } }) },
       { id: 'b', data: () => ({ tipo: 'raro', para: 'yo' }) },
     ] });
-    expect(onChange).toHaveBeenCalledWith([expect.objectContaining({ id: 'a', tipo: 'fotos', n: 3, ms: 5 })]);
+    expect(onChange).toHaveBeenCalledWith([expect.objectContaining({ id: 'a', tipo: 'fotos', n: 3, ms: 5, ts: expect.objectContaining({ seconds: 0, nanoseconds: 5e6 }) })]);
   });
 
-  test('marcarVisto: una escritura en meta/actividad-visto-{identity}', async () => {
-    await marcarVisto('p1', 'ella', 1234);
-    expect(setDoc).toHaveBeenCalledWith({ path: 'pairs/p1/meta/actividad-visto-ella', id: 'actividad-visto-ella' }, { vistoHasta: 'ts:1234' });
-    await marcarVisto('p1', 'ella', 0);
+  test('marcarVisto: una escritura en meta/actividad-visto-{identity}, con el Timestamp de la entrada tal cual', async () => {
+    const ts = { seconds: 1792987664, nanoseconds: 815637000 };
+    await marcarVisto('p1', 'ella', ts);
+    expect(setDoc).toHaveBeenCalledWith({ path: 'pairs/p1/meta/actividad-visto-ella', id: 'actividad-visto-ella' }, { vistoHasta: ts });
+    expect(setDoc.mock.calls[0][1].vistoHasta).toBe(ts);
+    expect(Timestamp.fromMillis).not.toHaveBeenCalled();
+    await marcarVisto('p1', 'ella', NUNCA);
+    await marcarVisto('p1', 'ella', null);
     expect(setDoc).toHaveBeenCalledTimes(1);
+  });
+
+  test('escucharVisto: el Timestamp guardado tal cual, y NUNCA si no hay nada', async () => {
+    const onChange = vi.fn();
+    escucharVisto('p1', 'ella', onChange, () => {});
+    await flush();
+    const next = onSnapshot.mock.calls[0][1];
+    const ts = { seconds: 1792987664, nanoseconds: 815637000 };
+    next({ data: () => ({ vistoHasta: ts }) });
+    expect(onChange.mock.calls[0][0]).toBe(ts);
+    next({ data: () => undefined });
+    expect(onChange).toHaveBeenLastCalledWith(NUNCA);
   });
 });

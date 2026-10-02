@@ -107,14 +107,22 @@ export function tiempoRelativo(ms, now = new Date()) {
 
 // --- Lists ---
 
+// Times are compared as Timestamps (seconds, nanoseconds), never through ms: the server's time has microseconds and a
+// double of ms rounds them, so a «visto» rebuilt from ms came out a microsecond short and the bell kept a «1»
+export const NUNCA = Object.freeze({ seconds: 0, nanoseconds: 0 });
+export const cmpTs = (a, b) => (a.seconds - b.seconds) || (a.nanoseconds - b.nanoseconds);
+const tsDe = (e) => e.ts || NUNCA;
+// An entry still without the server's time (a write of this phone, in flight) is not new for anyone
+const esNueva = (e, vistoHasta) => !!e.ts && cmpTs(e.ts, vistoHasta || NUNCA) > 0;
+
 // The entries for `identity`, newest first, at most MOSTRADAS
 export function paraMi(list, identity) {
-  return list.filter((e) => e.para === identity).sort((a, b) => b.ms - a.ms).slice(0, MOSTRADAS);
+  return list.filter((e) => e.para === identity).sort((a, b) => cmpTs(tsDe(b), tsDe(a))).slice(0, MOSTRADAS);
 }
 
 // Unseen: newer than the last one seen. The bell says 9+ past nine
 export function noLeidas(list, vistoHasta) {
-  return list.filter((e) => e.ms > (vistoHasta || 0)).length;
+  return list.filter((e) => esNueva(e, vistoHasta)).length;
 }
 
 export function insignia(n) {
@@ -125,7 +133,7 @@ export function insignia(n) {
 export function agruparActividad(list, vistoHasta) {
   const nuevas = [];
   const antes = [];
-  list.forEach((e) => (e.ms > (vistoHasta || 0) ? nuevas : antes).push(e));
+  list.forEach((e) => (esNueva(e, vistoHasta) ? nuevas : antes).push(e));
   return { nuevas, antes };
 }
 
@@ -156,6 +164,7 @@ function actividadItem(d) {
     n: data.n || 0,
     tuya: !!data.tuya,
     ambos: !!data.ambos,
+    ts: typeof data.createdAt?.seconds === 'number' ? data.createdAt : null,
     ms: noteMillis(data),
   };
 }
@@ -172,21 +181,25 @@ export function escucharActividad(pairId, onChange, onError) {
   }, onError);
 }
 
-// Up to when `identity` has seen, live: onChange(ms), 0 when never
+// Up to when `identity` has seen, live: onChange(Timestamp), NUNCA when never
 export function escucharVisto(pairId, identity, onChange, onError) {
   if (!pairId || !WHO[identity] || !db) return () => {};
   return listenWhenAuthed(async () => {
     const f = await fb();
-    return f.onSnapshot(vistoRef(f, pairId, identity), (snap) => onChange(snap.data()?.vistoHasta?.toMillis?.() || 0), onError);
+    return f.onSnapshot(vistoRef(f, pairId, identity), (snap) => {
+      const t = snap.data()?.vistoHasta;
+      onChange(typeof t?.seconds === 'number' ? t : NUNCA);
+    }, onError);
   }, onError);
 }
 
-// Seen up to the newest entry shown (its own server time, so no clock of this phone is involved). One write
-export async function marcarVisto(pairId, identity, ms) {
-  if (!pairId || !WHO[identity] || !db || !ms) return;
+// Seen up to the newest entry shown: its own Timestamp, written as it is (the server's time, so no clock of this
+// phone is involved and nothing is rounded). One write
+export async function marcarVisto(pairId, identity, ts) {
+  if (!pairId || !WHO[identity] || !db || !ts || cmpTs(ts, NUNCA) <= 0) return;
   await whenAuthed();
   const f = await fb();
-  await f.setDoc(vistoRef(f, pairId, identity), { vistoHasta: f.Timestamp.fromMillis(ms) });
+  await f.setDoc(vistoRef(f, pairId, identity), { vistoHasta: ts });
 }
 
 // The thumb of a photo for the sheet: the cached one, or else Storage's URL. No read of the photo doc. '' if gone

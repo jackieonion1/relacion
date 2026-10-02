@@ -1,13 +1,13 @@
 // The bell of Inicio: what the other one has done, and how much of it is unseen. One listener for the whole app
 // (the entries and the «visto» doc), started by the first one that needs it and stopped with the last, like fotoAvisos
 import { useSyncExternalStore } from 'react';
-import { escucharActividad, escucharVisto, marcarVisto, paraMi, noLeidas } from './actividad';
+import { escucharActividad, escucharVisto, marcarVisto, paraMi, noLeidas, cmpTs, NUNCA } from './actividad';
 import { CAMBIO_IDENTIDAD } from './fotoAvisos';
 
-const EMPTY = { lista: [], vistoHasta: 0, noLeidas: 0, listo: false };
+const EMPTY = { lista: [], vistoHasta: NUNCA, noLeidas: 0, listo: false };
 let estado = EMPTY;
 let todas = [];
-let visto = 0;
+let visto = NUNCA;
 let llegaron = { lista: false, visto: false };
 let quien = { pairId: '', identity: '' };
 const subs = new Set();
@@ -32,7 +32,7 @@ function start() {
   const warn = (e) => console.warn('Activity listener failed', e);
   stops = [
     escucharActividad(pairId, (list) => { todas = list; llegaron = { ...llegaron, lista: true }; publish(); }, warn),
-    escucharVisto(pairId, identity, (ms) => { visto = Math.max(visto, ms); llegaron = { ...llegaron, visto: true }; publish(); }, warn),
+    escucharVisto(pairId, identity, (ts) => { if (cmpTs(ts, visto) > 0) visto = ts; llegaron = { ...llegaron, visto: true }; publish(); }, warn),
   ];
 }
 
@@ -41,7 +41,7 @@ function reset() {
   stops = null;
   estado = EMPTY;
   todas = [];
-  visto = 0;
+  visto = NUNCA;
   llegaron = { lista: false, visto: false };
 }
 
@@ -67,7 +67,7 @@ function subscribe(cb) {
   };
 }
 
-// { lista (newest first, for this phone's person), vistoHasta (ms), noLeidas, listo }
+// { lista (newest first, for this phone's person), vistoHasta (Timestamp, NUNCA when none), noLeidas, listo }
 export function useActividad() {
   return useSyncExternalStore(subscribe, () => estado, () => EMPTY);
 }
@@ -75,8 +75,8 @@ export function useActividad() {
 // Everything shown is seen: the bell goes out now, and one write tells the other phones of this person. Nothing new,
 // no write
 export function verActividad() {
-  const newest = estado.lista[0]?.ms || 0;
-  if (!stops || newest <= visto) return;
+  const newest = estado.lista[0]?.ts;
+  if (!stops || !newest || cmpTs(newest, visto) <= 0) return;
   visto = newest;
   publish();
   marcarVisto(quien.pairId, quien.identity, newest).catch((e) => console.warn('Activity seen failed', e));
