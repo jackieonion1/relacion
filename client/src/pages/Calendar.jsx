@@ -1,115 +1,53 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useLocation } from 'react-router';
-import { createPortal } from 'react-dom';
 import { addEvent, updateEvent, listEvents, deleteEvent, eventToFormValues } from '../lib/calendar';
-import Modal from '../components/Modal';
+import Sheet from '../components/Sheet';
+import Button from '../components/Button';
+import Field from '../components/Field';
 import Icon from '../components/Icon';
 import EventTypeSwitcher from '../components/EventTypeSwitcher';
 import ViewSwitcher from '../components/ViewSwitcher';
 import MonthlyCalendarView from '../components/MonthlyCalendarView';
 import CollapsibleSection from '../components/CollapsibleSection';
+import { DayList, PastList, UpcomingList } from '../components/EventList';
 import HeartRainAnimation from '../components/HeartRainAnimation';
+import { eventTypeOf } from '../lib/eventTypes';
+import { dayTitle, specialInfo, whenText } from '../lib/eventText';
 import { birthdayOn, celebration, isMonthiversaryDay, nextSpecialEvents, partyAnimation } from '../lib/specialDays';
 
-// Colors of the message on top of a celebration day, by birthday name or celebration kind
+// Colours of the message on top of a celebration day, by birthday name or celebration kind
 const PARTY_STYLES = {
-  Lucy: { bg: 'bg-linear-to-r/srgb from-purple-50 to-pink-50 border border-purple-200', textColor: 'text-purple-600', subTextColor: 'text-purple-500' },
-  Sebas: { bg: 'bg-linear-to-r/srgb from-blue-50 to-cyan-50 border border-blue-200', textColor: 'text-blue-600', subTextColor: 'text-blue-500' },
-  anniversary: { bg: 'bg-linear-to-r/srgb from-purple-50 to-pink-50 border border-purple-200', textColor: 'text-purple-600', subTextColor: 'text-purple-500' },
-  monthiversary: { bg: 'bg-linear-to-r/srgb from-pink-50 to-rose-50 border border-pink-200', textColor: 'text-pink-600', subTextColor: 'text-pink-500' },
+  Lucy: { bg: 'bg-sello-ella', ink: 'text-sello-ella-ink' },
+  Sebas: { bg: 'bg-sello-el', ink: 'text-sello-el-ink' },
+  anniversary: { bg: 'bg-sello-ella', ink: 'text-sello-ella-ink' },
+  monthiversary: { bg: 'bg-lacre-soft', ink: 'text-accent-ink' },
 };
 
-const EventList = ({ events, onDelete, onEdit, onItemClick }) => {
-  if (events.length === 0) {
-    return <div className="text-gray-500 text-sm px-4 py-2">No hay eventos aquí.</div>;
-  }
-  return (
-    <ul className="divide-y divide-rose-100">
-      {events.map((ev) => {
-        const startDate = ev.start?.toDate?.() || null;
-        const endDate = ev.end?.toDate?.() || null;
-        
-        let when = '';
-        if (startDate) {
-          const startStr = startDate.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
-          if (endDate && endDate.toDateString() !== startDate.toDateString()) {
-            // Multi-day event: show date range (remove end time)
-            const endStr = endDate.toLocaleString([], { dateStyle: 'medium' });
-            when = `${startStr} - ${endStr}`;
-          } else {
-            // Single day event
-            when = startStr;
-          }
-        }
-        
-        // Get event type color
-        let eventTypeColor = 'bg-rose-500'; // Default: conjunto (pink)
-        if (ev.eventType === 'novio') {
-          eventTypeColor = 'bg-yellow-500';
-        } else if (ev.eventType === 'novia') {
-          eventTypeColor = 'bg-purple-500';
-        } else if (ev.eventType === 'sebas-birthday') {
-          eventTypeColor = 'bg-yellow-500'; // Sebas birthday: yellow
-        } else if (ev.eventType === 'lucy-birthday') {
-          eventTypeColor = 'bg-purple-400'; // Lucy birthday: lilac
-        } else if (ev.eventType === 'conjunto' && ev.isSpecialEvent) {
-          eventTypeColor = 'bg-rose-500'; // Anniversary/monthiversary: pink
-        }
-        
-        return (
-          <li
-            key={ev.id}
-            className="py-3 flex items-center gap-3 cursor-pointer hover:bg-gray-50 rounded-sm px-2 -mx-2"
-            onClick={() => onItemClick && onItemClick(ev)}
-          >
-            <div className="flex-1 min-w-0">
-              <div className="font-medium text-gray-900 truncate flex items-center gap-2">
-                <span className="truncate">{ev.title}</span>
-                <div className={`w-2 h-2 rounded-full shrink-0 ${eventTypeColor}`}></div>
-              </div>
-              <div className="text-sm text-gray-500 truncate">{when}</div>
-              {ev.location ? (
-                <div className="text-sm text-gray-500 font-medium truncate">{ev.location}</div>
-              ) : null}
-            </div>
-            {!ev.isSpecialEvent && (
-              <div className="flex items-center gap-3">
-                {onEdit && (
-                  <button
-                    onClick={(e) => { e.stopPropagation(); onEdit(ev); }}
-                    className="btn-link text-sm"
-                  >
-                    Editar
-                  </button>
-                )}
-                <button
-                  onClick={(e) => { e.stopPropagation(); onDelete(ev.id); }}
-                  className="btn-link text-sm"
-                >
-                  Borrar
-                </button>
-              </div>
-            )}
-          </li>
-        );
-      })}
-    </ul>
-  );
-};
+const pad2 = (n) => String(n).padStart(2, '0');
+
+// Firestore events plus the automatic ones, in date order
+const byStart = (a, b) => a.start.toDate() - b.start.toDate();
 
 export default function CalendarPage() {
   const location = useLocation();
   const [view, setView] = useState('Calendario'); // 'Lista' | 'Calendario'; always opens on the month
-  const [isModalOpen, setIsModalOpen] = useState(false);
+  // The open sheet: 'day' | 'event' | 'form' | 'delete'. Closing an event, form or delete sheet goes back to
+  // the day when it was opened from there (dayOpen), so the day's rain keeps falling until the day is closed
+  const [sheet, setSheet] = useState(null);
+  const [dayOpen, setDayOpen] = useState(false);
+  const [shownEvent, setShownEvent] = useState(null); // the event in the event sheet
   const [editingEvent, setEditingEvent] = useState(null); // null = new event
+  const [deleteTarget, setDeleteTarget] = useState(null); // { id, title, from: sheet to go back to on cancel }
   const pairId = useMemo(() => localStorage.getItem('pairId') || '', []);
   const identity = useMemo(() => localStorage.getItem('identity') || 'yo', []);
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
-  const [saveError, setSaveError] = useState(''); // write rejected after the modal was closed
+  const [endError, setEndError] = useState('');
+  const [notice, setNotice] = useState(''); // write or delete rejected after its sheet was closed
   // New event form state (controlled for iOS/web consistency)
   const [startDate, setStartDate] = useState('');
   const [startTime, setStartTime] = useState('');
@@ -121,17 +59,12 @@ export default function CalendarPage() {
       /Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 2
     );
   }, []);
-  const inputClass = `input w-full${isIOS ? ' appearance-none bg-white text-gray-900 h-11' : ''}`;
+  // iOS collapses an empty date/time input: fixed height and no native look
+  const dateClass = `h-[52px]${isIOS ? ' appearance-none' : ''}`;
   const [selectedEventType, setSelectedEventType] = useState('conjunto');
   const [selectedDay, setSelectedDay] = useState(null);
-  const [dayEventsPopup, setDayEventsPopup] = useState(false);
   const [showHeartRain, setShowHeartRain] = useState(false);
   const [heartAnimationType, setHeartAnimationType] = useState('rain');
-  const [deleteConfirmation, setDeleteConfirmation] = useState({
-    isOpen: false,
-    eventId: '',
-    eventTitle: ''
-  });
   const [targetDate, setTargetDate] = useState(null);
 
   useEffect(() => {
@@ -140,34 +73,15 @@ export default function CalendarPage() {
       setLoading(true);
       try {
         const list = await listEvents(pairId, { futureOnly: false, max: 300 });
-        
         // Generate special events (only next occurrence of each type)
-        const specialEvents = nextSpecialEvents();
-        
-        // Merge Firestore events with special events
-        const allEvents = [...list, ...specialEvents];
-        
-        // Sort all events chronologically by start date
-        allEvents.sort((a, b) => {
-          const dateA = a.start.toDate();
-          const dateB = b.start.toDate();
-          return dateA - dateB;
-        });
-        
-        if (!cancelled) setItems(allEvents);
+        const allEvents = [...list, ...nextSpecialEvents()];
+        allEvents.sort(byStart);
+        if (!cancelled) { setItems(allEvents); setLoadError(false); }
       } catch (e) {
         if (!cancelled) {
           // Even if Firestore fails, show special events
-          const specialEvents = nextSpecialEvents();
-          
-          // Sort events chronologically
-          specialEvents.sort((a, b) => {
-            const dateA = a.start.toDate();
-            const dateB = b.start.toDate();
-            return dateA - dateB;
-          });
-          
-          setItems(specialEvents);
+          setItems(nextSpecialEvents().sort(byStart));
+          setLoadError(true);
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -209,31 +123,49 @@ export default function CalendarPage() {
     return { upcomingEvents: upcoming, pastEvents: past.reverse() };
   }, [items]);
 
-  function openNewEvent() {
-    setEditingEvent(null);
-    setStartDate(''); setStartTime(''); setEndDate(''); setTouchedEndDate(false);
-    setSelectedEventType('conjunto');
+  // Leave the current event/form/delete sheet: back to the day if it came from there
+  function back() {
+    setSheet(dayOpen ? 'day' : null);
+  }
+
+  function openForm(ev, date = '') {
+    setEditingEvent(ev);
+    if (ev) {
+      const v = eventToFormValues(ev);
+      setStartDate(v.date);
+      setStartTime(v.time);
+      setEndDate(v.endDate);
+      // Keep the end date following the start only when it was the same day; otherwise leave it as saved
+      setTouchedEndDate(v.endDate !== v.date);
+      setSelectedEventType(v.eventType);
+    } else {
+      setStartDate(date); setStartTime(''); setEndDate(date); setTouchedEndDate(false);
+      setSelectedEventType('conjunto');
+    }
     setError('');
-    setIsModalOpen(true);
+    setEndError('');
+    setSheet('form');
+  }
+
+  function openNewEvent() {
+    openForm(null);
+  }
+
+  // C16: the form with the open day already set as start (and end, which follows it)
+  function addToDay() {
+    if (!selectedDay) return;
+    const { day, month, year } = selectedDay;
+    openForm(null, `${year}-${pad2(month + 1)}-${pad2(day)}`);
   }
 
   function openEditEvent(ev) {
     if (ev.isSpecialEvent) return;
-    const v = eventToFormValues(ev);
-    setEditingEvent(ev);
-    setStartDate(v.date);
-    setStartTime(v.time);
-    setEndDate(v.endDate);
-    // Keep the end date following the start only when it was the same day; otherwise leave it as saved
-    setTouchedEndDate(v.endDate !== v.date);
-    setSelectedEventType(v.eventType);
-    setError('');
-    setIsModalOpen(true);
+    openForm(ev);
   }
 
-  function closeModal() {
-    setIsModalOpen(false);
-    setEditingEvent(null);
+  function openEvent(ev) {
+    setShownEvent(ev);
+    setSheet('event');
   }
 
   async function onSave(e) {
@@ -246,12 +178,13 @@ export default function CalendarPage() {
     if (!title || !date) return;
     // An end before the start would be dropped silently (the event becomes single-day)
     if (endDate && endDate < date) {
-      setError('La fecha de fin no puede ser anterior al inicio.');
+      setEndError('La fecha de fin no puede ser anterior al inicio.');
       return;
     }
     setSaving(true);
     setError('');
-    setSaveError('');
+    setEndError('');
+    setNotice('');
 
     const seeEachOther = form.has('seeEachOther');
     const finalEventType = seeEachOther ? 'conjunto' : selectedEventType;
@@ -264,11 +197,12 @@ export default function CalendarPage() {
         : await addEvent(pairId, fields, identity);
       formEl.reset();
       setSelectedEventType('conjunto'); // Reset to default
-      closeModal();
+      setEditingEvent(null);
+      back();
       setRefreshKey(k => k + 1); // Force a reliable refetch
       // If the server ends up rejecting it, say so and drop the local ghost
       committed.catch(() => {
-        setSaveError(`No se pudo guardar el evento "${title}".`);
+        setNotice(`No se pudo guardar el evento "${title}".`);
         setRefreshKey(k => k + 1);
       });
     } catch (err) {
@@ -278,28 +212,20 @@ export default function CalendarPage() {
     }
   }
 
-  const onDelete = async (id) => {
+  const askDelete = (ev) => {
     // Don't allow deletion of special automatic events
-    if (id.includes('anniversary-') || id.includes('birthday-')) {
-      alert('Los eventos especiales (cumpleaños, aniversarios) no se pueden borrar.');
+    if (ev.isSpecialEvent || ev.id.includes('anniversary-') || ev.id.includes('birthday-')) {
+      setNotice('Los eventos especiales (cumpleaños, aniversarios) no se pueden borrar.');
       return;
     }
-    
-    // Find the event to get its title
-    const event = items.find(item => item.id === id);
-    const eventTitle = event ? event.title : 'este evento';
-    
-    // Show custom confirmation modal
-    setDeleteConfirmation({
-      isOpen: true,
-      eventId: id,
-      eventTitle: eventTitle
-    });
+    setDeleteTarget({ id: ev.id, title: ev.title || 'este evento', from: sheet });
+    setSheet('delete');
   };
 
   const editValues = editingEvent ? eventToFormValues(editingEvent) : null;
 
-  const handleListItemClick = (ev) => {
+  // F15: what tapping a list row did before the event sheet existed, now its «Ver en el calendario»
+  const showInCalendar = (ev) => {
     const dt = ev.start?.toDate?.();
     if (!dt) return;
     setView('Calendario');
@@ -308,37 +234,27 @@ export default function CalendarPage() {
   };
 
   const confirmDelete = async () => {
-    const { eventId } = deleteConfirmation;
+    const { id } = deleteTarget;
     try {
-      await deleteEvent(pairId, eventId);
+      await deleteEvent(pairId, id);
       setRefreshKey(k => k + 1);
-      setDeleteConfirmation({
-        isOpen: false,
-        eventId: '',
-        eventTitle: ''
-      });
     } catch (e) {
-      alert('Error al borrar');
-      setDeleteConfirmation({
-        isOpen: false,
-        eventId: '',
-        eventTitle: ''
-      });
+      setNotice('No se pudo borrar el evento.');
     }
+    setDeleteTarget(null);
+    back();
   };
 
   const cancelDelete = () => {
-    setDeleteConfirmation({
-      isOpen: false,
-      eventId: '',
-      eventTitle: ''
-    });
+    setSheet(deleteTarget?.from === 'form' || deleteTarget?.from === 'event' ? deleteTarget.from : (dayOpen ? 'day' : null));
+    setDeleteTarget(null);
   };
 
   // Open a given day and trigger special animations when appropriate
   function openDay(day, month, year) {
     setSelectedDay({ day, month, year });
-    setDayEventsPopup(true);
+    setDayOpen(true);
+    setSheet('day');
 
     // Any 24th rains (fireworks on the anniversary), birthdays get theirs
     const animation = partyAnimation(day, month);
@@ -355,228 +271,263 @@ export default function CalendarPage() {
     openDay(day, month, year);
   };
 
-  const closeDayEventsPopup = () => {
-    setDayEventsPopup(false);
-    setShowHeartRain(false); // Stop animation when popup closes
+  const closeDay = () => {
+    setDayOpen(false);
+    setSheet(null);
+    setShowHeartRain(false); // Stop animation when the day sheet closes
   };
 
+  // The selected day's message and events (the automatic event of a celebration is not repeated under it)
+  const dayContent = useMemo(() => {
+    if (!selectedDay) return null;
+    const birthday = birthdayOn(selectedDay.day, selectedDay.month);
+    const isAnniversaryDay = isMonthiversaryDay(selectedDay.day);
+    const party = celebration(selectedDay.day, selectedDay.month, selectedDay.year);
+    const selectedDate = new Date(selectedDay.year, selectedDay.month, selectedDay.day);
+
+    const events = items.filter(event => {
+      const eventDate = event.start?.toDate();
+      if (!eventDate) return false;
+
+      // Check if event occurs on selected day or spans through it
+      let isOnSelectedDay = false;
+      if (event.end) {
+        const endDate = event.end.toDate();
+        // Compare by day boundaries so the first day is included even if start has a time > 00:00
+        const startDay = new Date(eventDate.getFullYear(), eventDate.getMonth(), eventDate.getDate());
+        const endDay = new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate(), 23, 59, 59, 999);
+        isOnSelectedDay = selectedDate >= startDay && selectedDate <= endDay;
+      } else {
+        isOnSelectedDay = eventDate.getDate() === selectedDay.day && eventDate.getMonth() === selectedDay.month && eventDate.getFullYear() === selectedDay.year;
+      }
+
+      // If this day has a special message (anniversary, birthday), filter out the corresponding special event
+      if (isOnSelectedDay && event.isSpecialEvent) {
+        if ((isAnniversaryDay && (event.specialType === 'anniversary' || event.specialType === 'monthiversary')) ||
+            (birthday && event.specialType === 'birthday' && event.eventType === birthday.eventType)) {
+          return false;
+        }
+      }
+      return isOnSelectedDay;
+    });
+    return { party, events };
+  }, [items, selectedDay]);
+
+  const party = dayContent?.party;
+  const partyStyle = party && PARTY_STYLES[party.kind === 'birthday' ? party.name : party.kind];
+  const shownType = shownEvent && eventTypeOf(shownEvent.eventType);
+  const shownSpecial = specialInfo(shownEvent);
+
   return (
-    <div className="space-y-4">
-      <h2 className="text-lg font-semibold text-rose-600">Calendario</h2>
-      {saveError && (
-        <div className="card flex items-center justify-between gap-3 text-sm text-rose-600">
-          <span>{saveError}</span>
-          <button type="button" onClick={() => setSaveError('')} className="btn-link" aria-label="Cerrar aviso"><Icon name="cerrar" size={18} /></button>
+    <div className="flex flex-col gap-4 pb-20">
+      <header className="flex items-end justify-between gap-3 pt-1.5 pl-1">
+        <h1 className="serif text-4xl leading-[1.05] font-normal tracking-[-0.01em]">Calendario</h1>
+        <Button icon="nuevo" onClick={openNewEvent} aria-label="Nuevo evento">Nuevo</Button>
+      </header>
+
+      {notice && (
+        <div role="status" className="card flex items-center justify-between gap-3 py-2 pr-2 text-[15px] text-ink">
+          <span>{notice}</span>
+          <Button icon="cerrar" label="Cerrar aviso" onClick={() => setNotice('')} />
         </div>
       )}
+      {loadError && !loading && (
+        <section role="alert" className="flex items-center justify-between gap-3 py-3 pl-4 pr-3 rounded-hero bg-sunk">
+          <p className="text-[15px] text-ink">No se pudieron cargar los eventos.</p>
+          <Button variant="sec" onClick={() => setRefreshKey(k => k + 1)}>Reintentar</Button>
+        </section>
+      )}
+
       <ViewSwitcher
         views={['Lista', 'Calendario']}
+        labels={{ Calendario: 'Mes' }}
         activeView={view}
         onChange={setView}
       />
 
       {view === 'Lista' && (
-        <div className="relative min-h-[60vh] pb-20">
-          <div className="divide-y divide-gray-200">
-            <div className="card rounded-b-none">
-              <CollapsibleSection title="Próximos eventos" defaultOpen>
-                {loading ? <div className="text-gray-500 px-4 py-2">Cargando…</div> : <EventList events={upcomingEvents} onDelete={onDelete} onEdit={openEditEvent} onItemClick={handleListItemClick} />}
-              </CollapsibleSection>
+        <div className="flex flex-col gap-3">
+          {loading ? (
+            <div aria-label="Cargando eventos" className="card flex flex-col gap-5">
+              <span className="block h-10 rounded-mini bg-sunk animate-pulse" />
+              <span className="block h-10 w-[85%] rounded-mini bg-sunk animate-pulse" />
+              <span className="block h-10 w-[70%] rounded-mini bg-sunk animate-pulse" />
             </div>
-            <div className="card rounded-t-none">
-              <CollapsibleSection title="Eventos pasados">
-                <EventList events={pastEvents} onDelete={onDelete} onEdit={openEditEvent} onItemClick={handleListItemClick} />
+          ) : (
+            <>
+              <CollapsibleSection title={`Próximos · ${upcomingEvents.length}`} defaultOpen>
+                <UpcomingList events={upcomingEvents} onOpen={openEvent} />
               </CollapsibleSection>
-            </div>
-          </div>
+              <CollapsibleSection title={`Pasados · ${pastEvents.length}`}>
+                <PastList events={pastEvents} onOpen={openEvent} />
+              </CollapsibleSection>
+            </>
+          )}
         </div>
       )}
 
       {view === 'Calendario' && (
-        <div className="pb-20">
-          <MonthlyCalendarView events={items} onDayClick={onDayClick} targetDate={targetDate} />
+        <div className="-mx-1">
+          <MonthlyCalendarView events={items} onDayClick={onDayClick} targetDate={targetDate} selected={dayOpen ? selectedDay : null} />
         </div>
       )}
-      
 
-      {/* New event button - portal to body so it floats above scroll */}
-      {createPortal(
-        <button
-          onClick={openNewEvent}
-          className="fab btn-primary shadow-lg rounded-full px-5 py-3 font-semibold"
-          aria-label="Nuevo evento"
-          title="Nuevo evento"
-        >
-          Nuevo evento
-        </button>,
-        document.body
-      )}
+      <Sheet isOpen={sheet === 'day'} onClose={closeDay}>
+        <div className="px-4 pb-[34px]">
+          <div className="flex items-center justify-between pl-1 pb-2">
+            <h2 className="serif text-[26px] font-normal">
+              {selectedDay && dayTitle(selectedDay.day, selectedDay.month, selectedDay.year)}
+            </h2>
+            <Button icon="cerrar" label="Cerrar" onClick={closeDay} className="text-ink-2" />
+          </div>
+          {dayContent && (
+            <div className="flex flex-col gap-2">
+              {party && (
+                <div role="status" className={`flex flex-col items-center gap-1 pt-[18px] pb-5 px-4 rounded-tarjeta text-center ${partyStyle.bg}`}>
+                  <span aria-hidden="true" className="text-3xl leading-[1.15]">{party.emoji}</span>
+                  <p className={`serif text-[26px] leading-[1.15] ${partyStyle.ink}`}>{party.title}</p>
+                  <p className={`text-[15px] font-semibold ${partyStyle.ink}`}>{party.subtitle}</p>
+                </div>
+              )}
+              {dayContent.events.length > 0 ? (
+                <DayList events={dayContent.events} day={selectedDay} onOpen={openEvent} />
+              ) : (
+                !party && <p className="px-1 py-3 text-[15px] text-ink-2">Nada este día todavía.</p>
+              )}
+              <Button variant="txt" size="m" accent icon="nuevo" onClick={addToDay} className="border border-dashed border-line">
+                Añadir a este día
+              </Button>
+              {/* Room for «Parar la fiesta», which floats over the bottom of the sheet while it rains */}
+              {showHeartRain && <div aria-hidden="true" className="h-[88px]" />}
+            </div>
+          )}
+        </div>
+      </Sheet>
 
-      <Modal isOpen={isModalOpen} onClose={closeModal}>
-        <form key={editingEvent?.id || 'new'} onSubmit={onSave} className="p-6 space-y-4">
-          <h3 className="font-semibold text-lg">{editingEvent ? 'Editar evento' : 'Añadir evento'}</h3>
-          <div className="space-y-3">
-            <input name="title" placeholder="Título" className={inputClass} defaultValue={editValues?.title} required />
-            <input name="location" placeholder="Ubicación (opcional)" className={inputClass} defaultValue={editValues?.location} />
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-sm text-gray-600 mb-1">Fecha de inicio</label>
-                <input
-                  name="date"
-                  type="date"
-                  className={inputClass}
-                  value={startDate}
-                  onChange={(e) => { const v = e.target.value; setStartDate(v); if (!touchedEndDate) setEndDate(v); }}
-                  required
-                />
-              </div>
-              <div>
-                <label className="block text-sm text-gray-600 mb-1">Hora</label>
-                <input
-                  name="time"
-                  type="time"
-                  className={inputClass}
-                  value={startTime}
-                  onChange={(e) => setStartTime(e.target.value)}
-                />
-              </div>
+      <Sheet isOpen={sheet === 'event' && !!shownEvent} onClose={back}>
+        {shownEvent && (
+          <div className="px-5 pb-[34px]">
+            <div className="flex items-center justify-between">
+              <span className="inline-flex items-center gap-2 text-[13px] font-semibold text-ink-2">
+                <span aria-hidden="true" className="text-sm leading-none">{shownSpecial ? shownSpecial.sello : shownType.emoji}</span>
+                {shownSpecial ? shownSpecial.label : shownType.text}
+              </span>
+              <Button icon="cerrar" label="Cerrar" onClick={back} className="-mr-2.5 text-ink-2" />
             </div>
-            <div>
-              <label className="block text-sm text-gray-600 mb-1">Fecha de fin (opcional)</label>
-              <input
-                name="endDate"
-                type="date"
-                className={inputClass}
-                value={endDate}
-                onChange={(e) => { setTouchedEndDate(true); setEndDate(e.target.value); }}
-              />
+            <h2 className="serif text-[30px] leading-[1.1] font-normal pt-0.5 pb-4">{shownEvent.title}</h2>
+            <div className="flex flex-col gap-3 pb-5 text-base text-ink">
+              <p className="flex items-center gap-3 text-ink"><Icon name="calendario" size={20} className="text-ink-2" />{whenText(shownEvent)}</p>
+              {shownEvent.location && (
+                <p className="flex items-center gap-3 text-ink"><Icon name="lugar" size={20} className="text-ink-2" />{shownEvent.location}</p>
+              )}
+              {shownEvent.seeEachOther && (
+                <p className="flex items-center gap-3 font-semibold text-accent-ink"><Icon name="nosVemos" size={20} />Nos vemos</p>
+              )}
             </div>
-            <div className="space-y-2">
-              <label className="block text-sm text-gray-600">Tipo de evento</label>
-              <EventTypeSwitcher 
-                activeType={selectedEventType} 
-                onChange={setSelectedEventType} 
-              />
+            <div className="flex flex-col gap-1.5">
+              {shownSpecial && (
+                <p className="py-3.5 px-4 mb-1.5 rounded-[18px] bg-sunk text-sm text-ink-2">{shownSpecial.note}</p>
+              )}
+              {!shownSpecial && (
+                <Button size="l" icon="editar" onClick={() => openEditEvent(shownEvent)}>Editar</Button>
+              )}
+              {!dayOpen && (
+                <Button variant="sec" size="l" icon="calendario" onClick={() => showInCalendar(shownEvent)}>Ver en el calendario</Button>
+              )}
+              {!shownSpecial && (
+                <Button variant="txt" size="l" onClick={() => askDelete(shownEvent)} className="text-danger">Borrar evento</Button>
+              )}
             </div>
-            <label className="flex items-center gap-2 text-sm text-gray-700 select-none">
-              <input type="checkbox" name="seeEachOther" defaultChecked={!!editValues?.seeEachOther} className="accent-rose-500 w-4 h-4" />
-              ¿Nos vemos?
+          </div>
+        )}
+      </Sheet>
+
+      <Sheet isOpen={sheet === 'form'} onClose={back}>
+        <form key={editingEvent?.id || 'new'} onSubmit={onSave} className="flex flex-col gap-3.5 px-5 pt-2 pb-[34px]">
+          <div className="flex items-center justify-between">
+            <Button variant="txt" onClick={back} className="px-1 text-base text-ink-2">Cancelar</Button>
+            <h2 className="text-base font-semibold">{editingEvent ? 'Editar evento' : 'Nuevo evento'}</h2>
+            <Button type="submit" busy={saving} busyText="Guardando…">Guardar</Button>
+          </div>
+          <Field name="title" label="Título" placeholder="Cena, visita, examen…" defaultValue={editValues?.title} required className="text-[17px]" />
+          <div className="grid grid-cols-2 gap-2.5">
+            <Field
+              name="date"
+              type="date"
+              label="Fecha"
+              className={dateClass}
+              value={startDate}
+              onChange={(e) => { const v = e.target.value; setStartDate(v); if (!touchedEndDate) setEndDate(v); }}
+              required
+            />
+            <Field
+              name="time"
+              type="time"
+              label="Hora"
+              className={dateClass}
+              value={startTime}
+              onChange={(e) => setStartTime(e.target.value)}
+            />
+          </div>
+          <Field
+            name="endDate"
+            type="date"
+            label={<>Hasta <span className="normal-case tracking-normal font-medium">(opcional, si dura varios días)</span></>}
+            className={dateClass}
+            value={endDate}
+            onChange={(e) => { setTouchedEndDate(true); setEndDate(e.target.value); setEndError(''); }}
+            error={endError || undefined}
+            hint={touchedEndDate ? 'Si la pones antes del inicio, te avisa.' : 'Sigue a la fecha de inicio hasta que la cambies.'}
+          />
+          <Field
+            name="location"
+            label={<>Lugar <span className="normal-case tracking-normal font-medium">(opcional)</span></>}
+            defaultValue={editValues?.location}
+          />
+          <div className="flex flex-col gap-1.5">
+            <span className="etiqueta" aria-hidden="true">De quién es</span>
+            <EventTypeSwitcher activeType={selectedEventType} onChange={setSelectedEventType} />
+          </div>
+          <div className="flex items-center justify-between gap-3 min-h-[60px] px-4 py-2 rounded-[18px] bg-lacre-soft">
+            <label htmlFor="ev-vemos" className="flex-1 min-w-0 flex flex-col">
+              <span className="text-base font-semibold text-accent-ink">¿Nos vemos?</span>
+              <span className="text-[13px] text-ink-2">Sale en Inicio con la cuenta atrás y pasa a ser de los dos.</span>
             </label>
+            <span className="relative inline-flex w-[52px] h-8 shrink-0">
+              <input
+                id="ev-vemos"
+                type="checkbox"
+                name="seeEachOther"
+                defaultChecked={!!editValues?.seeEachOther}
+                className="peer absolute inset-0 z-10 m-0 opacity-0 cursor-pointer"
+              />
+              <span aria-hidden="true" className="absolute inset-0 rounded-full bg-line transition-colors peer-checked:bg-lacre peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-lacre" />
+              <span aria-hidden="true" className="absolute top-[3px] left-[3px] size-[26px] rounded-full bg-card shadow-carta transition-transform peer-checked:translate-x-5" />
+            </span>
           </div>
-          {error && <p className="text-xs text-rose-600">{error}</p>}
-          <div className="flex justify-end gap-2">
-            <button type="button" onClick={closeModal} className="btn-ghost">Cancelar</button>
-            <button disabled={saving} className="btn-primary disabled:opacity-60">{saving ? 'Guardando…' : (editingEvent ? 'Guardar' : 'Añadir')}</button>
-          </div>
+          {error && <p role="alert" className="text-sm text-danger">{error}</p>}
+          {editingEvent && (
+            <Button variant="txt" size="l" onClick={() => askDelete(editingEvent)} className="text-danger">Borrar evento</Button>
+          )}
         </form>
-      </Modal>
+      </Sheet>
 
-      <Modal isOpen={dayEventsPopup} onClose={closeDayEventsPopup}>
-        <div className="p-6">
-          <h3 className="font-semibold text-lg mb-4">
-            {selectedDay && `Eventos del ${selectedDay.day} de ${new Date(selectedDay.year, selectedDay.month).toLocaleDateString('es-ES', { month: 'long', year: 'numeric' })}`}
-          </h3>
-          {selectedDay && (() => {
-            const birthday = birthdayOn(selectedDay.day, selectedDay.month);
-            const isAnniversaryDay = isMonthiversaryDay(selectedDay.day);
-
-            // Birthday or monthiversary/anniversary message
-            const party = celebration(selectedDay.day, selectedDay.month, selectedDay.year);
-            const partyStyle = party && PARTY_STYLES[party.kind === 'birthday' ? party.name : party.kind];
-            const specialMessage = party && (
-              <div className={`${partyStyle.bg} rounded-lg p-4 mb-4 text-center`}>
-                <div className="text-2xl mb-2">{party.emoji}</div>
-                <div className={`text-lg font-semibold ${partyStyle.textColor} mb-1`}>
-                  {party.title}
-                </div>
-                <div className={`text-sm ${partyStyle.subTextColor}`}>
-                  {party.subtitle}
-                </div>
-              </div>
-            );
-
-            // Filter events for the selected day
-            const dayEvents = items.filter(event => {
-              const eventDate = event.start?.toDate();
-              if (!eventDate) return false;
-
-              const eventDay = eventDate.getDate();
-              const eventMonth = eventDate.getMonth();
-              const eventYear = eventDate.getFullYear();
-
-              // Check if event occurs on selected day or spans through it
-              let isOnSelectedDay = false;
-              if (event.end) {
-                const endDate = event.end.toDate();
-                const selectedDate = new Date(selectedDay.year, selectedDay.month, selectedDay.day);
-                // Compare by day boundaries so the first day is included even if start has a time > 00:00
-                const startDay = new Date(eventDate.getFullYear(), eventDate.getMonth(), eventDate.getDate());
-                const endDay = new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate(), 23, 59, 59, 999);
-                isOnSelectedDay = selectedDate >= startDay && selectedDate <= endDay;
-              } else {
-                isOnSelectedDay = eventDay === selectedDay.day && eventMonth === selectedDay.month && eventYear === selectedDay.year;
-              }
-
-              // If this day has a special message (anniversary, birthday), filter out the corresponding special event
-              if (isOnSelectedDay && event.isSpecialEvent) {
-                if ((isAnniversaryDay && (event.specialType === 'anniversary' || event.specialType === 'monthiversary')) ||
-                    (birthday && event.specialType === 'birthday' && event.eventType === birthday.eventType)) {
-                  return false; // Filter out the special event when there's a special message
-                }
-              }
-
-              return isOnSelectedDay;
-            });
-
-            return (
-              <>
-                {specialMessage}
-                {dayEvents.length > 0 ? (
-                  <EventList events={dayEvents} onDelete={onDelete} onEdit={openEditEvent} />
-                ) : (
-                  !specialMessage && <div className="text-gray-500 text-sm py-4">No hay eventos en este día.</div>
-                )}
-              </>
-            );
-          })()}
-          <div className="flex justify-end mt-4">
-            <button onClick={closeDayEventsPopup} className="btn-primary">Cerrar</button>
+      <Sheet isOpen={sheet === 'delete' && !!deleteTarget} onClose={cancelDelete}>
+        {deleteTarget && (
+          <div className="flex flex-col gap-1.5 px-5 pt-2 pb-[34px]">
+            <h2 className="serif text-[26px] leading-[1.15] font-normal">¿Borrar «{deleteTarget.title}»?</h2>
+            <p className="pb-3.5 text-[15px] text-ink-2">Desaparece del calendario de los dos. No se puede deshacer.</p>
+            <Button variant="dan" size="l" onClick={confirmDelete}>Borrar evento</Button>
+            <Button variant="txt" size="l" onClick={cancelDelete}>Cancelar</Button>
           </div>
-        </div>
-      </Modal>
-      
-      <HeartRainAnimation 
-        isActive={showHeartRain} 
-        type={heartAnimationType} 
+        )}
+      </Sheet>
+
+      <HeartRainAnimation
+        isActive={showHeartRain}
+        type={heartAnimationType}
+        onStop={() => setShowHeartRain(false)}
       />
-
-      {/* Delete confirmation modal */}
-      <Modal isOpen={deleteConfirmation.isOpen} onClose={cancelDelete}>
-        <div className="p-6 text-center">
-          <div className="text-4xl mb-4">🗑️</div>
-          <h3 className="text-lg font-semibold mb-2">Borrar evento</h3>
-          <p className="text-gray-600 mb-6">
-            ¿Estás seguro de que quieres borrar <strong>"{deleteConfirmation.eventTitle}"</strong>?
-          </p>
-          <p className="text-sm text-gray-500 mb-6">
-            Esta acción no se puede deshacer.
-          </p>
-          <div className="flex gap-3 justify-center">
-            <button 
-              onClick={cancelDelete}
-              className="px-4 py-2 text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
-            >
-              Cancelar
-            </button>
-            <button 
-              onClick={confirmDelete}
-              className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
-            >
-              Borrar
-            </button>
-          </div>
-        </div>
-      </Modal>
     </div>
   );
 }
