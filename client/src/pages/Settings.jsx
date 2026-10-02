@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { Link } from 'react-router';
 import Button from '../components/Button';
 import Icon from '../components/Icon';
 import Sheet from '../components/Sheet';
@@ -311,6 +312,16 @@ export default function Settings() {
 
         <Seccion title="La app">
           <div className={`${tarjeta} overflow-hidden divide-y divide-line`}>
+            <Link
+              to="/asi-era"
+              className="w-full min-h-14 px-4 flex items-center gap-3 text-left active:bg-sunk focus-visible:outline-2 focus-visible:outline-lacre focus-visible:-outline-offset-2"
+            >
+              <span className="flex-1 min-w-0 flex flex-col py-2">
+                <span className="text-base">Así era</span>
+                <span className="text-[13px] text-ink-2">La app de antes, guardada como recuerdo.</span>
+              </span>
+              <Icon name="siguiente" size={20} className="text-ink-2" />
+            </Link>
             <BuscarActualizaciones />
             <div><RepairApp /></div>
           </div>

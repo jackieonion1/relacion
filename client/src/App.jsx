@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { Routes, Route, useLocation, Navigate } from 'react-router';
 import Dashboard from './pages/Dashboard';
 import Gallery from './pages/Gallery';
@@ -16,6 +16,11 @@ import PushNotice from './components/PushNotice';
 import MarcaSuperior from './components/MarcaSuperior';
 import { PairGate, IdentityGate } from './components/Entrada';
 import { AvisoSlot, Avisos } from './components/Aviso';
+// «Así era» loads on demand (its screenshots weigh more than the rest of the app). Its CSS comes in here: a lazy
+// chunk's CSS would be emitted as another static/css/main.<hash>.css and appUpdate.js would take it for a new version
+import './pages/AsiEra.css';
+
+const AsiEra = lazy(() => import('./pages/AsiEra'));
 
 // Every screen lays out its own width, padding and serif h1 (plan §5 nº 00), so <main> adds none
 export default function App() {
@@ -33,6 +38,7 @@ export default function App() {
       case '/coin': return 'Moneda';
       case '/music': return 'Música';
       case '/settings': return 'Ajustes';
+      case '/asi-era': return 'Así era';
       default: return '';
     }
   }, [location.pathname]);
@@ -81,6 +87,7 @@ export default function App() {
                   {/* Placeholder element; actual UI is rendered by globally mounted <Music /> */}
                   <Route path="/music" element={<div />} />
                   <Route path="/settings" element={<Settings />} />
+                  <Route path="/asi-era" element={<Suspense fallback={null}><AsiEra /></Suspense>} />
                   <Route path="*" element={<Navigate to="/" replace />} />
                 </Routes>
                 {/* Keep Music mounted always; it will render its page UI only on /music but keeps audio/mini-player global */}

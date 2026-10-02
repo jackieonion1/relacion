@@ -1,0 +1,87 @@
+/* «Así era» (3.0): album of the old app, its history and the farewell letter. Imported from App.jsx, not from the lazy
+   page: a CSS file of its own would be named static/css/main.<hash>.css and appUpdate.js would count it as a new version.
+   Reduced motion is the global rule in index.css; the seal also stops below */
+
+/* Album: native swipe with scroll snap; the padding centres the first and last print */
+.album {
+  --w: min(56vw, 216px); /* a whole screen of the old app fits above the tab bar on a 393 × 852 phone */
+  display: flex; gap: 18px; overflow-x: auto; overscroll-behavior-x: contain;
+  scroll-snap-type: x mandatory; scrollbar-width: none;
+  padding: 14px calc((100% - var(--w)) / 2) 24px;
+}
+.album::-webkit-scrollbar { display: none; }
+
+/* Print with a white border, a bit wider at the bottom for the caption, slightly turned */
+.polaroid {
+  flex: none; width: var(--w); scroll-snap-align: center; margin: 0;
+  padding: 10px 10px 14px; border-radius: 6px;
+  background-color: var(--raised); border: 1px solid var(--line); box-shadow: var(--sh-2);
+}
+.polaroid-a { transform: rotate(-1.8deg); }
+.polaroid-b { transform: rotate(1.5deg); }
+html[data-tema='oscuro'] .polaroid img { filter: brightness(0.9); }
+
+/* Postmark: two rings and the cancellation bars, in lacre */
+.matasellos {
+  position: absolute; right: -16px; top: 18px; width: 64px; height: 64px; border-radius: 50%;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+  color: var(--accent-ink); border: 1.5px solid currentColor;
+  background-color: color-mix(in oklch, var(--card) 62%, transparent);
+  transform: rotate(-16deg); pointer-events: none;
+}
+.matasellos::before {
+  content: ""; position: absolute; inset: 4px; border-radius: 50%; border: 1px dashed currentColor; opacity: 0.7;
+}
+.matasellos::after {
+  content: ""; position: absolute; right: calc(100% - 2px); top: 50%; width: 38px; height: 20px; transform: translateY(-50%);
+  background: repeating-linear-gradient(to bottom, currentColor 0 1.5px, transparent 1.5px 6.5px); opacity: 0.75;
+}
+
+/* Postage stamp with the old icon: perforated edge by mask, shadow on the outer element so the mask keeps it */
+.sello-postal {
+  flex: none; display: inline-flex; transform: rotate(6deg);
+  filter: drop-shadow(0 1px 2px oklch(0.3 0.03 30 / 0.22));
+}
+.sello-postal-in {
+  width: 62px; height: 74px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+  background-color: var(--raised);
+  box-shadow: inset 0 0 0 6px var(--raised), inset 0 0 0 7px var(--line);
+  -webkit-mask: linear-gradient(#000 0 0) center / calc(100% - 8px) calc(100% - 8px) no-repeat,
+    radial-gradient(circle, transparent 2.4px, #000 2.9px) -4px -4px / 8px 8px round;
+  mask: linear-gradient(#000 0 0) center / calc(100% - 8px) calc(100% - 8px) no-repeat,
+    radial-gradient(circle, transparent 2.4px, #000 2.9px) -4px -4px / 8px 8px round;
+}
+
+/* History: a thread of stamps from 1.0 to 3.0 */
+.historia-paso { position: relative; display: flex; flex-direction: column; gap: 4px; padding: 12px 0 12px 24px; }
+.historia-paso + .historia-paso { border-top: 1px solid var(--line); }
+.historia-paso::before {
+  content: ""; position: absolute; left: 4.25px; top: 0; bottom: 0; width: 1.5px; background-color: var(--line);
+}
+.historia-paso:first-child::before { top: 20px; }
+.historia-paso:last-child::before { bottom: calc(100% - 20px); }
+.historia-punto {
+  position: absolute; left: 0; top: 16px; width: 10px; height: 10px; border-radius: 50%;
+  background-color: var(--card); border: 1.5px solid var(--ink-2);
+}
+.historia-paso.ahora .historia-punto { background-color: var(--lacre); border-color: var(--lacre); box-shadow: 0 0 0 4px var(--lacre-soft); }
+
+/* Farewell letter: airmail edge on top and a wax seal at the foot */
+.carta-despedida { position: relative; overflow: hidden; }
+.carta-despedida::before {
+  content: ""; position: absolute; left: 0; right: 0; top: 0; height: 6px; opacity: 0.75;
+  background: repeating-linear-gradient(-45deg, var(--lacre) 0 10px, transparent 10px 20px, var(--sello-el-ink) 20px 30px, transparent 30px 40px);
+}
+.lacre-sello {
+  display: inline-flex; align-items: center; justify-content: center; width: 52px; height: 52px; flex: none;
+  border-radius: 47% 53% 50% 50% / 52% 48% 52% 48%;
+  color: var(--on-lacre);
+  background: radial-gradient(circle at 34% 30%, color-mix(in oklch, var(--lacre) 72%, white), var(--lacre) 58%, color-mix(in oklch, var(--lacre) 80%, black));
+  box-shadow: var(--sh-1), inset 0 0 0 3px color-mix(in oklch, var(--lacre) 85%, black);
+  transform: rotate(-8deg);
+  animation: lacre-in 520ms var(--ease-latido) 200ms backwards;
+}
+@keyframes lacre-in { 0% { opacity: 0; transform: scale(0.6) rotate(-20deg); } 60% { opacity: 1; transform: scale(1.08) rotate(-6deg); } 100% { opacity: 1; transform: rotate(-8deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .lacre-sello { animation: none !important; }
+}
