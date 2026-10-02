@@ -2,6 +2,7 @@ import React from 'react';
 import { render, act, screen, within, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 import Gallery from './Gallery';
+import { whenAuthed } from '../lib/firebase';
 import { listPhotosPage, listPendingPhotos, getPendingIds, retryPendingPhotos, getOriginal, getOriginalUrl, deletePhoto } from '../lib/photos';
 
 vi.mock('../lib/photos', () => ({
@@ -16,6 +17,8 @@ vi.mock('../lib/photos', () => ({
   deletePhoto: vi.fn(),
 }));
 
+vi.mock('../lib/firebase', () => ({ whenAuthed: vi.fn() }));
+
 const flush = async () => { for (let i = 0; i < 10; i++) await Promise.resolve(); };
 const items = (n) => Array.from({ length: n }, (_, i) => ({ id: `D${i}`, thumbUrl: '', createdAt: 100 - i }));
 
@@ -27,6 +30,7 @@ beforeEach(() => {
     onThumb = opts.onThumb;
     return { items: items(3), cursor: null, hasMore: false, thumbsDone: Promise.resolve() };
   });
+  whenAuthed.mockResolvedValue({ uid: 'u1' });
   listPendingPhotos.mockResolvedValue([]);
   getPendingIds.mockReturnValue([]);
   retryPendingPhotos.mockResolvedValue({ sent: 0, failed: 0, lost: 0, offline: false, queued: [] });
@@ -235,6 +239,28 @@ test('si Firestore se cuelga sin fallar, a los 20 s lo dice con Reintentar y su 
     expect(screen.getByText('timeout')).toBeTruthy();
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Reintentar' })); await flush(); });
     expect(cells()).toHaveLength(3);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test('el tope de 20 s cuenta desde que hay sesión, no antes', async () => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+  try {
+    let authed;
+    whenAuthed.mockImplementationOnce(() => new Promise((resolve) => { authed = resolve; }));
+    listPhotosPage.mockImplementationOnce(() => new Promise(() => {}));
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    await mount();
+    // Esperando la sesión (hasta 15 s) más de 20 s no es un timeout de Firestore
+    await act(async () => { vi.advanceTimersByTime(25000); await flush(); });
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(listPhotosPage).not.toHaveBeenCalled();
+    await act(async () => { authed({ uid: 'u1' }); await flush(); });
+    await act(async () => { vi.advanceTimersByTime(19000); await flush(); });
+    expect(screen.queryByRole('alert')).toBeNull();
+    await act(async () => { vi.advanceTimersByTime(1000); await flush(); });
+    expect(screen.getByText('timeout')).toBeTruthy();
   } finally {
     vi.useRealTimers();
   }

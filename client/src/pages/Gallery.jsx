@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router';
 import { listPhotosPage, listPendingPhotos, getPendingIds, retryPendingPhotos, confirmQueued, uploadPhoto, getOriginal, getOriginalUrl, deletePhoto } from '../lib/photos';
+import { whenAuthed } from '../lib/firebase';
 import { mergeUnique } from '../lib/pagination';
 import { MONTHS } from '../lib/eventText';
 import Modal from '../components/Modal';
@@ -118,6 +119,9 @@ export default function Gallery() {
       let timedOut = false;
       let timer;
       try {
+        // The cap is for Firestore, not for waiting on the session (whenAuthed has its own, up to 15 s)
+        await whenAuthed();
+        if (cancelled) return;
         const timeout = new Promise((_, reject) => {
           timer = setTimeout(() => { timedOut = true; reject(Object.assign(new Error('timeout'), { code: 'timeout' })); }, LOAD_TIMEOUT_MS);
         });
