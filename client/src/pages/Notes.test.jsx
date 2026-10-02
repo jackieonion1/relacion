@@ -29,8 +29,8 @@ async function open(text) {
   await act(async () => { fireEvent.click(screen.getByText(text)); });
 }
 
-const backdrop = () => document.querySelector('.animate-slide-up-fast').parentElement;
-const button = (name) => screen.getAllByRole('button', { name }).find((b) => b.closest('.animate-slide-up-fast'));
+const backdrop = () => screen.getByTestId('sheet-scrim');
+const button = (name) => screen.getAllByRole('button', { name }).find((b) => b.closest('[role="dialog"]'));
 
 describe('las salidas que marcan leído', () => {
   test('hilo: Cerrar', async () => {

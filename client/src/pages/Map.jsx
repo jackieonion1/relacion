@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import HeartRainAnimation from '../components/HeartRainAnimation';
 import SimpleMap from '../components/SimpleMap';
 import Modal from '../components/Modal';
+import Icon from '../components/Icon';
 import { getMapState, setMapState, subscribeToMapState } from '../lib/mapState';
 
 // ViewSwitcher component for map states
@@ -200,7 +201,7 @@ export default function MapPage() {
       {saveError && (
         <div className="card flex items-center justify-between gap-3 text-sm text-rose-600">
           <span>{saveError}</span>
-          <button type="button" onClick={() => setSaveError('')} className="btn-link" aria-label="Cerrar aviso">×</button>
+          <button type="button" onClick={() => setSaveError('')} className="btn-link" aria-label="Cerrar aviso"><Icon name="cerrar" size={18} /></button>
         </div>
       )}
       <div className="card">

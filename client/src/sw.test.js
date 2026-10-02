@@ -5,7 +5,7 @@ import path from 'path';
 
 const ORIGIN = 'https://relacion.test';
 const read = (name) => fs.readFileSync(path.join(__dirname, '..', 'public', name), 'utf8');
-const HELPERS = ['isGoodAsset', 'isGoodShell', 'shellAssets', 'hasEntryAssets', 'runtimeEvictions', 'isStaticAsset'];
+const HELPERS = ['isGoodAsset', 'isGoodShell', 'shellAssets', 'hasEntryAssets', 'runtimeEvictions', 'cacheEvictions', 'isStaticAsset'];
 
 class FakeResponse {
   constructor(body, { status = 200, type = 'basic', redirected = false, contentType = '' } = {}) {
@@ -43,6 +43,7 @@ function fakeCaches() {
 const JS = { contentType: 'text/javascript; charset=utf-8' };
 const CSS = { contentType: 'text/css; charset=utf-8' };
 const HTML = { contentType: 'text/html; charset=utf-8' };
+const WOFF2 = { contentType: 'font/woff2' };
 const indexHtml = (hash) => `<!doctype html><html><head><script defer="defer" src="/static/js/main.${hash}.js"></script><link href="/static/css/main.${hash}.css" rel="stylesheet"></head><body><div id="root"></div></body></html>`;
 // Como Firebase Hosting: un fichero que no existe responde 200 con el index (rewrite **)
 function hosting(hash, files = {}) {
@@ -103,10 +104,10 @@ async function dispatch(sw, type, init = {}) {
 }
 const nav = (p) => ({ request: new FakeRequest(p, { mode: 'navigate', destination: 'document' }) });
 const get = (p, destination) => ({ request: new FakeRequest(p, { destination }) });
-const shellOf = async (sw) => (await sw.caches.open('app-shell-v2')).match('/index.html');
-const runtimePaths = async (sw) => (await (await sw.caches.open('runtime-v2')).keys()).map((r) => keyOf(r.url));
+const shellOf = async (sw) => (await sw.caches.open('app-shell-v3')).match('/index.html');
+const runtimePaths = async (sw) => (await (await sw.caches.open('runtime-v3')).keys()).map((r) => keyOf(r.url));
 
-describe('sw.js v2: qué se guarda', () => {
+describe('sw.js v3: qué se guarda', () => {
   const { api } = load('sw.js');
 
   test('solo un 200 completo del tipo que toca; nunca el HTML del rewrite como JS', () => {
@@ -121,12 +122,33 @@ describe('sw.js v2: qué se guarda', () => {
     expect(api.isGoodAsset('/static/css/main.aaa.css', new FakeResponse('css', CSS))).toBe(true);
   });
 
-  test('solo intercepta /static/js/*.js y /static/css/*.css', () => {
+  test('una fuente solo se guarda como font/woff2 completa; el HTML del rewrite no vale', () => {
+    const p = '/static/media/newsreader-latin-opsz-normal.2cfa2cdf.woff2';
+    expect(api.isGoodAsset(p, new FakeResponse('font', WOFF2))).toBe(true);
+    expect(api.isGoodAsset(p, new FakeResponse('font', { contentType: 'application/font-woff2' }))).toBe(true);
+    expect(api.isGoodAsset(p, new FakeResponse('<html>', HTML))).toBe(false);
+    expect(api.isGoodAsset(p, new FakeResponse('font', { contentType: 'application/octet-stream' }))).toBe(false);
+    expect(api.isGoodAsset(p, new FakeResponse('font', { ...WOFF2, status: 206 }))).toBe(false);
+    expect(api.isGoodAsset(p, new FakeResponse('', { ...WOFF2, status: 0, type: 'opaque' }))).toBe(false);
+    expect(api.isGoodAsset('/static/js/main.aaa.js', new FakeResponse('font', WOFF2))).toBe(false);
+  });
+
+  test('solo intercepta /static/js/*.js, /static/css/*.css y /static/media/*.woff2', () => {
     expect(api.isStaticAsset('/static/js/626.abc.chunk.js')).toBe(true);
     expect(api.isStaticAsset('/static/css/main.abc.css')).toBe(true);
+    expect(api.isStaticAsset('/static/media/instrument-sans-latin-wght-normal.5bcc52d9.woff2')).toBe(true);
     expect(api.isStaticAsset('/static/js/main.abc.js.map')).toBe(false);
     expect(api.isStaticAsset('/static/media/foto.jpg')).toBe(false);
+    expect(api.isStaticAsset('/static/media/fuente.woff')).toBe(false);
+    expect(api.isStaticAsset('/static/media/sub/fuente.woff2')).toBe(false);
+    expect(api.isStaticAsset('/static/js/fuente.woff2')).toBe(false);
     expect(api.isStaticAsset('/manifest.json')).toBe(false);
+  });
+
+  test('las fuentes no entran en los ficheros de arranque ni en hasEntryAssets', () => {
+    const html = `${indexHtml('d47ba32c')}<style>@font-face{src:url(/static/media/a.1.woff2)}</style>`;
+    expect(api.shellAssets(html)).toEqual(['/static/js/main.d47ba32c.js', '/static/css/main.d47ba32c.css']);
+    expect(api.hasEntryAssets(['/static/media/a.1.woff2'])).toBe(false);
   });
 
   test('saca del index los ficheros de arranque y exige main.js y main.css', () => {
@@ -148,10 +170,23 @@ describe('sw.js v2: qué se guarda', () => {
     expect(api.runtimeEvictions(paths, ['/a.js'], 6)).toEqual(['/b.js', '/c.js']);
     expect(api.runtimeEvictions(paths.slice(0, 6), [], 6)).toEqual([]);
   });
+
+  test('js/css y fuentes se recortan por separado: las fuentes viejas no sacan al JS ni al revés', () => {
+    const fonts = Array.from({ length: 4 }, (_, i) => `/static/media/f${i}.woff2`);
+    const code = ['/static/js/a.js', '/static/js/b.js', '/static/js/c.js', '/static/js/d.js'];
+    // 8 ficheros, pero ninguno de los dos grupos pasa de 6: no se borra nada
+    expect(api.cacheEvictions([...fonts, ...code], [])).toEqual([]);
+    // fuentes guardadas antes que el JS: con un solo tope serían las primeras en salir
+    const more = Array.from({ length: 8 }, (_, i) => `/static/media/g${i}.woff2`);
+    expect(api.cacheEvictions([...more, ...code], [])).toEqual(['/static/media/g0.woff2', '/static/media/g1.woff2']);
+    // y el JS de más no toca las fuentes, ni a las del shell
+    const js = Array.from({ length: 8 }, (_, i) => `/static/js/${i}.js`);
+    expect(api.cacheEvictions([...fonts, ...js], ['/static/js/0.js'])).toEqual(['/static/js/1.js', '/static/js/2.js']);
+  });
 });
 
-describe('sw.js v2: install y activate', () => {
-  test('install guarda el shell y sus dos ficheros, sin skipWaiting', async () => {
+describe('sw.js v3: install y activate', () => {
+  test('install guarda el shell y sus dos ficheros, sin skipWaiting ni fuentes', async () => {
     const sw = load('sw.js');
     await dispatch(sw, 'install');
     expect((await shellOf(sw)).body).toBe(indexHtml('aaa'));
@@ -183,16 +218,27 @@ describe('sw.js v2: install y activate', () => {
     expect(sw.self.skipWaiting).toHaveBeenCalledTimes(1);
   });
 
-  test('activate borra las cachés del v1 y conserva las suyas', async () => {
+  test('activate borra las cachés del v1 y del v2 y conserva las suyas', async () => {
     const sw = load('sw.js');
-    for (const n of ['app-shell-v1', 'runtime-v1', 'app-shell-v2', 'runtime-v2']) await sw.caches.open(n);
+    for (const n of ['app-shell-v1', 'runtime-v1', 'app-shell-v2', 'runtime-v2', 'app-shell-v3', 'runtime-v3']) await sw.caches.open(n);
     await dispatch(sw, 'activate');
-    expect(await sw.caches.keys()).toEqual(['app-shell-v2', 'runtime-v2']);
+    expect(await sw.caches.keys()).toEqual(['app-shell-v3', 'runtime-v3']);
     expect(sw.self.clients.claim).toHaveBeenCalled();
+  });
+
+  test('migración v2 → v3: el shell del v2 se purga y la navegación sin red sigue sirviendo el del v3', async () => {
+    const sw = load('sw.js');
+    await (await sw.caches.open('app-shell-v2')).put('/index.html', new FakeResponse(indexHtml('old'), HTML));
+    await (await sw.caches.open('runtime-v2')).put('/static/js/main.old.js', new FakeResponse('js', JS));
+    await dispatch(sw, 'install');
+    await dispatch(sw, 'activate');
+    expect((await sw.caches.keys()).sort()).toEqual(['app-shell-v3', 'runtime-v3']);
+    sw.setOnline(false);
+    expect((await dispatch(sw, 'fetch', nav('/notes'))).response.body).toBe(indexHtml('aaa'));
   });
 });
 
-describe('sw.js v2: fetch', () => {
+describe('sw.js v3: fetch', () => {
   async function installed() {
     const sw = load('sw.js');
     await dispatch(sw, 'install');
@@ -219,6 +265,37 @@ describe('sw.js v2: fetch', () => {
     sw.setServer(hosting('aaa', { '/static/js/626.nuevo.chunk.js': ['chunk', JS] }));
     await dispatch(sw, 'fetch', get('/static/js/626.nuevo.chunk.js', 'script'));
     expect(await runtimePaths(sw)).toContain('/static/js/626.nuevo.chunk.js');
+  });
+
+  test('una fuente: la primera vez va a la red y se guarda; después sale de la caché, también sin red', async () => {
+    const sw = await installed();
+    const font = '/static/media/newsreader-latin-opsz-normal.2cfa2cdf.woff2';
+    sw.setServer(hosting('aaa', { [font]: ['font', WOFF2] }));
+    await dispatch(sw, 'fetch', get(font, 'font'));
+    expect(await runtimePaths(sw)).toContain(font);
+    sw.setOnline(false);
+    const { response } = await dispatch(sw, 'fetch', get(font, 'font'));
+    expect(response.body).toBe('font');
+  });
+
+  test('una fuente que no existe llega como el HTML del rewrite: no se guarda', async () => {
+    const sw = await installed();
+    const font = '/static/media/vieja.00000000.woff2';
+    const { response } = await dispatch(sw, 'fetch', get(font, 'font'));
+    expect(response.headers.get('content-type')).toMatch(/html/);
+    expect(await runtimePaths(sw)).not.toContain(font);
+  });
+
+  test('guardar fuentes no expulsa el JS y el CSS del shell, por muchas que sean', async () => {
+    const sw = await installed();
+    const files = {};
+    const fonts = Array.from({ length: 9 }, (_, i) => `/static/media/f${i}.0000000${i}.woff2`);
+    for (const f of fonts) files[f] = ['font', WOFF2];
+    sw.setServer(hosting('aaa', files));
+    for (const f of fonts) await dispatch(sw, 'fetch', get(f, 'font'));
+    const paths = await runtimePaths(sw);
+    expect(paths).toEqual(expect.arrayContaining(['/static/js/main.aaa.js', '/static/css/main.aaa.css']));
+    expect(paths.filter((p) => p.endsWith('.woff2'))).toEqual(fonts.slice(-6));
   });
 
   test('navegación con red: si los ficheros del index nuevo no se pueden guardar, se queda el shell anterior', async () => {
@@ -287,22 +364,22 @@ describe('sw-neutral.js (marcha atrás nivel 1)', () => {
     expect(sw.handlers.fetch).toBeUndefined();
     await dispatch(sw, 'install');
     expect(sw.self.skipWaiting).toHaveBeenCalled();
-    for (const n of ['app-shell-v2', 'runtime-v2', 'app-shell-v1']) await sw.caches.open(n);
+    for (const n of ['app-shell-v3', 'runtime-v3', 'app-shell-v2', 'runtime-v2', 'app-shell-v1']) await sw.caches.open(n);
     await dispatch(sw, 'activate');
     expect(await sw.caches.keys()).toEqual([]);
     expect(sw.self.registration.unregister).not.toHaveBeenCalled();
     expect(read('sw-neutral.js')).not.toMatch(/unregister\(|importScripts/);
   });
 
-  test('push, notificationclick, subscribe y pushsubscriptionchange idénticos en v2 y neutro', () => {
-    const v2 = load('sw.js').handlers;
+  test('push, notificationclick, subscribe y pushsubscriptionchange idénticos en v3 y neutro', () => {
+    const v3 = load('sw.js').handlers;
     const neutral = load('sw-neutral.js').handlers;
     for (const t of ['push', 'notificationclick', 'pushsubscriptionchange']) {
-      expect(neutral[t].map(String)).toEqual(v2[t].map(String));
+      expect(neutral[t].map(String)).toEqual(v3[t].map(String));
     }
     const subscribe = (hs) => hs.message.map(String).filter((s) => s.includes("'subscribe'"));
     expect(subscribe(neutral)).toHaveLength(1);
-    expect(subscribe(neutral)).toEqual(subscribe(v2));
+    expect(subscribe(neutral)).toEqual(subscribe(v3));
   });
 
   test('una notificación se sigue mostrando con el neutro', async () => {
@@ -341,6 +418,19 @@ describe.skipIf(!hasBuild)('la build real (client/build)', () => {
     const { entrypoints } = JSON.parse(fromBuild('asset-manifest.json'));
     const entry = api.shellAssets(html).filter((u) => /\/main\.[^/]+\.(js|css)$/.test(u)).map((u) => u.slice(1));
     expect([...entrypoints].sort()).toEqual(entry.sort());
+  });
+
+  test('las fuentes del CSS existen en /static/media, solo son las tres latinas y sw.js las intercepta', () => {
+    const { files } = JSON.parse(fromBuild('asset-manifest.json'));
+    const css = fromBuild(files['main.css'].slice(1));
+    const used = [...css.matchAll(/url\(["']?([^)"']+\.woff2)["']?\)/g)].map((m) => m[1]);
+    expect(used).toHaveLength(3);
+    for (const u of used) {
+      expect(builtFiles).toContain(u);
+      expect(api.isStaticAsset(u)).toBe(true);
+    }
+    expect(builtFiles.filter((f) => f.endsWith('.woff2')).sort()).toEqual([...used].sort());
+    expect(used.every((u) => /-latin-(opsz|wght)-/.test(u))).toBe(true);
   });
 
   test('sw.js y sw-neutral.js salen tal cual; ni %PUBLIC_URL% ni process.env en lo que carga el navegador', () => {

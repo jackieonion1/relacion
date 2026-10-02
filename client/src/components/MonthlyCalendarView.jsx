@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
+import Icon from './Icon';
 import { birthdayOn, isMonthiversaryDay } from '../lib/specialDays';
 
 const monthNames = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
@@ -193,9 +194,9 @@ export default function MonthlyCalendarView({ events = [], onDayClick, targetDat
   return (
     <div className="card">
       <div className="flex items-center justify-between mb-4">
-        <button onClick={handlePrevMonth} className="btn-ghost p-2 rounded-full w-10 h-10 flex items-center justify-center text-xl">‹</button>
+        <button onClick={handlePrevMonth} aria-label="Mes anterior" className="btn-ghost p-2 rounded-full w-10 h-10 flex items-center justify-center"><Icon name="atras" size={20} /></button>
         <h3 className="font-semibold text-lg text-center">{monthNames[month]} {year}</h3>
-        <button onClick={handleNextMonth} className="btn-ghost p-2 rounded-full w-10 h-10 flex items-center justify-center text-xl">›</button>
+        <button onClick={handleNextMonth} aria-label="Mes siguiente" className="btn-ghost p-2 rounded-full w-10 h-10 flex items-center justify-center"><Icon name="siguiente" size={20} /></button>
       </div>
       <div className="grid grid-cols-7 gap-2 text-center text-sm font-medium text-gray-500 mb-2">
         {dayNames.slice(1).map(day => <div key={day}>{day}</div>)}

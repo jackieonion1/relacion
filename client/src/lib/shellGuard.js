@@ -1,27 +1,29 @@
 // Guarda del shell offline. public/sw.js responde a la página con el HTML de red ANTES de guardarlo en
-// app-shell-v2 y, si guardarlo falla (o el sistema mata el SW), el shell cacheado sigue siendo el de la
+// app-shell-v3 y, si guardarlo falla (o el sistema mata el SW), el shell cacheado sigue siendo el de la
 // build anterior. Con Firebase 12 sobre una IndexedDB ya migrada eso es una bajada a la 10, que no puede
 // abrirla: el siguiente arranque sin red sale sin persistencia. Aquí la página repone ella el shell si no
 // apunta a los ficheros que está ejecutando. Nunca recarga, nunca borra cachés y nunca lanza.
 // Los nombres y el tope de runtime son los de sw.js (src/lib/shellGuard.test.js comprueba que coinciden)
 import { loadedEntrypoints } from './appUpdate';
 
-export const APP_SHELL_CACHE = 'app-shell-v2';
-export const RUNTIME_CACHE = 'runtime-v2';
+export const APP_SHELL_CACHE = 'app-shell-v3';
+export const RUNTIME_CACHE = 'runtime-v3';
 export const MAX_RUNTIME = 6;
+export const MAX_FONTS = 6;
 
 // --- Los mismos criterios que sw.js para decidir qué merece guardarse ---
 
 const contentType = (resp) => (resp.headers.get('content-type') || '').toLowerCase();
 const isHtml = (resp) => contentType(resp).includes('text/html');
 
-export const isStaticAsset = (pathname) => /^\/static\/(js\/[^/]+\.js|css\/[^/]+\.css)$/.test(pathname);
+export const isStaticAsset = (pathname) => /^\/static\/(js\/[^/]+\.js|css\/[^/]+\.css|media\/[^/]+\.woff2)$/.test(pathname);
 
 export function isGoodAsset(pathname, resp) {
   if (!resp || resp.status !== 200 || resp.type === 'opaque' || resp.redirected || isHtml(resp)) return false;
   const type = contentType(resp);
   if (pathname.endsWith('.js')) return type.includes('javascript');
   if (pathname.endsWith('.css')) return type.includes('text/css');
+  if (pathname.endsWith('.woff2')) return type.includes('font/woff2') || type.includes('application/font-woff2');
   return false;
 }
 
@@ -42,6 +44,15 @@ export function runtimeEvictions(paths, keep, max = MAX_RUNTIME) {
   const extra = paths.length - max;
   if (extra <= 0) return [];
   return paths.filter((p) => !keepSet.has(p)).slice(0, extra);
+}
+
+// js/css y fuentes se recortan por separado, como en sw.js
+export function cacheEvictions(paths, keep) {
+  const isFont = (p) => p.endsWith('.woff2');
+  return [
+    ...runtimeEvictions(paths.filter((p) => !isFont(p)), keep),
+    ...runtimeEvictions(paths.filter(isFont), [], MAX_FONTS),
+  ];
 }
 
 // Un shell sirve si referencia todos los ficheros de arranque de esta página (main.js y main.css)
@@ -81,7 +92,7 @@ export async function ensureShell(doc = document) {
     }));
     await shellCache.put('/index.html', resp);
     const paths = (await runtime.keys()).map((r) => new URL(r.url).pathname);
-    await Promise.all(runtimeEvictions(paths, urls).map((p) => runtime.delete(p)));
+    await Promise.all(cacheEvictions(paths, urls).map((p) => runtime.delete(p)));
     return 'repaired';
   } catch (err) {
     console.warn('Shell guard failed:', err);

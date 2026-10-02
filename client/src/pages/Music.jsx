@@ -4,6 +4,7 @@ import { createPortal } from 'react-dom';
 import Modal from '../components/Modal';
 import { listMusic, uploadMusic, deleteMusic, renameMusic, getOriginal, getSubtitles, uploadSubtitles } from '../lib/music';
 import TrashIcon from '../components/icons/TrashIcon';
+import Icon from '../components/Icon';
 import { fmtDuration, getTokensForCue, parseSubtitles } from '../lib/lyrics';
 
 export default function Music() {
@@ -698,7 +699,7 @@ export default function Music() {
             title="Actualizar"
             className="p-2 rounded-lg hover:bg-rose-50 text-rose-600"
           >
-            <span className="text-xl leading-none">↻</span>
+            <Icon name="recargar" size={22} />
           </button>
         </div>
       )}

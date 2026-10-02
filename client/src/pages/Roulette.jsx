@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import RouletteIcon from '../components/icons/RouletteIcon';
 import HeartRainAnimation from '../components/HeartRainAnimation';
 import TrashIcon from '../components/icons/TrashIcon';
+import Icon from '../components/Icon';
 
 const MAX_OPTIONS = 15;
 // 15 distinct hues with similar saturation/lightness, semi-transparent for soft look
@@ -332,7 +333,7 @@ export default function Roulette() {
                     className="ml-1 w-5 h-5 inline-flex items-center justify-center rounded-full text-rose-700 hover:bg-rose-100/80"
                     title="Eliminar"
                   >
-                    ×
+                    <Icon name="cerrar" size={14} />
                   </button>
                 </div>
               ))}
