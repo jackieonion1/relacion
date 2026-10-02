@@ -213,7 +213,14 @@ await expectDeny('miembro reescribe el contenido sellado', 'PATCH', `/pairs/${PA
 await expectCommit('deny', 'sobre con openAt pasado', ME, crear(PAIR, 'c2', PASADO));
 await expectCommit('deny', 'contenido con otro openAt que su sobre', ME, crear(PAIR, 'c3', FUTURO, FUTURO + 86400e3));
 await expectDeny('contenido sin sobre', 'PATCH', `/pairs/${PAIR}/capsuleSecrets/c4`, { uid: ME, body: { fields: secreto(FUTURO) } });
-await expectDeny('sobre con campos de más (el texto en el sobre)', 'PATCH', `/pairs/${PAIR}/capsules/c5`, { uid: ME, body: { fields: sobre(FUTURO, { text: { stringValue: 'x' } }) } });
+const conSobre = (id, extra) => { const w = crear(PAIR, id, FUTURO); w[0].update.fields = sobre(FUTURO, extra); return w; };
+await expectCommit('deny', 'sobre con campos de más (el texto en el sobre)', ME, conSobre('c5', { text: { stringValue: 'x' } }));
+await expectDeny('sobre sin su contenido', 'PATCH', `/pairs/${PAIR}/capsules/c5`, { uid: ME, body: { fields: sobre(FUTURO) } });
+// title: el cliente corta a 60 (unidades UTF-16); las reglas, a 120 caracteres
+await expectCommit('allow', 'sobre con un title de 60 «€» (180 bytes)', ME, conSobre('c10', { title: { stringValue: '€'.repeat(60) } }));
+await expectCommit('deny', 'sobre con un title de 121', ME, conSobre('c11', { title: { stringValue: 'a'.repeat(121) } }));
+await expectCommit('deny', 'sobre para alguien que no es yo, ella ni ambos', ME, conSobre('c12', { forIdentity: { stringValue: 'otro' } }));
+await expectCommit('deny', 'sobre que nace ya abierto', ME, conSobre('c13', { openedFor: { arrayValue: { values: [{ stringValue: 'yo' }] } } }));
 // Llegado openAt (sembrada por Admin con fecha pasada): se lee con get, pero sigue sin list
 await db.doc(`pairs/${PAIR}/capsules/c9`).set({ openAt: Timestamp.fromMillis(PASADO), fromIdentity: 'yo', forIdentity: 'ambos', kind: 'foto', openedFor: [] });
 await db.doc(`pairs/${PAIR}/capsuleSecrets/c9`).set({ openAt: Timestamp.fromMillis(PASADO), text: 'ya', mediaPath: `pairs/${PAIR}/capsules/c9/img.jpg` });

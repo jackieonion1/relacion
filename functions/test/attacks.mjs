@@ -254,6 +254,26 @@ await getAuth().importUsers([
   check(await commit('stranger', crear(Q, 'j1', Date.now() + 2000, 'x', FUTURO)) === 200, 'J abierta: el extraño los recrea con openAt +2 s');
   await sleep(3000);
   check((await media(foto(Q, 'j1', FUTURO), 'stranger')).status === 403, 'J abierta: el extraño no lee la foto sellada');
+
+  // El sobre no se ensucia: openedFor solo crece con una identidad, sin campos enormes ni inventados, y nunca sin
+  // su contenido (un sobre huérfano avisaría por la mañana y diría «Todavía no» para siempre)
+  const openedFor = (...ids) => ({ fields: { openedFor: { arrayValue: ids.length ? { values: ids.map((s) => ({ stringValue: s })) } : {} } } });
+  const marcar = (body) => req('PATCH', `/pairs/${P}/capsules/j2?updateMask.fieldPaths=openedFor`, 'yo-C', body);
+  check(await commit('yo-D', crear(P, 'j2', FUTURO, 'carta')) === 200, 'J se crea otra cápsula');
+  check(await marcar(openedFor('ella')) === 200, 'J openedFor admite una identidad');
+  check(await marcar(openedFor('ella', 'yo')) === 200, 'J openedFor admite la otra después');
+  check(await marcar(openedFor('ella')) === 403, 'J openedFor no se vacía (volvería a «Hoy se abre»)');
+  check(await marcar(openedFor('ella', 'yo', 'x'.repeat(500))) === 403, 'J openedFor no admite basura');
+  const P3 = 'j3';
+  await db.doc(`pairs/${P}/capsules/${P3}`).set({ openAt: new Date(FUTURO), fromIdentity: 'yo', forIdentity: 'ella', kind: 'texto', openedFor: [] });
+  check(await req('PATCH', `/pairs/${P}/capsules/${P3}?updateMask.fieldPaths=openedFor`, 'yo-C', openedFor('yo', 'ella')) === 403, 'J openedFor no gana dos identidades de golpe');
+  const grande = crear(P, 'j4', FUTURO, 'carta');
+  grande[0].update.fields.title = { stringValue: 'a'.repeat(900000) };
+  check(await commit('yo-C', grande) === 403, 'J sobre con un title de 900 KB');
+  const inventado = crear(P, 'j5', FUTURO, 'carta');
+  inventado[0].update.fields.forIdentity = { stringValue: '<img src=x onerror=alert(1)>' };
+  check(await commit('yo-C', inventado) === 403, 'J sobre con forIdentity inventado');
+  check(await commit('yo-C', [crear(P, 'j6', FUTURO, 'carta')[0]]) === 403, 'J sobre sin contenido');
 }
 
 if (failures.length) { console.error(`ataques FALLÓ: ${failures.length} check(s) en rojo`); process.exit(1); }
