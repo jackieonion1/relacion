@@ -1,6 +1,6 @@
 // Test de las reglas REALES de Firestore y Storage (cableadas en firebase.test.json) y de las callables de
 // membresía. Falla con exit 1.
-//   firebase emulators:exec --config firebase.test.json --only functions,firestore,storage --project demo-relacion "node functions/test/rules.mjs"
+//   firebase emulators:exec --config firebase.test.json --only auth,functions,firestore,storage --project demo-relacion "node functions/test/rules.mjs"
 // Peticiones REST con un JWT sin firmar (el emulador no verifica la firma, como en smoke.mjs). Permitido = 200 o
 // 404 (la regla dejó pasar; el doc no existe); denegado = 403. La siembra va por Admin SDK, que se salta las reglas.
 import fs from 'node:fs';
@@ -9,6 +9,7 @@ import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { initializeApp } from 'firebase-admin/app';
 import { getFirestore, Timestamp } from 'firebase-admin/firestore';
+import { getAuth } from 'firebase-admin/auth';
 
 const host = process.env.FIRESTORE_EMULATOR_HOST;
 if (!host) throw new Error('FIRESTORE_EMULATOR_HOST no definido: ejecuta con emulators:exec');
@@ -97,17 +98,26 @@ await db.doc(`pairs/${OTHER}/notes/d1`).set({ x: 1 });
 await db.doc(`pairs/${OTHER}`).set({ locked: true });
 
 const write = { fields: { x: { integerValue: '2' } } };
+// pushSubs se escribe con el uid de quien escribe, como hace el cliente desde la 1.6
+const writeAs = (c, uid) => (c === 'pushSubs' ? { fields: { ...write.fields, uid: { stringValue: uid } } } : write);
 
 // --- Pareja abierta (sin pairs/{p} o sin locked): todo como hasta la 3.0, también para clientes 2.5.1 y 3.0 ---
 for (const c of COLLECTIONS) {
   await expectAllow(`abierta, no miembro list ${c}`, 'GET', `/pairs/${PAIR}/${c}`, { uid: STRANGER });
   await expectAllow(`abierta, no miembro get ${c}/d1`, 'GET', `/pairs/${PAIR}/${c}/d1`, { uid: STRANGER });
-  await expectAllow(`abierta, no miembro write ${c}/d2`, 'PATCH', `/pairs/${PAIR}/${c}/d2`, { uid: STRANGER, body: write });
+  await expectAllow(`abierta, no miembro write ${c}/d2`, 'PATCH', `/pairs/${PAIR}/${c}/d2`, { uid: STRANGER, body: writeAs(c, STRANGER) });
   await expectAllow(`abierta, no miembro delete ${c}/d2`, 'DELETE', `/pairs/${PAIR}/${c}/d2`, { uid: STRANGER });
 }
 // Pareja nueva (código recién escrito en el onboarding o llegado por ?pair=): aún sin documentos
 await expectAllow('list notes de una pareja nueva', 'GET', '/pairs/NUEVA42/notes', { uid: ME });
-await expectAllow('alta de pushSubs en una pareja nueva', 'PATCH', '/pairs/NUEVA42/pushSubs/ella-abc', { uid: 'uid-otro', body: write });
+await expectAllow('alta de pushSubs en una pareja nueva', 'PATCH', '/pairs/NUEVA42/pushSubs/ella-abc', { uid: 'uid-otro', body: writeAs('pushSubs', 'uid-otro') });
+// pushSubs: solo con el uid propio, abierta o cerrada; un doc viejo sin uid se puede reescribir con el propio
+await expectDeny('abierta, pushSubs con el uid de otro', 'PATCH', `/pairs/${PAIR}/pushSubs/d3`, { uid: STRANGER, body: writeAs('pushSubs', ME) });
+await expectDeny('abierta, pushSubs sin uid', 'PATCH', `/pairs/${PAIR}/pushSubs/d3`, { uid: STRANGER, body: write });
+await expectDeny('abierta, pushSubs: tocar un doc sin dejar el uid propio', 'PATCH', `/pairs/${PAIR}/pushSubs/d1?updateMask.fieldPaths=x`, { uid: STRANGER, body: write });
+await db.doc(`pairs/${PAIR}/pushSubs/viejo`).set({ endpoint: 'https://example.invalid/viejo' });
+await expectAllow('abierta, un doc viejo sin uid se reescribe con el propio (merge)', 'PATCH', `/pairs/${PAIR}/pushSubs/viejo?updateMask.fieldPaths=uid`, { uid: STRANGER, body: { fields: { uid: { stringValue: STRANGER } } } });
+await db.doc(`pairs/${PAIR}/pushSubs/viejo`).delete();
 // pairs/{p} existe pero sin locked (o locked: false): sigue abierta
 await db.doc('pairs/ABIERTA1').set({ locked: false });
 await expectAllow('locked: false sigue abierta', 'GET', '/pairs/ABIERTA1/notes', { uid: STRANGER });
@@ -127,7 +137,7 @@ await db.doc(`pairs/${PAIR}`).set({ locked: true });
 for (const c of COLLECTIONS) {
   await expectAllow(`miembro list ${c}`, 'GET', `/pairs/${PAIR}/${c}`, { uid: ME });
   await expectAllow(`miembro get ${c}/d1`, 'GET', `/pairs/${PAIR}/${c}/d1`, { uid: ME });
-  await expectAllow(`miembro write ${c}/d2`, 'PATCH', `/pairs/${PAIR}/${c}/d2`, { uid: ME, body: write });
+  await expectAllow(`miembro write ${c}/d2`, 'PATCH', `/pairs/${PAIR}/${c}/d2`, { uid: ME, body: writeAs(c, ME) });
   await expectAllow(`miembro delete ${c}/d2`, 'DELETE', `/pairs/${PAIR}/${c}/d2`, { uid: ME });
 }
 await expectAllow('miembro lee la lista de miembros', 'GET', `/pairs/${PAIR}/members`, { uid: ME });
@@ -137,8 +147,9 @@ await expectAllow(`miembro lee /pairs/${PAIR} (locked)`, 'GET', `/pairs/${PAIR}`
 for (const c of COLLECTIONS) {
   await expectDeny(`no miembro list ${c}`, 'GET', `/pairs/${PAIR}/${c}`, { uid: STRANGER });
   await expectDeny(`no miembro get ${c}/d1`, 'GET', `/pairs/${PAIR}/${c}/d1`, { uid: STRANGER });
-  await expectDeny(`no miembro write ${c}/d2`, 'PATCH', `/pairs/${PAIR}/${c}/d2`, { uid: STRANGER, body: write });
+  await expectDeny(`no miembro write ${c}/d2`, 'PATCH', `/pairs/${PAIR}/${c}/d2`, { uid: STRANGER, body: writeAs(c, STRANGER) });
 }
+await expectDeny('cerrada, miembro escribe pushSubs con el uid de otro', 'PATCH', `/pairs/${PAIR}/pushSubs/d3`, { uid: ME, body: writeAs('pushSubs', STRANGER) });
 await expectDeny('no miembro lee la lista de miembros', 'GET', `/pairs/${PAIR}/members`, { uid: STRANGER });
 await expectDeny(`no miembro lee /pairs/${PAIR}`, 'GET', `/pairs/${PAIR}`, { uid: STRANGER });
 
@@ -176,22 +187,59 @@ await expectStorage('deny', 'sin auth lee una foto', 'GET', `pairs/${PAIR}/photo
 
 // --- Callables de membresía (pareja de prueba propia, para no mezclar con lo de arriba) ---
 const J = 'JOIN2024';
-const A = 'uid-a'; const B = 'uid-b'; const C = 'uid-c'; const D = 'uid-d';
+const A = 'uid-a'; const B = 'uid-b'; const C = 'uid-c'; const D = 'uid-d'; const N = 'uid-nuevo-con-codigo';
+// Cuentas anónimas en el emulador de Auth con su fecha de alta: A y B son de antes del corte (TRUSTED_BEFORE en
+// index.js), como los móviles de la pareja; las demás, de después. uid-sin-cuenta no existe en Auth
+await getAuth().importUsers([
+  ...[A, B].map((uid) => ({ uid, metadata: { creationTime: '2025-01-01T00:00:00Z', lastSignInTime: '2025-01-01T00:00:00Z' } })),
+  ...[C, D, N].map((uid) => ({ uid, metadata: { creationTime: '2026-11-01T00:00:00Z', lastSignInTime: '2026-11-01T00:00:00Z' } })),
+]);
 await expectCall('joinPair sin sesión', 'joinPair', { pairId: J }, null, 'UNAUTHENTICATED');
 await expectCall('joinPair con un código mal formado', 'joinPair', { pairId: 'a/b' }, A, 'INVALID_ARGUMENT');
 // Abierta: basta con el código, como antes (así los móviles de hoy entran solos al abrir la 3.1)
 await expectCall('joinPair en una pareja abierta', 'joinPair', { pairId: J, label: 'iPhone' }, A);
-check((await db.doc(`pairs/${J}/members/${A}`).get()).get('label') === 'iPhone', 'joinPair guarda el member con su label');
+// La etiqueta la pone el servidor: el label del cliente no cuenta, y sin user agent conocido se numera
+check((await db.doc(`pairs/${J}/members/${A}`).get()).get('label') === 'Dispositivo 1', 'joinPair ignora el label del cliente y numera un user agent desconocido');
 await expectAllow('tras joinPair, el nuevo miembro lee', 'GET', `/pairs/${J}/notes`, { uid: A });
 await expectCall('joinPair es idempotente', 'joinPair', { pairId: J }, A);
 await expectCall('joinPair acepta minúsculas', 'joinPair', { pairId: J.toLowerCase() }, B);
+check((await db.doc(`pairs/${J}/members/${B}`).get()).get('label') === 'Dispositivo 2', 'el siguiente desconocido es el 2');
+await fetch(`${functionsBase}/joinPair`, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 Safari/605.1.15', ...auth('uid-ipad') },
+  body: JSON.stringify({ data: { pairId: J, touch: true, label: '<b>iPhone de ella</b>' } }),
+});
+check((await db.doc(`pairs/${J}/members/uid-ipad`).get()).get('label') === 'iPad', 'joinPair saca la etiqueta del user agent (un iPad dice Macintosh, con táctil)');
+await db.doc(`pairs/${J}/members/uid-ipad`).delete();
 // Solo los miembros invitan, cierran o quitan
 await expectCall('createInvite de un no miembro', 'createInvite', { pairId: J }, C, 'PERMISSION_DENIED');
 await expectCall('lockPair de un no miembro', 'lockPair', { pairId: J }, C, 'PERMISSION_DENIED');
 await expectCall('removeMember de un no miembro', 'removeMember', { pairId: J, uid: B }, C, 'PERMISSION_DENIED');
 await expectCall('sendTestPush de un no miembro', 'sendTestPush', { pairId: J }, C, 'PERMISSION_DENIED');
+// Con la pareja abierta cualquiera con el código es miembro: una cuenta nueva entra y lee, pero no cierra, ni
+// quita, ni invita. Una cuenta de antes del corte sí (los móviles de siempre)
+check((await db.doc(`pairs/${J}/members/${A}`).get()).get('via') === 'code' && (await db.doc(`pairs/${J}/members/${A}`).get()).get('trusted') === true, 'un móvil de antes del corte entra por código y queda de confianza');
+await expectCall('joinPair de una cuenta nueva en abierta', 'joinPair', { pairId: J }, N);
+check((await db.doc(`pairs/${J}/members/${N}`).get()).get('trusted') === false, 'la cuenta nueva queda marcada sin confianza (para Ajustes)');
+await expectAllow('la cuenta nueva lee, como hoy', 'GET', `/pairs/${J}/notes`, { uid: N });
+await expectCall('lockPair de una cuenta nueva', 'lockPair', { pairId: J }, N, 'PERMISSION_DENIED');
+await expectCall('removeMember de una cuenta nueva', 'removeMember', { pairId: J, uid: A }, N, 'PERMISSION_DENIED');
+await expectCall('createInvite de una cuenta nueva', 'createInvite', { pairId: J }, N, 'PERMISSION_DENIED');
+await expectCall('joinPair de un uid que Auth no conoce', 'joinPair', { pairId: J }, 'uid-sin-cuenta');
+await expectCall('lockPair de un uid que Auth no conoce', 'lockPair', { pairId: J }, 'uid-sin-cuenta', 'PERMISSION_DENIED');
+check((await db.doc(`pairs/${J}`).get()).get('locked') !== true, 'nada de lo anterior ha cerrado la pareja');
+await expectCall('un móvil de antes del corte quita a la cuenta nueva', 'removeMember', { pairId: J, uid: N }, A);
+await expectCall('un móvil de antes del corte quita al uid sin cuenta', 'removeMember', { pairId: J, uid: 'uid-sin-cuenta' }, A);
+// Al cerrar se borran las suscripciones push que no son de un miembro (también las sin uid); las de los miembros
+// se quedan, así que sus móviles siguen recibiendo sin volver a pedir nada
+const subsJ = { 'yo-a': A, 'ella-b': B, 'yo-quitado': N, 'ella-extrana': 'uid-x', 'sin-uid': null };
+for (const [id, uid] of Object.entries(subsJ)) await db.doc(`pairs/${J}/pushSubs/${id}`).set({ endpoint: `https://example.invalid/${id}`, keys: { p256dh: 'k', auth: 'a' }, ...(uid ? { uid } : {}) });
 await expectCall('lockPair de un miembro', 'lockPair', { pairId: J }, A);
 check((await db.doc(`pairs/${J}`).get()).get('locked') === true, 'lockPair deja locked: true');
+const leftJ = (await db.collection(`pairs/${J}/pushSubs`).get()).docs.map((d) => d.id).sort();
+check(JSON.stringify(leftJ) === JSON.stringify(['ella-b', 'yo-a']), `lockPair deja solo las pushSubs de los miembros (${leftJ})`);
+await expectAllow('tras cerrar, un miembro vuelve a escribir su pushSub', 'PATCH', `/pairs/${J}/pushSubs/yo-a`, { uid: A, body: writeAs('pushSubs', A) });
+await expectDeny('tras cerrar, un no miembro no la escribe', 'PATCH', `/pairs/${J}/pushSubs/ella-extrana`, { uid: 'uid-x', body: writeAs('pushSubs', 'uid-x') });
 // Cerrada: sin invitación no, con una mala no, con una buena sí y solo una vez
 await expectCall('joinPair en una pareja cerrada sin invitación', 'joinPair', { pairId: J }, C, 'FAILED_PRECONDITION');
 await expectCall('joinPair con una invitación inventada', 'joinPair', { pairId: J, invite: 'ABCDEFGH' }, C, 'PERMISSION_DENIED');
@@ -204,7 +252,9 @@ check(stored.size === 1 && !stored.docs.some((d) => JSON.stringify(d.data()).inc
 await expectCall('la invitación de otra pareja no vale', 'joinPair', { pairId: OTHER, invite: code }, C, 'PERMISSION_DENIED');
 await expectCall('joinPair con la invitación (con guion y minúsculas)', 'joinPair', { pairId: J, invite: `${code.slice(0, 4).toLowerCase()}-${code.slice(4)}` }, C);
 check((await db.doc(`pairs/${J}/members/${C}`).get()).get('via') === 'invite', 'el member invitado queda marcado');
+check((await db.doc(`pairs/${J}/members/${C}`).get()).get('trusted') === true, 'el invitado es de confianza aunque su cuenta sea nueva');
 await expectCall('la invitación es de un solo uso', 'joinPair', { pairId: J, invite: code }, D, 'PERMISSION_DENIED');
+const invC = await expectCall('el invitado (cuenta nueva) puede invitar', 'createInvite', { pairId: J }, C);
 // Caducada: se siembra con el mismo hash que usa la función
 const expired = 'KKKKKKKK';
 await db.collection('pairInvites').doc(createHash('sha256').update(`${J}:${expired}`).digest('hex'))
@@ -218,6 +268,13 @@ await expectCall('removeMember de un miembro', 'removeMember', { pairId: J, uid:
 check(!(await db.doc(`pairs/${J}/members/${C}`).get()).exists, 'el member quitado ya no existe');
 check(!(await db.doc(`pairs/${J}/pushSubs/sub-c`).get()).exists && (await db.doc(`pairs/${J}/pushSubs/sub-a`).get()).exists, 'se borran solo sus pushSubs');
 await expectDeny('el dispositivo quitado ya no lee', 'GET', `/pairs/${J}/notes`, { uid: C });
+// Sus invitaciones se van con él, y una que quedase de alguien que ya no es miembro tampoco vale
+check(!(await db.collection('pairInvites').where('pairId', '==', J).get()).docs.some((d) => d.get('createdBy') === C), 'removeMember borra las invitaciones del quitado');
+await expectCall('la invitación del quitado ya no vale', 'joinPair', { pairId: J, invite: invC.result?.code }, D, 'PERMISSION_DENIED');
+const huerfana = 'MMMMMMMM';
+await db.collection('pairInvites').doc(createHash('sha256').update(`${J}:${huerfana}`).digest('hex'))
+  .set({ pairId: J, createdBy: 'uid-que-ya-no-es-miembro', expiresAt: Timestamp.fromMillis(Date.now() + 60000) });
+await expectCall('una invitación cuyo creador ya no es miembro no vale', 'joinPair', { pairId: J, invite: huerfana }, D, 'PERMISSION_DENIED');
 await expectCall('el dispositivo quitado no vuelve a entrar sin invitación', 'joinPair', { pairId: J }, C, 'FAILED_PRECONDITION');
 
 // --- Coste de las reglas: llamadas a exists()/get() por petición, contadas en el informe de cobertura del

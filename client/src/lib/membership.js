@@ -86,13 +86,3 @@ export function createMembership({ join, check, getUid, store, isOnline = () => 
     retry() { if (enabled && state.status === 'retrying') attempt(); },
   };
 }
-
-// What Ajustes shows for each member: the device kind, from the user agent (an iPad says Macintosh but has touch)
-export function deviceLabel(ua = '', touchPoints = 0) {
-  if (/iPhone/.test(ua)) return 'iPhone';
-  if (/iPad/.test(ua) || (/Macintosh/.test(ua) && touchPoints > 1)) return 'iPad';
-  if (/Android/.test(ua)) return /Mobile/.test(ua) ? 'Android' : 'Tablet Android';
-  if (/Macintosh/.test(ua)) return 'Mac';
-  if (/Windows/.test(ua)) return 'Windows';
-  return 'Navegador';
-}
