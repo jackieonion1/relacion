@@ -477,3 +477,35 @@ describe('3.1: favoritas', () => {
     expect(cells()).toHaveLength(1);
   });
 });
+
+describe('3.1: ir a un mes', () => {
+  const at = (y, m, d) => new Date(y, m, d, 12).getTime();
+  const fake = { query: (...a) => a, where: (...a) => ['where', ...a], orderBy: (...a) => ['orderBy', ...a], limit: (n) => ['limit', n] };
+  // The first photo (createdAt and takenAt asked apart, by orderBy) and the photos dated in March 2025
+  beforeEach(() => {
+    listPhotosBy.mockImplementation(async (pairId, build, opts = {}) => {
+      const q = JSON.stringify(build(fake, 'col'));
+      if (q.includes('orderBy')) {
+        const first = q.includes('takenAt') ? { id: 'T', createdAt: at(2026, 9, 1), takenAt: at(2024, 10, 20) } : { id: 'C', createdAt: at(2025, 1, 3), takenAt: null };
+        if (opts.keep) opts.keep(first);
+        return { items: [] };
+      }
+      if (q.includes('"takenAt",">="')) return { items: [{ id: 'M1', thumbUrl: '', createdAt: at(2026, 9, 1), takenAt: at(2025, 2, 8) }], thumbsDone: Promise.resolve() };
+      return { items: [], thumbsDone: Promise.resolve() };
+    });
+  });
+
+  test('por la fecha de la foto: desde la más antigua, y el mes abre su propia lista', async () => {
+    await mount();
+    await act(async () => { fireEvent.click(within(screen.getAllByRole('heading', { level: 2 })[0]).getByRole('button')); await flush(); });
+    const hoja = screen.getByRole('dialog');
+    expect(within(hoja).getByRole('button', { name: 'Octubre 2024' }).disabled).toBe(true);
+    expect(within(hoja).getByRole('button', { name: 'Noviembre 2024' }).disabled).toBe(false);
+    await act(async () => { fireEvent.click(within(hoja).getByRole('button', { name: 'Marzo 2025' })); await flush(); });
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(screen.getAllByRole('heading', { level: 2 }).map((h) => h.textContent)).toEqual(['Marzo 2025']);
+    expect(cells().map((c) => c.getAttribute('aria-label'))).toEqual(['Foto del 8 mar 2025']);
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Todas' })); await flush(); });
+    expect(cells()).toHaveLength(3);
+  });
+});

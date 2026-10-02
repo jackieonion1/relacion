@@ -11,10 +11,11 @@ import Icon from '../components/Icon';
 import VisorPie, { photoDate } from '../components/VisorPie';
 import ComentariosHoja from '../components/ComentariosHoja';
 import FiltroGaleria from '../components/FiltroGaleria';
+import SaltarMes, { MesBarra } from '../components/SaltarMes';
 import { escucharFoto, setReaccion, setFavorita } from '../lib/fotoSocial';
-import { listFavoritas } from '../lib/fotoConsultas';
-import { fotosDelDia } from '../lib/recuerdos';
-import { fechaEfectiva } from '../lib/fotoFecha';
+import { listFavoritas, primeraFecha } from '../lib/fotoConsultas';
+import { fotosDelDia, fotosEnRango } from '../lib/recuerdos';
+import { fechaEfectiva, rangoMesMadrid } from '../lib/fotoFecha';
 import { escucharComentarios, addComentario, deleteComentario, marcarLeidos } from '../lib/fotoComentarios';
 import { useNoLeidos } from '../lib/fotoAvisos';
 import './Gallery.css';
@@ -58,15 +59,21 @@ function groupByAnos(list) {
   return [...groups.values()];
 }
 
-const vistaKeyOf = (v) => v.tipo;
+const vistaKeyOf = (v) => (v.tipo === 'mes' ? `mes:${v.y}-${v.m}` : v.tipo);
 const VACIA = {
   favoritas: { titulo: 'Aún no hay favoritas', texto: 'Toca el corazón al ver una foto y quedará aquí, para los dos.' },
   haceUnAno: { titulo: 'Hoy no hay fotos de otros años', texto: 'Cuando haya alguna de un día como hoy, saldrá aquí.' },
+  mes: { titulo: 'Este mes no hay fotos', texto: 'Ni hechas ni subidas ese mes. Prueba con otro.' },
 };
 
 // What each view other than «Todas» shows, by effective date
 async function cargarVista(pairId, v, onThumb) {
   if (v.tipo === 'favoritas') return (await listFavoritas(pairId, { onThumb })).items;
+  // A month by the day the photos were taken (F1), not the grid's upload order: its own list and its own swipe
+  if (v.tipo === 'mes') {
+    const { desde, hasta } = rangoMesMadrid(v.y, v.m);
+    return (await fotosEnRango(pairId, desde, hasta, { onThumb })).items;
+  }
   // Each photo carries how many years back it is, for its group
   const porAno = await fotosDelDia(pairId, new Date(), 3, { onThumb });
   return porAno.flatMap((a) => a.items.map((it) => ({ ...it, anos: a.anos })));
@@ -120,6 +127,10 @@ export default function Gallery() {
   const vistaThumbsRef = useRef(new Map()); // id → thumb of those views, revoked on leaving the Gallery
   const montadoRef = useRef(true);
   const [, setVistaThumbs] = useState(0);
+  // «Ir a un mes»: its sheet, and where the months start ({ ms } or { error }), asked once per visit
+  const [saltarOpen, setSaltarOpen] = useState(false);
+  const [primera, setPrimera] = useState(null);
+  const rootRef = useRef(null);
   // Paginación: cursor = último doc de la página cargada; genRef descarta páginas de una carga anterior
   const cursorRef = useRef(null);
   const genRef = useRef(0);
@@ -310,6 +321,27 @@ export default function Gallery() {
     // An open «Favoritas» keeps the photo (nothing jumps under the finger); the next visit asks again
     vistaCacheRef.current.delete('favoritas');
     setFavorita(pairId, id, identity, on).catch((e) => console.warn('Favourite failed', e));
+  }
+
+  async function abrirSaltar() {
+    setSaltarOpen(true);
+    if (primera && !primera.error) return;
+    setPrimera(null);
+    try {
+      const ms = await primeraFecha(pairId);
+      setPrimera({ ms: ms ?? Date.now() });
+    } catch (e) {
+      console.warn('First photo date failed', e);
+      setPrimera({ error: true });
+    }
+  }
+
+  function irAMes(y, m) {
+    setSaltarOpen(false);
+    setVista({ tipo: 'mes', y, m });
+    // From a heading far down the grid: the month starts at the top
+    const box = rootRef.current?.closest('.app-scroll');
+    if (box && typeof box.scrollTo === 'function') box.scrollTo({ top: 0 });
   }
 
   function onReact(emoji) {
@@ -718,7 +750,7 @@ export default function Gallery() {
 
   return (
     // Margen propio de 16 px, salvo la cuadrícula, que va a sangre (§5.00); el hueco de la barra es de la cáscara
-    <div className="flex flex-col pb-6">
+    <div ref={rootRef} className="flex flex-col pb-6">
       <header className="flex items-end justify-between gap-3 pt-1.5 pb-3.5 pl-5 pr-4">
         <div className="flex flex-col gap-0.5 min-w-0">
           <h1 className="serif text-4xl leading-[1.05] font-normal tracking-[-0.01em]">Galería</h1>
@@ -767,7 +799,11 @@ export default function Gallery() {
 
       {!loading && !loadError && (!isEmpty || enVista) && (
         <div className="px-4 pb-3.5">
-          <FiltroGaleria valor={vista.tipo} onChange={(tipo) => setVista({ tipo })} />
+          {vista.tipo === 'mes' ? (
+            <MesBarra onTodas={() => setVista({ tipo: 'todas' })} onOtro={abrirSaltar} />
+          ) : (
+            <FiltroGaleria valor={vista.tipo} onChange={(tipo) => setVista({ tipo })} />
+          )}
         </div>
       )}
 
@@ -813,7 +849,14 @@ export default function Gallery() {
         <>
           {groups.map((g, gi) => (
             <section key={g.key}>
-              <h2 className={`etiqueta px-5 pb-2.5 ${gi === 0 ? 'pt-1' : 'pt-6'}`}>{g.label}</h2>
+              <h2 className={`etiqueta px-5 pb-2.5 ${gi === 0 ? 'pt-1' : 'pt-6'}`}>
+                {vista.tipo === 'haceUnAno' ? g.label : (
+                  // A month's heading opens «Ir a un mes»
+                  <button type="button" onClick={abrirSaltar} aria-haspopup="dialog" className="inline-flex items-center gap-1 -my-2 py-2 uppercase active:opacity-60">
+                    {g.label}<Icon name="abajo" size={14} />
+                  </button>
+                )}
+              </h2>
               <div className="grid grid-cols-3 gap-0.5">
                 {gi === 0 && !enVista && Array.from({ length: uploadingCount }, (_, i) => (
                   <div key={`subiendo-${i}`} role="status" aria-label="Subiendo foto" className="galeria-celda relative aspect-square overflow-hidden">
@@ -994,6 +1037,15 @@ export default function Gallery() {
           )}
         </div>
       </Modal>
+
+      <SaltarMes
+        isOpen={saltarOpen}
+        onClose={() => setSaltarOpen(false)}
+        desde={primera?.ms ?? null}
+        error={!!primera?.error}
+        actual={vista.tipo === 'mes' ? vista : null}
+        onElegir={irAMes}
+      />
 
       <ComentariosHoja
         isOpen={comentariosOpen && viewer.open}
