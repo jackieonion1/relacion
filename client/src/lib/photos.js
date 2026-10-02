@@ -206,12 +206,27 @@ export async function listPhotosBy(pairId, buildQuery, { onThumb = null, keep = 
   const items = [];
   for (const docSnap of snap.docs) {
     const item = photoItem(docSnap);
+    // The thumb URL of the doc, for the ones `keep` leaves without a thumb to ask for it later (thumbDeItem)
+    item.thumbDoc = docSnap.data()?.thumbUrl || '';
     if (!keep || keep(item)) { docs.push(docSnap); items.push(item); }
   }
   const thumbs = fillThumbs(fblib, pairId, docs, items, onThumb);
   if (onThumb) return { items, thumbsDone: thumbs };
   await thumbs;
   return { items };
+}
+
+// The thumb of an item from listPhotosBy that came without one, by its own `thumbDoc`: the cached blob first and
+// else the URL, like the gallery, and no read of the doc as getPhotoThumbUrl does. '' when it cannot be had
+export async function thumbDeItem(pairId, item) {
+  const fblib = await fb();
+  if (!(db && storage && fblib)) return '';
+  try {
+    await whenAuthed();
+    return await resolveThumbUrl(fblib, pairId, { id: item.id, data: () => ({ thumbUrl: item.thumbDoc || '' }) });
+  } catch {
+    return '';
+  }
 }
 
 // One page of the gallery, newest first. `cursor` is the last doc of the previous page.

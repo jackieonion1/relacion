@@ -1,5 +1,5 @@
-import { deletePhoto, retryPendingPhotos, uploadPhoto, listPhotosPage, photoItem, listPhotosBy, madridDayKey, getOriginal, getOriginalUrl, getPhotoThumbUrl, getDailyPhotoId, dailyPhotoIndex } from './photos';
-import { deleteThumb, deleteOrig, getThumb, getOrig } from './photoCache';
+import { deletePhoto, retryPendingPhotos, uploadPhoto, listPhotosPage, photoItem, listPhotosBy, thumbDeItem, madridDayKey, getOriginal, getOriginalUrl, getPhotoThumbUrl, getDailyPhotoId, dailyPhotoIndex } from './photos';
+import { deleteThumb, deleteOrig, getThumb, putThumb, getOrig } from './photoCache';
 import { collection, doc, deleteDoc, setDoc, updateDoc, getDoc, getDocs, getCountFromServer, documentId, query, where, orderBy, limit } from 'firebase/firestore';
 import { ref, getDownloadURL, deleteObject, uploadBytes } from 'firebase/storage';
 
@@ -459,6 +459,45 @@ describe('photoItem y listPhotosBy', () => {
   test('si la consulta falla lanza, como listPhotosPage', async () => {
     getDocs.mockRejectedValue(new Error('permission-denied'));
     await expect(listPhotosBy(PAIR, () => 'q')).rejects.toThrow('permission-denied');
+  });
+
+  test('los items de listPhotosBy llevan la miniatura de su doc (thumbDoc), también los que keep deja sin resolver', async () => {
+    getDocs.mockResolvedValue({ docs: [snap('D0', { thumbUrl: 'https://t/0?alt=media', createdAt: ts(9) }), snap('D1', { createdAt: ts(8) })] });
+    getThumb.mockResolvedValue(null);
+    const vistos = [];
+    await listPhotosBy(PAIR, () => 'q', { keep: (it) => { vistos.push(it); return false; } });
+    expect(vistos.map((it) => [it.id, it.thumbDoc])).toEqual([['D0', 'https://t/0?alt=media'], ['D1', '']]);
+  });
+
+  describe('thumbDeItem', () => {
+    const realCrear = URL.createObjectURL;
+    afterEach(() => { URL.createObjectURL = realCrear; });
+
+    test('usa la miniatura en caché, como la galería, sin leer el doc', async () => {
+      const blob = new Blob(['x']);
+      getThumb.mockResolvedValue(blob);
+      URL.createObjectURL = vi.fn(() => 'blob:cacheada');
+      expect(await thumbDeItem(PAIR, { id: 'D0', thumbDoc: 'https://t/0?alt=media' })).toBe('blob:cacheada');
+      expect(getThumb).toHaveBeenCalledWith('D0');
+      expect(getDoc).not.toHaveBeenCalled();
+    });
+
+    test('sin caché, parte de la URL del item y la deja en la caché, sin leer el doc', async () => {
+      getThumb.mockResolvedValue(null);
+      global.fetch = vi.fn(async () => ({ ok: true, blob: async () => new Blob(['y']) }));
+      URL.createObjectURL = vi.fn(() => 'blob:nueva');
+      expect(await thumbDeItem(PAIR, { id: 'D0', thumbDoc: 'https://t/0?alt=media' })).toBe('blob:nueva');
+      expect(global.fetch.mock.calls[0][0]).toBe('https://t/0?alt=media');
+      expect(putThumb).toHaveBeenCalledWith('D0', expect.any(Blob));
+      expect(getDoc).not.toHaveBeenCalled();
+    });
+
+    test('si no llevaba URL válida, pide la de Storage como la galería, sin leer el doc', async () => {
+      getThumb.mockResolvedValue(null);
+      getDownloadURL.mockResolvedValue('https://x/new?alt=media');
+      expect(await thumbDeItem(PAIR, { id: 'D0', thumbDoc: '' })).toBe('https://x/new?alt=media'); // fetch is blocked: the URL itself
+      expect(getDoc).not.toHaveBeenCalled();
+    });
   });
 });
 

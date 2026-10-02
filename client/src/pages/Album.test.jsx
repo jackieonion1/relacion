@@ -3,10 +3,12 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router';
 import Album from './Album';
 import { borrarAlbum, fotosDeAlbum, guardarAlbum, leerAlbum, quitarDeAlbum } from '../lib/albumes';
+import { getPhotoThumbUrl, thumbDeItem } from '../lib/photos';
 
 vi.mock('../lib/albumes', async (orig) => ({
   ...(await orig()), leerAlbum: vi.fn(), fotosDeAlbum: vi.fn(), quitarDeAlbum: vi.fn(), borrarAlbum: vi.fn(), guardarAlbum: vi.fn(),
 }));
+vi.mock('../lib/photos', async (orig) => ({ ...(await orig()), getPhotoThumbUrl: vi.fn(), thumbDeItem: vi.fn() }));
 
 const PAIR = 'SEB1998';
 const dia = (y, m, d) => new Date(y, m - 1, d, 12).getTime();
@@ -72,6 +74,17 @@ test('«Elegir» y «Quitar del álbum» saca esas fotos del álbum y lo recarga
   fireEvent.click(screen.getByRole('button', { name: 'Quitar del álbum (2)' }));
   await waitFor(() => expect(quitarDeAlbum).toHaveBeenCalledWith(PAIR, manual, ['p1', 'p3'], 'ella'));
   expect(await screen.findByText('1 foto')).not.toBeNull();
+});
+
+test('las miniaturas que no se pidieron al listar se piden con los datos del item, sin leer cada doc', async () => {
+  const sinMiniatura = { ...foto('p9'), thumbUrl: '', thumbDoc: 'https://t/p9?alt=media' };
+  fotosDeAlbum.mockResolvedValue({ items: [foto('p1'), sinMiniatura], thumbsDone: Promise.resolve() });
+  thumbDeItem.mockResolvedValue('blob:p9');
+  const { container } = pinta('a1');
+  await waitFor(() => expect(container.querySelector('img[src="blob:p9"]')).not.toBeNull());
+  expect(thumbDeItem).toHaveBeenCalledTimes(1);
+  expect(thumbDeItem).toHaveBeenCalledWith(PAIR, sinMiniatura);
+  expect(getPhotoThumbUrl).not.toHaveBeenCalled();
 });
 
 test('quitar fotos de un viaje las saca del mosaico y del contador al momento, sin releer nada', async () => {

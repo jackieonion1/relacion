@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { getPhotoThumbUrl } from '../lib/photos';
+import { thumbDeItem } from '../lib/photos';
 import { fechaCorta } from '../lib/recuerdos';
 import { fechaEfectiva } from '../lib/fotoFecha';
 
@@ -75,12 +75,12 @@ function Celda({ foto, url, listo, pairId, poner, onTocar, seleccionando, marcad
   // when they come near the screen
   useEffect(() => {
     if (url || !listo || !pairId) return undefined;
-    const pedir = () => getPhotoThumbUrl(pairId, foto.id).then((u) => poner(foto.id, u)).catch(() => {});
+    const pedir = () => thumbDeItem(pairId, foto).then((u) => poner(foto.id, u)).catch(() => {});
     if (typeof IntersectionObserver === 'undefined') { pedir(); return undefined; }
     const io = new IntersectionObserver(([e]) => { if (e.isIntersecting) { io.disconnect(); pedir(); } }, { rootMargin: '240px' });
     io.observe(ref.current);
     return () => io.disconnect();
-  }, [url, listo, pairId, foto.id, poner]);
+  }, [url, listo, pairId, foto, poner]);
 
   return (
     <li>
