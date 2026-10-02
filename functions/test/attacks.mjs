@@ -43,8 +43,8 @@ const note = { fields: { title: { stringValue: 'x' } } };
 const OLD = { creationTime: '2025-01-01T00:00:00Z', lastSignInTime: '2025-01-01T00:00:00Z' };
 const NEW = { creationTime: '2026-11-01T00:00:00Z', lastSignInTime: '2026-11-01T00:00:00Z' };
 await getAuth().importUsers([
-  ...['yo-A', 'ella-A', 'yo-D'].map((uid) => ({ uid, metadata: OLD })),
-  ...['mal-A'].map((uid) => ({ uid, metadata: NEW })),
+  ...['yo-A', 'ella-A', 'yo-B', 'yo-D'].map((uid) => ({ uid, metadata: OLD })),
+  ...['mal-A', 'mal-B'].map((uid) => ({ uid, metadata: NEW })),
 ]);
 
 // A. Periodo abierto: un extraño con el código se une, pero no cierra ni echa a la pareja
@@ -66,6 +66,24 @@ await getAuth().importUsers([
   await expectCall('A yo quita al extraño', 'removeMember', { pairId: P, uid: 'mal-A' }, 'yo-A');
   check(await req('GET', `/pairs/${P}/notes/n1`, 'mal-A') === 403, 'A el extraño ya no lee');
   await expectCall('A el extraño no vuelve a entrar', 'joinPair', { pairId: P }, 'mal-A', 'FAILED_PRECONDITION');
+}
+
+// B. Suscripción push sembrada en abierto: no puede llevar el uid de otro, y no sobrevive al cierre ni a removeMember
+{
+  const P = 'ATKB';
+  const sub = (uid) => ({ fields: { endpoint: { stringValue: 'https://attacker.example/push' }, keys: { mapValue: { fields: { p256dh: { stringValue: 'k' }, auth: { stringValue: 'a' } } } }, uid: { stringValue: uid }, identity: { stringValue: 'yo' }, enabled: { booleanValue: true } } });
+  await call('joinPair', { pairId: P }, 'yo-B');
+  await call('joinPair', { pairId: P }, 'mal-B');
+  await db.doc(`pairs/${P}/pushSubs/yo-dev1`).set({ endpoint: 'https://push.example/yo', keys: { p256dh: 'k', auth: 'a' }, uid: 'yo-B' });
+  check(await req('PATCH', `/pairs/${P}/pushSubs/yo-dev2`, 'mal-B', sub('yo-B')) === 403, 'B el extraño no escribe una pushSub con el uid de yo');
+  check(await req('PATCH', `/pairs/${P}/pushSubs/yo-dev1`, 'mal-B', sub('yo-B')) === 403, 'B ni sobrescribe la de yo con el uid de yo');
+  check(await req('PATCH', `/pairs/${P}/pushSubs/mal-dev`, 'mal-B', sub('mal-B')) === 200, 'B con su propio uid sí (abierta, como hoy)');
+  check(await req('PATCH', `/pairs/${P}/pushSubs/nadie-dev`, 'nadie-B', sub('nadie-B')) === 200, 'B un no miembro también (abierta, como hoy)');
+  await expectCall('B yo cierra', 'lockPair', { pairId: P }, 'yo-B');
+  await expectCall('B yo quita al extraño', 'removeMember', { pairId: P, uid: 'mal-B' }, 'yo-B');
+  const left = (await db.collection(`pairs/${P}/pushSubs`).get()).docs.map((d) => d.id).sort();
+  check(JSON.stringify(left) === JSON.stringify(['yo-dev1']), `B tras cerrar y quitar solo queda la pushSub de yo (${left})`);
+  check(await req('GET', `/pairs/${P}/pushSubs/yo-dev1`, 'mal-B') === 403, 'B el quitado no lee pushSubs');
 }
 
 // D. Carrera de doble uso: 8 joinPair concurrentes con la misma invitación dan un solo miembro nuevo

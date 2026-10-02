@@ -135,12 +135,21 @@ export const createInvite = onCall(async (request) => {
   return { code, expiresAt: expiresAt.toMillis() };
 });
 
-// Callable (trusted members only): from now on joinPair asks new devices for an invite. One-way from the app on purpose
+// Callable (trusted members only): from now on joinPair asks new devices for an invite. One-way from the app on purpose.
+// Push subscriptions whose uid is not a member's (or have none) go too: while open anyone could write one, and
+// sendToPair sends to every doc. The members' own carry their uid and stay
 export const lockPair = onCall(async (request) => {
   const pairId = readPairId(request);
   const uid = request.auth.uid;
   await requireTrusted(pairId, uid);
   await pairRef(pairId).set({ locked: true, lockedAt: FieldValue.serverTimestamp(), lockedBy: uid }, { merge: true });
+  const [members, subs] = await Promise.all([pairRef(pairId).collection('members').get(), pairRef(pairId).collection('pushSubs').get()]);
+  const ids = new Set(members.docs.map((d) => d.id));
+  const batch = db.batch();
+  let dropped = 0;
+  subs.forEach((d) => { if (!ids.has(d.get('uid'))) { batch.delete(d.ref); dropped++; } });
+  if (dropped) await batch.commit();
+  console.log('lockPair', JSON.stringify({ pairId, members: ids.size, subs: subs.size, dropped }));
   return { ok: true };
 });
 

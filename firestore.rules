@@ -27,7 +27,14 @@ service cloud.firestore {
 
     // Rutas explícitas pairs/{pair}/{colección}/{doc}: sin `**`, que también casaba /pairs y /pairs/{pair}
     match /pairs/{pairId}/{col}/{docId} {
-      allow read, write: if col != 'members' && canUse(pairId);
+      allow read, write: if col != 'members' && col != 'pushSubs' && canUse(pairId);
+    }
+
+    // A push subscription carries the uid that wrote it (every client since 1.6 does), so lockPair can drop the
+    // ones that are not of a member. Old docs without uid are still sent to, and rewritten with it on resync
+    match /pairs/{pairId}/pushSubs/{subId} {
+      allow read, delete: if canUse(pairId);
+      allow create, update: if canUse(pairId) && request.resource.data.get('uid', '') == request.auth.uid;
     }
 
     // pairInvites/{hash}: Admin SDK only (createInvite, joinPair); no rule, so the client never reaches it

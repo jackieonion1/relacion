@@ -98,17 +98,26 @@ await db.doc(`pairs/${OTHER}/notes/d1`).set({ x: 1 });
 await db.doc(`pairs/${OTHER}`).set({ locked: true });
 
 const write = { fields: { x: { integerValue: '2' } } };
+// pushSubs se escribe con el uid de quien escribe, como hace el cliente desde la 1.6
+const writeAs = (c, uid) => (c === 'pushSubs' ? { fields: { ...write.fields, uid: { stringValue: uid } } } : write);
 
 // --- Pareja abierta (sin pairs/{p} o sin locked): todo como hasta la 3.0, también para clientes 2.5.1 y 3.0 ---
 for (const c of COLLECTIONS) {
   await expectAllow(`abierta, no miembro list ${c}`, 'GET', `/pairs/${PAIR}/${c}`, { uid: STRANGER });
   await expectAllow(`abierta, no miembro get ${c}/d1`, 'GET', `/pairs/${PAIR}/${c}/d1`, { uid: STRANGER });
-  await expectAllow(`abierta, no miembro write ${c}/d2`, 'PATCH', `/pairs/${PAIR}/${c}/d2`, { uid: STRANGER, body: write });
+  await expectAllow(`abierta, no miembro write ${c}/d2`, 'PATCH', `/pairs/${PAIR}/${c}/d2`, { uid: STRANGER, body: writeAs(c, STRANGER) });
   await expectAllow(`abierta, no miembro delete ${c}/d2`, 'DELETE', `/pairs/${PAIR}/${c}/d2`, { uid: STRANGER });
 }
 // Pareja nueva (código recién escrito en el onboarding o llegado por ?pair=): aún sin documentos
 await expectAllow('list notes de una pareja nueva', 'GET', '/pairs/NUEVA42/notes', { uid: ME });
-await expectAllow('alta de pushSubs en una pareja nueva', 'PATCH', '/pairs/NUEVA42/pushSubs/ella-abc', { uid: 'uid-otro', body: write });
+await expectAllow('alta de pushSubs en una pareja nueva', 'PATCH', '/pairs/NUEVA42/pushSubs/ella-abc', { uid: 'uid-otro', body: writeAs('pushSubs', 'uid-otro') });
+// pushSubs: solo con el uid propio, abierta o cerrada; un doc viejo sin uid se puede reescribir con el propio
+await expectDeny('abierta, pushSubs con el uid de otro', 'PATCH', `/pairs/${PAIR}/pushSubs/d3`, { uid: STRANGER, body: writeAs('pushSubs', ME) });
+await expectDeny('abierta, pushSubs sin uid', 'PATCH', `/pairs/${PAIR}/pushSubs/d3`, { uid: STRANGER, body: write });
+await expectDeny('abierta, pushSubs: tocar un doc sin dejar el uid propio', 'PATCH', `/pairs/${PAIR}/pushSubs/d1?updateMask.fieldPaths=x`, { uid: STRANGER, body: write });
+await db.doc(`pairs/${PAIR}/pushSubs/viejo`).set({ endpoint: 'https://example.invalid/viejo' });
+await expectAllow('abierta, un doc viejo sin uid se reescribe con el propio (merge)', 'PATCH', `/pairs/${PAIR}/pushSubs/viejo?updateMask.fieldPaths=uid`, { uid: STRANGER, body: { fields: { uid: { stringValue: STRANGER } } } });
+await db.doc(`pairs/${PAIR}/pushSubs/viejo`).delete();
 // pairs/{p} existe pero sin locked (o locked: false): sigue abierta
 await db.doc('pairs/ABIERTA1').set({ locked: false });
 await expectAllow('locked: false sigue abierta', 'GET', '/pairs/ABIERTA1/notes', { uid: STRANGER });
@@ -128,7 +137,7 @@ await db.doc(`pairs/${PAIR}`).set({ locked: true });
 for (const c of COLLECTIONS) {
   await expectAllow(`miembro list ${c}`, 'GET', `/pairs/${PAIR}/${c}`, { uid: ME });
   await expectAllow(`miembro get ${c}/d1`, 'GET', `/pairs/${PAIR}/${c}/d1`, { uid: ME });
-  await expectAllow(`miembro write ${c}/d2`, 'PATCH', `/pairs/${PAIR}/${c}/d2`, { uid: ME, body: write });
+  await expectAllow(`miembro write ${c}/d2`, 'PATCH', `/pairs/${PAIR}/${c}/d2`, { uid: ME, body: writeAs(c, ME) });
   await expectAllow(`miembro delete ${c}/d2`, 'DELETE', `/pairs/${PAIR}/${c}/d2`, { uid: ME });
 }
 await expectAllow('miembro lee la lista de miembros', 'GET', `/pairs/${PAIR}/members`, { uid: ME });
@@ -138,8 +147,9 @@ await expectAllow(`miembro lee /pairs/${PAIR} (locked)`, 'GET', `/pairs/${PAIR}`
 for (const c of COLLECTIONS) {
   await expectDeny(`no miembro list ${c}`, 'GET', `/pairs/${PAIR}/${c}`, { uid: STRANGER });
   await expectDeny(`no miembro get ${c}/d1`, 'GET', `/pairs/${PAIR}/${c}/d1`, { uid: STRANGER });
-  await expectDeny(`no miembro write ${c}/d2`, 'PATCH', `/pairs/${PAIR}/${c}/d2`, { uid: STRANGER, body: write });
+  await expectDeny(`no miembro write ${c}/d2`, 'PATCH', `/pairs/${PAIR}/${c}/d2`, { uid: STRANGER, body: writeAs(c, STRANGER) });
 }
+await expectDeny('cerrada, miembro escribe pushSubs con el uid de otro', 'PATCH', `/pairs/${PAIR}/pushSubs/d3`, { uid: ME, body: writeAs('pushSubs', STRANGER) });
 await expectDeny('no miembro lee la lista de miembros', 'GET', `/pairs/${PAIR}/members`, { uid: STRANGER });
 await expectDeny(`no miembro lee /pairs/${PAIR}`, 'GET', `/pairs/${PAIR}`, { uid: STRANGER });
 
@@ -211,8 +221,16 @@ await expectCall('lockPair de un uid que Auth no conoce', 'lockPair', { pairId: 
 check((await db.doc(`pairs/${J}`).get()).get('locked') !== true, 'nada de lo anterior ha cerrado la pareja');
 await expectCall('un móvil de antes del corte quita a la cuenta nueva', 'removeMember', { pairId: J, uid: N }, A);
 await expectCall('un móvil de antes del corte quita al uid sin cuenta', 'removeMember', { pairId: J, uid: 'uid-sin-cuenta' }, A);
+// Al cerrar se borran las suscripciones push que no son de un miembro (también las sin uid); las de los miembros
+// se quedan, así que sus móviles siguen recibiendo sin volver a pedir nada
+const subsJ = { 'yo-a': A, 'ella-b': B, 'yo-quitado': N, 'ella-extrana': 'uid-x', 'sin-uid': null };
+for (const [id, uid] of Object.entries(subsJ)) await db.doc(`pairs/${J}/pushSubs/${id}`).set({ endpoint: `https://example.invalid/${id}`, keys: { p256dh: 'k', auth: 'a' }, ...(uid ? { uid } : {}) });
 await expectCall('lockPair de un miembro', 'lockPair', { pairId: J }, A);
 check((await db.doc(`pairs/${J}`).get()).get('locked') === true, 'lockPair deja locked: true');
+const leftJ = (await db.collection(`pairs/${J}/pushSubs`).get()).docs.map((d) => d.id).sort();
+check(JSON.stringify(leftJ) === JSON.stringify(['ella-b', 'yo-a']), `lockPair deja solo las pushSubs de los miembros (${leftJ})`);
+await expectAllow('tras cerrar, un miembro vuelve a escribir su pushSub', 'PATCH', `/pairs/${J}/pushSubs/yo-a`, { uid: A, body: writeAs('pushSubs', A) });
+await expectDeny('tras cerrar, un no miembro no la escribe', 'PATCH', `/pairs/${J}/pushSubs/ella-extrana`, { uid: 'uid-x', body: writeAs('pushSubs', 'uid-x') });
 // Cerrada: sin invitación no, con una mala no, con una buena sí y solo una vez
 await expectCall('joinPair en una pareja cerrada sin invitación', 'joinPair', { pairId: J }, C, 'FAILED_PRECONDITION');
 await expectCall('joinPair con una invitación inventada', 'joinPair', { pairId: J, invite: 'ABCDEFGH' }, C, 'PERMISSION_DENIED');
