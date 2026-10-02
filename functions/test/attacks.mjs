@@ -283,6 +283,33 @@ await getAuth().importUsers([
   check(await req('PATCH', `/reminderLocks/ATKJ2_${manana}`, 'stranger', note) === 403, 'K en una pareja abierta, tampoco un extraño');
 }
 
+// L. Un miembro no silencia la campana del otro: un aviso con createdAt de cliente (futuro) se quedaría arriba del
+// orderBy desc y, al abrir la hoja, el «visto» pasaría a esa fecha y todo lo real posterior contaría como visto. Las
+// reglas de actividad-* piden la hora del servidor, y la regla genérica de pareja (que las ORearía) no las cubre
+{
+  const P = 'ATKL';
+  const docName = (p) => `projects/demo-relacion/databases/(default)/documents${p}`;
+  const ts = (ms) => ({ timestampValue: new Date(ms).toISOString() });
+  const FUTURO = Date.now() + 5 * 365 * 86400e3;
+  const commit = async (uid, writes) => (await fetch(`${base}:commit`, { method: 'POST', headers: H(uid), body: JSON.stringify({ writes }) })).status;
+  await call('joinPair', { pairId: P }, 'yo-D');
+  await call('lockPair', { pairId: P }, 'yo-D');
+  const campos = { tipo: { stringValue: 'comentario' }, quien: { stringValue: 'yo' }, para: { stringValue: 'ella' }, ref: { mapValue: { fields: {} } } };
+  const servidor = (col, id) => [{ update: { name: docName(`/pairs/${P}/${col}/${id}`), fields: campos }, updateTransforms: [{ fieldPath: 'createdAt', setToServerValue: 'REQUEST_TIME' }] }];
+  const cliente = (col, id, createdAt) => [{ update: { name: docName(`/pairs/${P}/${col}/${id}`), fields: { ...campos, createdAt } } }];
+  for (const col of ['actividad-yo', 'actividad-ella']) {
+    check(await commit('yo-D', servidor(col, 'l1')) === 200, `L ${col}: un aviso con la hora del servidor entra`);
+    check(await commit('yo-D', cliente(col, 'l2', ts(FUTURO))) === 403, `L ${col}: createdAt a 5 años vista (set)`);
+    check(await req('PATCH', `/pairs/${P}/${col}/l3`, 'yo-D', { fields: { ...campos, createdAt: ts(FUTURO) } }) === 403, `L ${col}: createdAt a 5 años vista (PATCH, la forma de la regla genérica)`);
+    check(await commit('yo-D', cliente(col, 'l1', ts(FUTURO))) === 403, `L ${col}: reescribir un aviso real con createdAt futuro`);
+    check(await req('PATCH', `/pairs/${P}/${col}/l1?updateMask.fieldPaths=createdAt`, 'yo-D', { fields: { createdAt: ts(FUTURO) } }) === 403, `L ${col}: mover solo el createdAt de un aviso real`);
+    check(await commit('yo-D', cliente(col, 'l4', { nullValue: null })) === 403, `L ${col}: createdAt null`);
+    check(await commit('yo-D', [...servidor(col, 'l5'), ...cliente(col, 'l6', ts(FUTURO))]) === 403, `L ${col}: un aviso bueno no cuela uno malo en el mismo commit`);
+    check(await req('GET', `/pairs/${P}/${col}/l2`, 'yo-D') === 404, `L ${col}: el aviso rechazado no llegó a existir`);
+    check(await commit('mal-C', servidor(col, 'l7')) === 403, `L ${col}: un extraño no escribe ni con la hora del servidor`);
+  }
+}
+
 if (failures.length) { console.error(`ataques FALLÓ: ${failures.length} check(s) en rojo`); process.exit(1); }
 console.log('ataques OK');
 process.exit(0);
