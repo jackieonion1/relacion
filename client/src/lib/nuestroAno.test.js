@@ -63,11 +63,20 @@ describe('analizar', () => {
     ];
     const { fotos: f } = analizar({ fotos }, V);
     expect([f.total, f.yo, f.ella]).toEqual([5, 2, 2]);
-    expect(f.meses).toHaveLength(12);
+    expect(f.meses).toHaveLength(13);
     expect(f.meses[0]).toEqual({ anio: 2025, mes: 10, n: 0 });
     expect(f.meses[1]).toEqual({ anio: 2025, mes: 11, n: 1 });
     expect(f.mejorMes).toEqual({ anio: 2026, mes: 2, n: 3 });
     expect(f.meses.find((m) => m.mes === 1).n).toBe(1);
+  });
+
+  test('mes a mes: 13 huecos, y las fotos del 1 al 23 de noviembre del año que cierra caen en el último', () => {
+    const fotos = [foto('a', dia(2025, 11, 26)), foto('b', dia(2026, 11, 10)), foto('c', dia(2026, 11, 23))];
+    const { fotos: f } = analizar({ fotos }, V);
+    expect(f.meses).toHaveLength(13);
+    expect(f.meses[0]).toMatchObject({ anio: 2025, mes: 10, n: 1 });
+    expect(f.meses[12]).toMatchObject({ anio: 2026, mes: 10, n: 2 });
+    expect(f.meses.reduce((s, m) => s + m.n, 0)).toBe(f.total);
   });
 
   test('sin fotos no hay mejor mes ni favorita', () => {

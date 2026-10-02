@@ -82,7 +82,7 @@
 }
 
 /* Month by month: 12 bars from the month the year starts in, the best one in lacre */
-.ano-meses { display: grid; grid-template-columns: repeat(12, 1fr); gap: 5px; align-items: end; height: 190px; padding-top: 8px; }
+.ano-meses { display: grid; grid-template-columns: repeat(13, 1fr); gap: 4px; align-items: end; height: 190px; padding-top: 8px; }
 .ano-mes { display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 4px; height: 100%; }
 .ano-mes-n { font-size: 12px; line-height: 1; color: var(--ink-2); min-height: 12px; }
 .ano-mes-barra {

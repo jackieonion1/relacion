@@ -123,11 +123,14 @@ function porPersona(lista) {
   };
 }
 
-// The 12 months of the year, from the one it starts in: [{ anio, mes (0-based), n }] by effective date, Madrid time
-function fotosPorMes(fotos, desde) {
+// The months the year touches, from the one it starts in to the one it ends in: [{ anio, mes (0-based), n }] by
+// effective date, Madrid time. From 24 Nov to 24 Nov that is 13: the first November holds its last week and the
+// last one its first 23 days
+function fotosPorMes(fotos, desde, hasta) {
   let [y, m] = diaMadrid(desde).split('-').map(Number);
+  const [yFin, mFin] = diaMadrid(hasta - 1).split('-').map(Number);
   const meses = [];
-  for (let i = 0; i < 12; i += 1) {
+  while (y < yFin || (y === yFin && m <= mFin)) {
     meses.push({ anio: y, mes: m - 1, n: 0 });
     m += 1;
     if (m > 12) { m = 1; y += 1; }
@@ -191,7 +194,7 @@ export function analizar({ fotos = [], eventos = [], notas = [], canciones = [] 
   let sitio = null;
   for (const s of sitios.values()) if (!sitio || s.veces > sitio.veces) sitio = s;
 
-  const meses = fotosPorMes(fotos, v.desde);
+  const meses = fotosPorMes(fotos, v.desde, v.hasta);
   const mejor = meses.reduce((a, b) => (b.n > a.n ? b : a), meses[0]);
 
   return {
