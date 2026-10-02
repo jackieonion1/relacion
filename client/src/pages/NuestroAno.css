@@ -1,2 +1,136 @@
-/* Nuestro año (3.1): the postcards of the second year. Imported from App.jsx, not from the lazy page: a CSS file of
-   its own would be named static/css/main.<hash>.css and appUpdate.js would take it for a new version */
+/* Nuestro año (3.1): the stories of the year. Imported from App.jsx, not from the lazy page: a CSS file of
+   its own would be named static/css/main.<hash>.css and appUpdate.js would take it for a new version.
+   Reduced motion is the global rule in index.css (every animation ends at once) */
+
+/* The card on Inicio: a lacre-soft sheet with a small wax seal; the whole of it is the link */
+.ano-tarjeta-abrir { -webkit-tap-highlight-color: transparent; }
+.ano-tarjeta-abrir:focus-visible { outline: 2px solid var(--lacre); outline-offset: 2px; }
+.ano-tarjeta-sello {
+  display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; flex: none;
+  border-radius: 47% 53% 50% 50% / 52% 48% 52% 48%; color: var(--on-lacre); transform: rotate(-8deg);
+  background: radial-gradient(circle at 34% 30%, color-mix(in oklch, var(--lacre) 72%, white), var(--lacre) 58%, color-mix(in oklch, var(--lacre) 80%, black));
+  box-shadow: var(--sh-1), inset 0 0 0 3px color-mix(in oklch, var(--lacre) 85%, black);
+}
+
+/* The stories sit over everything, tab bar and sheets' scrim included; every story is a sheet of paper in a tone */
+.ano {
+  position: fixed; inset: 0; z-index: 9000; display: flex; flex-direction: column; overflow: hidden; outline: none;
+  --acento: var(--accent-ink);
+  color: var(--ink); background-color: var(--paper);
+  touch-action: pan-y; user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent;
+  transition: background-color var(--dur-paso) var(--ease-suave);
+}
+.ano-papel { background-color: var(--paper); }
+.ano-rosa { background-color: var(--lacre-soft); }
+.ano-sunk { background-color: var(--sunk); }
+.ano-el { background-color: var(--sello-el); --acento: var(--sello-el-ink); }
+.ano-ella { background-color: var(--sello-ella); --acento: var(--sello-ella-ink); }
+.ano-lacre { background-color: var(--lacre); color: var(--on-lacre); --acento: var(--on-lacre); }
+
+/* Progress: one bar for each story, filled up to the one in view; ✕ beside them */
+.ano-tope {
+  position: relative; z-index: 3; display: flex; align-items: center; gap: 6px; flex: none;
+  padding: calc(env(safe-area-inset-top) + 8px) 12px 0 16px;
+}
+.ano-barras { flex: 1; display: flex; gap: 4px; }
+.ano-barras li { flex: 1; height: 3px; border-radius: 2px; background-color: color-mix(in oklch, currentColor 24%, transparent); }
+.ano-barras li.hecha { background-color: currentColor; }
+.ano .ano-cerrar { color: inherit; flex: none; }
+.ano .ano-cerrar:active { background-color: color-mix(in oklch, currentColor 14%, transparent); }
+
+/* The story: centred, over the touch zones (which take the taps, not the words) */
+.ano-escena {
+  position: relative; z-index: 0; flex: 1; min-height: 0; display: flex; flex-direction: column; justify-content: center; gap: 10px;
+  padding: 0 28px calc(env(safe-area-inset-bottom) + 44px); pointer-events: none;
+}
+.ano-escena > * { animation: ano-sube 560ms var(--ease-suave) both; }
+.ano-escena > :nth-child(2) { animation-delay: 90ms; }
+.ano-escena > :nth-child(3) { animation-delay: 180ms; }
+.ano-escena > :nth-child(4) { animation-delay: 270ms; }
+.ano-escena > :nth-child(5) { animation-delay: 360ms; }
+@keyframes ano-sube { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+
+/* Left third goes back, the rest goes on */
+.ano-zona { position: absolute; z-index: 1; top: 64px; bottom: 0; background: none; border: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+.ano-zona-atras { left: 0; width: 34%; }
+.ano-zona-sigue { right: 0; width: 66%; }
+.ano-zona:focus-visible { outline: 2px solid var(--lacre); outline-offset: -4px; }
+
+.ano-etiqueta { font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase; font-weight: 600; color: var(--acento); }
+.ano-num {
+  font-family: var(--font-serif); font-optical-sizing: auto; font-variant-numeric: tabular-nums;
+  font-size: clamp(88px, 32vw, 148px); line-height: 0.95; letter-spacing: -0.02em; color: var(--acento);
+  animation-name: ano-pop; animation-timing-function: var(--ease-latido);
+}
+@keyframes ano-pop { from { opacity: 0; transform: scale(0.7); } to { opacity: 1; transform: none; } }
+.ano-gran, .ano-pista { color: inherit; }
+.ano-gran { text-wrap: balance; }
+.ano-gran { font-family: var(--font-serif); font-optical-sizing: auto; font-size: clamp(30px, 9.4vw, 42px); line-height: 1.12; font-weight: 400; letter-spacing: -0.01em; }
+.ano-lugar { display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+.ano-texto { font-family: var(--font-serif); font-size: 21px; line-height: 1.35; color: var(--ink-2); }
+.ano-lacre .ano-texto { color: inherit; opacity: 0.92; }
+.ano-emoji { font-size: 44px; line-height: 1.1; padding-top: 6px; }
+.ano-pista { position: absolute; left: 0; right: 0; bottom: calc(env(safe-area-inset-bottom) + 20px); text-align: center; font-size: 13px; opacity: 0.8; }
+.ano-escena > .ano-pista { animation-delay: 900ms; }
+
+/* Who: 🫒 and 🍪 with their counts */
+.ano-personas { display: flex; gap: 22px; font-family: var(--font-serif); font-size: 30px; line-height: 1.2; padding-top: 6px; }
+.ano-fichas { display: flex; flex-wrap: wrap; gap: 10px; padding-top: 6px; }
+.ano-ficha {
+  font-family: var(--font-serif); font-size: 24px; line-height: 1; padding: 9px 16px; border-radius: 9999px;
+  border: 1.5px solid color-mix(in oklch, currentColor 30%, transparent);
+}
+
+/* Month by month: 12 bars from the month the year starts in, the best one in lacre */
+.ano-meses { display: grid; grid-template-columns: repeat(12, 1fr); gap: 5px; align-items: end; height: 190px; padding-top: 8px; }
+.ano-mes { display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 4px; height: 100%; }
+.ano-mes-n { font-size: 12px; line-height: 1; color: var(--ink-2); min-height: 12px; }
+.ano-mes-barra {
+  width: 100%; height: max(4px, calc(var(--p) * (100% - 40px))); border-radius: 4px 4px 2px 2px; transform-origin: bottom;
+  background-color: color-mix(in oklch, var(--acento) 32%, transparent);
+  animation: ano-crece 640ms var(--ease-suave) both; animation-delay: calc(240ms + var(--k) * 45ms);
+}
+.ano-mes.mejor .ano-mes-barra { background-color: var(--lacre); }
+.ano-mes.mejor .ano-mes-n { color: var(--accent-ink); font-weight: 600; }
+.ano-mes-letra { font-size: 12px; line-height: 1; font-weight: 600; color: var(--ink-2); }
+@keyframes ano-crece { from { transform: scaleY(0); } to { transform: none; } }
+
+/* The favourite photo, as a print with a white border and its hearts under it */
+.ano-polaroid {
+  margin: 4px auto 0; width: min(74vw, 300px); padding: 10px 10px 14px; border-radius: 6px; transform: rotate(-2deg);
+  background-color: var(--raised); border: 1px solid var(--line); box-shadow: var(--sh-2);
+}
+.ano-polaroid img, .ano-polaroid-hueco { display: block; width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 3px; background-color: var(--sunk); }
+html[data-tema='oscuro'] .ano-polaroid img { filter: brightness(0.9); }
+.ano-reacciones { display: flex; justify-content: center; gap: 18px; padding-top: 10px; font-size: 26px; line-height: 1.1; min-height: 36px; }
+.ano-en-foto { align-items: center; text-align: center; }
+
+/* Postmark on the cover: two rings, in the on-lacre ink */
+.ano-matasellos {
+  position: absolute; right: 26px; top: 12%; width: 84px; height: 84px; border-radius: 50%;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+  border: 1.5px solid currentColor; transform: rotate(-14deg); opacity: 0.85; pointer-events: none;
+  animation: ano-sella 520ms var(--ease-latido) 500ms backwards;
+}
+.ano-matasellos::before { content: ""; position: absolute; inset: 5px; border-radius: 50%; border: 1px dashed currentColor; opacity: 0.7; }
+@keyframes ano-sella { from { opacity: 0; transform: scale(1.5) rotate(-30deg); } to { opacity: 0.85; transform: rotate(-14deg); } }
+
+/* Closing letter: airmail edge at the foot, the wax seal and a way out */
+.ano-en-cierre { padding-bottom: calc(env(safe-area-inset-bottom) + 56px); }
+.ano-en-cierre::after {
+  content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 8px; opacity: 0.75;
+  background: repeating-linear-gradient(-45deg, var(--lacre) 0 10px, transparent 10px 20px, var(--sello-el-ink) 20px 30px, transparent 30px 40px);
+}
+.ano-carta { font-family: var(--font-serif); font-size: 21px; line-height: 1.45; color: var(--ink-2); }
+.ano-firma { display: flex; align-items: center; justify-content: space-between; padding-top: 10px; }
+.ano .ano-volver { align-self: flex-start; margin-top: 14px; position: relative; z-index: 4; pointer-events: auto; }
+.ano-sello {
+  display: inline-flex; align-items: center; justify-content: center; width: 52px; height: 52px; flex: none;
+  border-radius: 47% 53% 50% 50% / 52% 48% 52% 48%;
+  color: var(--on-lacre);
+  background: radial-gradient(circle at 34% 30%, color-mix(in oklch, var(--lacre) 72%, white), var(--lacre) 58%, color-mix(in oklch, var(--lacre) 80%, black));
+  box-shadow: var(--sh-1), inset 0 0 0 3px color-mix(in oklch, var(--lacre) 85%, black);
+  transform: rotate(-8deg);
+  animation: ano-lacre 520ms var(--ease-latido) 500ms backwards;
+}
+@keyframes ano-lacre { 0% { opacity: 0; transform: scale(0.6) rotate(-20deg); } 60% { opacity: 1; transform: scale(1.08) rotate(-6deg); } 100% { opacity: 1; transform: rotate(-8deg); } }
