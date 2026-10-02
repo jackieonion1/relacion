@@ -1,4 +1,4 @@
-import { BOTH_LABEL, eventMark, identityEmoji, longDateText, togetherWords, uploadedText, whenText } from './inicio';
+import { BOTH_LABEL, cityTimeText, eventMark, identityEmoji, longDateText, togetherWords, uploadedText, whenText } from './inicio';
 
 describe('togetherWords', () => {
   test('años, meses y días, con el acento en el último', () => {
@@ -36,6 +36,14 @@ test('emoji de cada fila: 🩷💛💜 por tipo, 💖 el 24, 🎂 los cumpleaño
   expect(eventMark({ eventType: 'novia' })).toEqual({ emoji: '💜', label: 'Novia' });
   expect(eventMark({ eventType: 'conjunto', isSpecialEvent: true, specialType: 'monthiversary' }).emoji).toBe('💖');
   expect(eventMark({ eventType: 'lucy-birthday', isSpecialEvent: true, specialType: 'birthday' }).emoji).toBe('🎂');
+});
+
+test('cityTimeText: la hora de cada zona, y null sin zona o con una desconocida', () => {
+  const now = new Date('2026-10-02T12:30:00Z');
+  expect(cityTimeText('Asia/Tokyo', now)).toBe('21:30');
+  expect(cityTimeText('America/Mexico_City', now)).toBe('06:30');
+  expect(cityTimeText(null, now)).toBeNull();
+  expect(cityTimeText('No/Existe', now)).toBeNull();
 });
 
 test('🍪 es ella y 🫒 es él; sin identity no hay pie', () => {

@@ -11,7 +11,7 @@ import { nextSpecialEvents } from '../lib/specialDays';
 import { fetchCityWeather, weatherEmoji, weatherType } from '../lib/weather';
 import { ROLE_LABELS } from '../lib/eventTypes';
 import {
-  BOTH_LABEL, dayMonthText, eventMark, longDateText, monthTile, shortDateText, skyWords, todayText, togetherWords, whenText,
+  BOTH_LABEL, cityTimeText, dayMonthText, eventMark, longDateText, monthTile, shortDateText, skyWords, todayText, togetherWords, whenText,
 } from '../lib/inicio';
 import './Dashboard.css';
 
@@ -26,6 +26,12 @@ export default function Dashboard() {
   const [weatherNovio, setWeatherNovio] = useState(null);
   const [weatherNovia, setWeatherNovia] = useState(null);
   const [weatherLoading, setWeatherLoading] = useState(true);
+  // Local time of each city (C8): the minute hand moves without asking the network again
+  const [clock, setClock] = useState(() => new Date());
+  useEffect(() => {
+    const t = setInterval(() => setClock(new Date()), 30 * 1000);
+    return () => clearInterval(t);
+  }, []);
 
   // Latido (C1): local only, it sends nothing. Each tap beats again; the first one lights the heart
   const [beat, setBeat] = useState(0);
@@ -239,6 +245,7 @@ export default function Dashboard() {
     }
     const theme = getWeatherTheme(w);
     const words = skyWords(theme.type);
+    const localTime = cityTimeText(w.timezone, clock);
     return (
       <div className={`cielo min-w-0 rounded-tarjeta px-3.5 pt-3 pb-3.5 flex flex-col gap-0.5 ${theme.dark ? 'de-noche' : ''}`}>
         <div aria-hidden="true" className={`cielo-fondo ${theme.container} animate-gradient-subtle`} />
@@ -254,7 +261,7 @@ export default function Dashboard() {
         {words && <p className="text-[14px] font-semibold">{words}</p>}
         <p className="num text-[12px] cielo-2">Sensación {w.feels != null ? `${w.feels}°` : '—°'} · 💧 {w.humidity != null ? `${w.humidity} %` : '— %'}</p>
         <p className="num text-[12px] cielo-2">🌬️ {w.wind != null ? `${w.wind} km/h` : '— km/h'}</p>
-        <p className="text-[13px] font-semibold truncate">{w.city || '—'}</p>
+        <p className="text-[13px] font-semibold truncate">{w.city || '—'}{localTime && <span className="num"> · {localTime}</span>}</p>
       </div>
     );
   }

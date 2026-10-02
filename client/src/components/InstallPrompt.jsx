@@ -64,10 +64,15 @@ export default function InstallPrompt() {
     return () => clearTimeout(t);
   }, []);
 
-  // «Ya mostrado» cuenta desde que se ve, no desde que lo pide: si espera turno detrás de otro aviso no se pierde
+  // «Ya mostrado» cuenta desde que se ve, no desde que lo pide: si espera turno detrás de otro aviso no se pierde.
+  // Y si el turno pasa a otro (Actualizar) con la hoja aún sin cerrar, tampoco: vuelve a su turno, aunque la app recargue
   const myTurn = useAvisoTurn('install', visible && ready);
   useEffect(() => {
-    if (myTurn) localStorage.setItem('installPromptShown', '1');
+    if (!myTurn) return undefined;
+    localStorage.setItem('installPromptShown', '1');
+    return () => {
+      if (localStorage.getItem('installPromptDismissed') !== '1') localStorage.removeItem('installPromptShown');
+    };
   }, [myTurn]);
 
   if (!myTurn) return null;

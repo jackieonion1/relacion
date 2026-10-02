@@ -1,4 +1,4 @@
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import Icon from './Icon';
 
 // One slot for the shell notices (plan A2): whoever wants it, by this priority, and only one on screen.
@@ -27,6 +27,23 @@ export function useAvisoTurn(id, wants) {
     return () => want(id, false);
   }, [want, id, wants]);
   return slot ? wants && slot.turn === id : wants;
+}
+
+// The slot's box above the tab bar. It publishes the room the visible notice takes (--aviso-room, 0 with none),
+// which --shell-bottom in index.css adds to the tab bar, so what floats above the bar (.fab) rises over it
+export function Avisos({ children }) {
+  const box = useRef(null);
+  useEffect(() => {
+    const el = box.current;
+    if (!el || typeof ResizeObserver === 'undefined') return undefined;
+    const root = document.documentElement;
+    const publish = () => root.style.setProperty('--aviso-room', el.offsetHeight ? `${el.offsetHeight + 12}px` : '0px');
+    publish();
+    const watch = new ResizeObserver(publish);
+    watch.observe(el);
+    return () => { watch.disconnect(); root.style.removeProperty('--aviso-room'); };
+  }, []);
+  return <div ref={box} className="avisos">{children}</div>;
 }
 
 // The toast of Aviso-version.dc.html: ink card above the tab bar, title and an optional line, actions on the right

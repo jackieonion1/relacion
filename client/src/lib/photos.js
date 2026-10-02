@@ -274,7 +274,8 @@ export async function getDailyPhotoId(pairId) {
     const idx = hash32(`${pairId}|${dayKey}`) % ids.length;
     const chosen = ids[idx];
     // Persist so all devices use the same
-    await setDoc(metaRef, { dayKey, photoId: chosen, updatedAt: fblib.serverTimestamp ? fblib.serverTimestamp() : new Date() }, { merge: true });
+    // Not awaited: offline the write only resolves once the server confirms, and Inicio must paint meanwhile
+    Promise.resolve(setDoc(metaRef, { dayKey, photoId: chosen, updatedAt: fblib.serverTimestamp ? fblib.serverTimestamp() : new Date() }, { merge: true })).catch(() => {});
     return chosen;
   } catch {
     return '';
@@ -297,11 +298,14 @@ export async function getPhotoThumbUrl(pairId, id) {
     const invalid = url && (/\.appspot\.com\//.test(url) || url.indexOf('alt=media') === -1);
     if (!url || invalid) {
       const tRef = ref(storage, `pairs/${pairId}/photos/${id}/thumb.jpg`);
-      url = await getDownloadURL(tRef);
-      try {
-        const dRef = doc(collection(db, 'pairs', pairId, 'photos'), id);
-        await updateDoc(dRef, { thumbUrl: url });
-      } catch {}
+      const freshUrl = await getDownloadURL(tRef);
+      if (freshUrl !== url) {
+        try {
+          const dRef = doc(collection(db, 'pairs', pairId, 'photos'), id);
+          Promise.resolve(updateDoc(dRef, { thumbUrl: freshUrl })).catch(() => {});
+        } catch {}
+      }
+      url = freshUrl;
     }
     return url || '';
   } catch {
@@ -340,10 +344,12 @@ export async function getOriginal(pairId, id) {
         try {
           const oRef = ref(storage, `pairs/${pairId}/photos/${id}/orig.jpg`);
           const freshUrl = await getDownloadURL(oRef);
-          try {
-            const dRef = doc(collection(db, 'pairs', pairId, 'photos'), id);
-            await updateDoc(dRef, { origUrl: freshUrl });
-          } catch {}
+          if (freshUrl !== url) {
+            try {
+              const dRef = doc(collection(db, 'pairs', pairId, 'photos'), id);
+              Promise.resolve(updateDoc(dRef, { origUrl: freshUrl })).catch(() => {});
+            } catch {}
+          }
           const resp2 = await fetch(freshUrl);
           if (resp2.ok) {
             fetched = await resp2.blob();
@@ -377,11 +383,14 @@ export async function getOriginalUrl(pairId, id) {
     const invalid = url && (/\.appspot\.com\//.test(url) || url.indexOf('alt=media') === -1);
     if (!url || invalid) {
       const oRef = ref(storage, `pairs/${pairId}/photos/${id}/orig.jpg`);
-      url = await getDownloadURL(oRef);
-      try {
-        const dRef = doc(collection(db, 'pairs', pairId, 'photos'), id);
-        await updateDoc(dRef, { origUrl: url });
-      } catch {}
+      const freshUrl = await getDownloadURL(oRef);
+      if (freshUrl !== url) {
+        try {
+          const dRef = doc(collection(db, 'pairs', pairId, 'photos'), id);
+          Promise.resolve(updateDoc(dRef, { origUrl: freshUrl })).catch(() => {});
+        } catch {}
+      }
+      url = freshUrl;
     }
     return url || '';
   } catch {

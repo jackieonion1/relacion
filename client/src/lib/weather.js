@@ -140,6 +140,7 @@ export async function fetchCityWeather(city) {
     sunrise: sunriseIso,
     sunset: sunsetIso,
     now: nowIso,
+    timezone: data?.timezone || null, // IANA name from timezone=auto, for the city's local time (C8)
     phase,
     moon: phase === 'night' ? moonPhaseEmoji(now) : null,
   };

@@ -85,6 +85,21 @@ test('el clima pinta la luna y el emoji a la vez y el cielo de la tabla 7 × 4',
   expect(screen.getByText('Sin ubicación')).not.toBeNull();
 });
 
+test('la hora local de la ciudad sale junto a su nombre y se oculta sin zona horaria (C8)', async () => {
+  fetchCityWeather.mockImplementation(async (city) => (city ? {
+    city, temp: 18, feels: 17, humidity: 64, wind: 12, code: 0, phase: 'day', timezone: 'Asia/Tokyo',
+  } : null));
+  const hora = new Intl.DateTimeFormat('es-ES', { timeZone: 'Asia/Tokyo', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date());
+  const { container, unmount } = await mount();
+  expect(container.querySelector('.cielo').textContent).toMatch(`Ciudad A · ${hora}`);
+  unmount();
+  fetchCityWeather.mockImplementation(async (city) => (city ? {
+    city, temp: 18, feels: 17, humidity: 64, wind: 12, code: 0, phase: 'day', timezone: null,
+  } : null));
+  const sin = await mount();
+  expect(sin.container.querySelector('.cielo').textContent).toMatch(/Ciudad A$/);
+});
+
 test('el latido es local: se enciende al tocar y no llama a nada', async () => {
   await mount();
   const heart = screen.getByRole('button', { name: 'Latido' });

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { render, screen, fireEvent, act } from '@testing-library/react';
 import { MemoryRouter, Routes, Route, useLocation } from 'react-router';
-import Aviso, { AvisoSlot, useAvisoTurn } from './Aviso';
+import Aviso, { AvisoSlot, Avisos, useAvisoTurn } from './Aviso';
 import NavBar from './NavBar';
 import MarcaSuperior from './MarcaSuperior';
 
@@ -71,6 +71,27 @@ test('«Más» se marca en las 4 rutas que agrupa', () => {
     const { unmount } = mountNav(path);
     expect(screen.getByRole('button', { name: 'Más' }).className).toMatch(/is-on/);
     unmount();
+  }
+});
+
+test('Avisos publica en --aviso-room lo que ocupa el aviso visible y lo quita al desmontar', () => {
+  const real = global.ResizeObserver;
+  let notify;
+  global.ResizeObserver = class { constructor(cb) { notify = cb; } observe() {} disconnect() {} };
+  let height = 0;
+  const offset = vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockImplementation(() => height);
+  try {
+    const { unmount } = render(<Avisos><span>x</span></Avisos>);
+    const room = () => document.documentElement.style.getPropertyValue('--aviso-room');
+    expect(room()).toBe('0px');
+    height = 52;
+    act(() => { notify(); });
+    expect(room()).toBe('64px');
+    unmount();
+    expect(room()).toBe('');
+  } finally {
+    offset.mockRestore();
+    global.ResizeObserver = real;
   }
 });
 
