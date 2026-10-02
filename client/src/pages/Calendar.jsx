@@ -319,7 +319,8 @@ export default function CalendarPage() {
   const shownSpecial = specialInfo(shownEvent);
 
   return (
-    <div className="flex flex-col gap-4 pb-20">
+    // Own 16 px gutter: with R2 the shell's <main> has no padding on this route (bottom room for the bar is the shell's)
+    <div className="flex flex-col gap-4 px-4 pb-6">
       <header className="flex items-end justify-between gap-3 pt-1.5 pl-1">
         <h1 className="serif text-4xl leading-[1.05] font-normal tracking-[-0.01em]">Calendario</h1>
         <Button icon="nuevo" onClick={openNewEvent} aria-label="Nuevo evento">Nuevo</Button>
