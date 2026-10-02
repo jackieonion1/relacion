@@ -33,7 +33,8 @@ export function buildEventFields({ title, date, time, endDate, location = '', ev
   // Parse date and time
   const [y, m, d] = (date || '').split('-').map(Number);
   let hh = 12, mm = 0;
-  if (time && /^(\d{1,2}):(\d{2})$/.test(time)) {
+  const timed = !!time && /^(\d{1,2}):(\d{2})$/.test(time);
+  if (timed) {
     const parts = time.split(':');
     hh = Math.min(23, Math.max(0, Number(parts[0])));
     mm = Math.min(59, Math.max(0, Number(parts[1])));
@@ -44,6 +45,8 @@ export function buildEventFields({ title, date, time, endDate, location = '', ev
     title: String(title || '').trim(),
     location: String(location || '').trim(),
     start: toTimestamp(startDate),
+    // No time given: start is stored at 12:00 and this tells it apart from an event at 12:00 (the push omits the time)
+    allDay: !timed,
     eventType: eventType || 'conjunto',
     seeEachOther: !!seeEachOther,
   };
@@ -72,7 +75,8 @@ export function eventToFormValues(ev) {
     title: ev?.title || '',
     location: ev?.location || '',
     date: start ? localDay(start) : '',
-    time: start ? `${pad2(start.getHours())}:${pad2(start.getMinutes())}` : '',
+    // An allDay event has no time in the form, so saving it again keeps it allDay
+    time: start && !ev?.allDay ? `${pad2(start.getHours())}:${pad2(start.getMinutes())}` : '',
     endDate: end ? localDay(end) : '',
     eventType: ev?.eventType || 'conjunto',
     seeEachOther: !!ev?.seeEachOther,
