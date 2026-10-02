@@ -21,7 +21,7 @@ import { listFavoritas, primeraFecha } from '../lib/fotoConsultas';
 import { fotosDelDia, fotosEnRango } from '../lib/recuerdos';
 import { fechaEfectiva, rangoMesMadrid, madridMediodia } from '../lib/fotoFecha';
 import { escucharComentarios, addComentario, deleteComentario, marcarLeidos } from '../lib/fotoComentarios';
-import { useNoLeidos } from '../lib/fotoAvisos';
+import { useNoLeidos, useNoLeidosConfirmados } from '../lib/fotoAvisos';
 import './Gallery.css';
 
 const PAGE_SIZE = 60;
@@ -121,6 +121,7 @@ export default function Gallery() {
   const [comentarios, setComentarios] = useState({ id: null, list: null });
   const [comentariosOpen, setComentariosOpen] = useState(false);
   const noLeidos = useNoLeidos();
+  const noLeidosConfirmados = useNoLeidosConfirmados();
   const comentariosDeUrlRef = useRef(''); // opened from a comment's push: its comments open by themselves
   // 3.1 views other than «Todas»: their own list (by effective date) and their own swipe order. Each one is kept
   // while the Gallery is mounted, and our own changes patch it in place
@@ -688,6 +689,7 @@ export default function Gallery() {
 
   function closeViewer() {
     advanceFromRef.current = null;
+    comentariosDeUrlRef.current = '';
     setComentariosOpen(false);
     revokeViewerUrls();
     setViewer({ open: false, id: null, url: '', fallbackUrl: '', loading: false });
@@ -764,13 +766,16 @@ export default function Gallery() {
     if (comentariosOpen && deLaFoto) marcarLeidos(pairId, deLaFoto, identity).catch(() => {});
   }, [comentariosOpen, deLaFoto]);
 
-  // From the push of a comment (/gallery?photo=ID): with something unread, its comments open by themselves
+  // From the push of a comment (/gallery?photo=ID): with something unread, its comments open by themselves. On a cold
+  // start the viewer can be ready before the server has told what is unread (the cache does not have the comment
+  // that just came), so the note stays until it does
   useEffect(() => {
     const from = comentariosDeUrlRef.current;
     if (!from || !viewer.open || viewer.loading) return;
-    comentariosDeUrlRef.current = '';
     if (viewer.id === from && sinLeer) setComentariosOpen(true);
-  }, [viewer.open, viewer.id, viewer.loading, sinLeer]);
+    else if (viewer.id === from && !noLeidosConfirmados) return;
+    comentariosDeUrlRef.current = '';
+  }, [viewer.open, viewer.id, viewer.loading, sinLeer, noLeidosConfirmados]);
 
   async function onSendComentario(text) {
     const id = viewer.id;

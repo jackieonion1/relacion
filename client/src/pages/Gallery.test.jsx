@@ -7,7 +7,7 @@ import { listPhotosPage, listPendingPhotos, getPendingIds, retryPendingPhotos, g
 import { listPhotosBy } from '../lib/photos';
 import { escucharFoto, setReaccion, setFavorita } from '../lib/fotoSocial';
 import { escucharComentarios, addComentario, deleteComentario, marcarLeidos } from '../lib/fotoComentarios';
-import { useNoLeidos } from '../lib/fotoAvisos';
+import { useNoLeidos, useNoLeidosConfirmados } from '../lib/fotoAvisos';
 import { ponerFecha, ponerFavorita } from '../lib/fotoSeleccion';
 import { madridMediodia } from '../lib/fotoFecha';
 
@@ -44,7 +44,7 @@ vi.mock('../lib/fotoComentarios', async (orig) => ({
   deleteComentario: vi.fn(),
   marcarLeidos: vi.fn(),
 }));
-vi.mock('../lib/fotoAvisos', () => ({ useNoLeidos: vi.fn(), useGaleriaBadge: vi.fn() }));
+vi.mock('../lib/fotoAvisos', () => ({ useNoLeidos: vi.fn(), useNoLeidosConfirmados: vi.fn(), useGaleriaBadge: vi.fn() }));
 vi.mock('../lib/fotoSeleccion', async (orig) => ({ ...(await orig()), ponerFecha: vi.fn(), ponerFavorita: vi.fn() }));
 const NADA_SIN_LEER = new Map();
 beforeEach(() => {
@@ -57,6 +57,7 @@ beforeEach(() => {
   deleteComentario.mockResolvedValue();
   marcarLeidos.mockResolvedValue();
   useNoLeidos.mockReturnValue(NADA_SIN_LEER);
+  useNoLeidosConfirmados.mockReturnValue(true);
   ponerFecha.mockImplementation(async (pairId, ids) => ({ hechas: ids.length, borradas: [], fallidas: [] }));
   ponerFavorita.mockImplementation(async (pairId, ids) => ({ hechas: ids.length, borradas: [], fallidas: [] }));
 });
@@ -422,6 +423,35 @@ describe('3.1: comentarios en el visor', () => {
     await act(flush);
     expect(screen.getByRole('heading', { name: 'Comentarios' })).toBeTruthy();
     expect(cells()[0].getAttribute('aria-label')).toMatch('con comentarios sin leer');
+  });
+
+  test('en frío el no leído llega tarde: la apertura sola espera al primer dato del servidor', async () => {
+    useNoLeidosConfirmados.mockReturnValue(false);
+    const arbol = () => <MemoryRouter initialEntries={['/gallery?photo=K']}><Gallery /></MemoryRouter>;
+    const { rerender } = render(arbol());
+    await act(flush);
+    await rest();
+    expect(screen.queryByRole('heading', { name: 'Comentarios' })).toBeNull();
+    useNoLeidos.mockReturnValue(new Map([['K', 1]]));
+    useNoLeidosConfirmados.mockReturnValue(true);
+    rerender(arbol());
+    await act(flush);
+    expect(screen.getByRole('heading', { name: 'Comentarios' })).toBeTruthy();
+  });
+
+  test('si el servidor confirma que no hay nada sin leer, la hoja no se abre después', async () => {
+    useNoLeidosConfirmados.mockReturnValue(false);
+    const arbol = () => <MemoryRouter initialEntries={['/gallery?photo=K']}><Gallery /></MemoryRouter>;
+    const { rerender } = render(arbol());
+    await act(flush);
+    await rest();
+    useNoLeidosConfirmados.mockReturnValue(true);
+    rerender(arbol());
+    await act(flush);
+    useNoLeidos.mockReturnValue(new Map([['K', 1]]));
+    rerender(arbol());
+    await act(flush);
+    expect(screen.queryByRole('heading', { name: 'Comentarios' })).toBeNull();
   });
 });
 

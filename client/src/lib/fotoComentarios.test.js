@@ -91,12 +91,15 @@ test('marcarLeidos solo toca los que esta persona no ha leído, uno a uno', asyn
 
 test('escucharNoLeidos: una sola cláusula array-contains y { id, photoId } de cada uno', async () => {
   let push;
-  onSnapshot.mockImplementation((q, next) => { push = next; return () => {}; });
+  onSnapshot.mockImplementation((q, opts, next) => { push = next; return () => {}; });
   const seen = [];
-  escucharNoLeidos('SEB1998', 'ella', (l) => seen.push(l));
+  escucharNoLeidos('SEB1998', 'ella', (l, deCache) => seen.push([l, deCache]));
   await flush();
   expect(where).toHaveBeenCalledWith('unreadFor', 'array-contains', 'ella');
   expect(where).toHaveBeenCalledTimes(1);
-  push({ docs: [{ id: 'C1', data: () => ({ photoId: 'F1' }) }] });
-  expect(seen).toEqual([[{ id: 'C1', photoId: 'F1' }]]);
+  expect(onSnapshot.mock.calls[0][1]).toEqual({ includeMetadataChanges: true });
+  const docs = [{ id: 'C1', data: () => ({ photoId: 'F1' }) }];
+  push({ docs, metadata: { fromCache: true } });
+  push({ docs, metadata: { fromCache: false } });
+  expect(seen).toEqual([[[{ id: 'C1', photoId: 'F1' }], true], [[{ id: 'C1', photoId: 'F1' }], false]]);
 });

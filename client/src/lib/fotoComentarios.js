@@ -98,12 +98,14 @@ export async function marcarLeidos(pairId, comentarios, identity) {
   await Promise.allSettled(unread.map((c) => f.updateDoc(f.doc(commentsCol(f, pairId), c.id), { unreadFor: f.arrayRemove(identity) })));
 }
 
-// Comments still unread by `identity`, across every photo: [{ id, photoId }]. A single array-contains (automatic index)
+// Comments still unread by `identity`, across every photo: [{ id, photoId }], and whether that answer is still only
+// the cache's (a cold start shows what was there before the server says what has come since; the metadata changes
+// are listened to so the server's answer shows up even when it is the same one). A single array-contains (automatic index)
 export function escucharNoLeidos(pairId, identity, onChange, onError) {
   if (!pairId || !WHO[identity] || !db) return () => {};
   return listenWhenAuthed(async () => {
     const f = await fb();
     const q = f.query(commentsCol(f, pairId), f.where('unreadFor', 'array-contains', identity));
-    return f.onSnapshot(q, (snap) => onChange(snap.docs.map((d) => ({ id: d.id, photoId: d.data()?.photoId || '' }))), onError);
+    return f.onSnapshot(q, { includeMetadataChanges: true }, (snap) => onChange(snap.docs.map((d) => ({ id: d.id, photoId: d.data()?.photoId || '' })), !!snap.metadata?.fromCache), onError);
   }, onError);
 }
