@@ -1,7 +1,8 @@
 // Time capsules (3.1): a letter (and maybe a photo) for both or for the other one, that opens on a chosen day.
 // pairs/{p}/capsules/{id} is the envelope everyone reads (who, for whom, openAt at 00:00 Madrid); the content lives in
 // pairs/{p}/capsuleSecrets/{id}, which the rules only let through, one by one, once the server clock reaches openAt.
-// The photo is pairs/{p}/capsules/{id}/img.jpg in Storage and is read with getBlob: no download URL is ever stored
+// The photo is pairs/{p}/capsules/{id}/{openAtMs}.jpg in Storage, sealed by its own name (no Firestore doc decides
+// when it opens), and is read with getBlob: no download URL is ever stored
 import { db, auth, storage, listenWhenAuthed, whenAuthed } from './firebase';
 import { rangoDiaMadrid } from './fotoFecha';
 
@@ -20,7 +21,7 @@ async function fb() {
 
 const capsulesCol = (f, pairId) => f.collection(db, 'pairs', pairId, 'capsules');
 const secretsCol = (f, pairId) => f.collection(db, 'pairs', pairId, 'capsuleSecrets');
-const mediaPath = (pairId, id) => `pairs/${pairId}/capsules/${id}/img.jpg`;
+const mediaPath = (pairId, id, openAtMs) => `pairs/${pairId}/capsules/${id}/${openAtMs}.jpg`;
 
 // --- Pure: days and words ---
 
@@ -162,11 +163,12 @@ export async function crearCapsula(pairId, { texto, titulo, dia, para, foto = nu
   const f = await fb();
   if (!auth?.currentUser) throw new Error('no-auth');
   const ref = f.doc(capsulesCol(f, pairId));
-  const openAt = f.Timestamp.fromMillis(abreEl(v.dia));
+  const openAtMs = abreEl(v.dia);
+  const openAt = f.Timestamp.fromMillis(openAtMs);
   let path = '';
   if (foto) {
     const { ref: sref, uploadBytes } = await import('firebase/storage');
-    path = mediaPath(pairId, ref.id);
+    path = mediaPath(pairId, ref.id, openAtMs);
     await uploadBytes(sref(storage, path), await reducirFoto(foto), { contentType: 'image/jpeg' });
   }
   const batch = f.writeBatch(db);
@@ -236,7 +238,8 @@ export async function marcarAbierta(pairId, id, identity) {
   await f.updateDoc(f.doc(capsulesCol(f, pairId), id), { openedFor: f.arrayUnion(identity) }).catch(() => {});
 }
 
-// Envelope, content and photo
+// Envelope, content and, once its day has come, photo: the rules keep a sealed photo even from its own pair, so one
+// deleted unopened stays in Storage, as sealed as before
 export async function borrarCapsula(pairId, capsula) {
   if (!pairId || !capsula?.id || !db) return;
   await whenAuthed();
@@ -245,9 +248,9 @@ export async function borrarCapsula(pairId, capsula) {
   batch.delete(f.doc(capsulesCol(f, pairId), capsula.id));
   batch.delete(f.doc(secretsCol(f, pairId), capsula.id));
   const committed = batch.commit();
-  if (capsula.kind === 'foto') {
+  if (capsula.kind === 'foto' && capsula.openAt && capsula.openAt <= Date.now()) {
     const { ref: sref, deleteObject } = await import('firebase/storage');
-    deleteObject(sref(storage, mediaPath(pairId, capsula.id))).catch(() => {});
+    deleteObject(sref(storage, mediaPath(pairId, capsula.id, capsula.openAt))).catch(() => {});
   }
   if (isOnline()) await committed;
   else committed.catch(() => {});

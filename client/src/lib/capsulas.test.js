@@ -176,10 +176,17 @@ describe('con Firebase (simulado)', () => {
     expect(updateDoc).toHaveBeenCalledWith({ path: 'pairs/SEB1998/capsules/K1', id: 'K1' }, { openedFor: '+ella' });
   });
 
-  test('borrarCapsula borra sobre, contenido y foto', async () => {
+  test('borrarCapsula borra sobre, contenido y foto (que lleva su openAt en la ruta)', async () => {
     deleteObject.mockResolvedValue();
-    await borrarCapsula('SEB1998', { id: 'K1', kind: 'foto' });
+    const openAt = Date.now() - 1000;
+    await borrarCapsula('SEB1998', { id: 'K1', kind: 'foto', openAt });
     expect(batch.delete.mock.calls.map(([r]) => r.path)).toEqual(['pairs/SEB1998/capsules/K1', 'pairs/SEB1998/capsuleSecrets/K1']);
-    expect(deleteObject).toHaveBeenCalledWith({ p: 'pairs/SEB1998/capsules/K1/img.jpg' });
+    expect(deleteObject).toHaveBeenCalledWith({ p: `pairs/SEB1998/capsules/K1/${openAt}.jpg` });
+  });
+
+  test('borrarCapsula sin abrir no intenta borrar la foto sellada (las reglas no lo dejan)', async () => {
+    await borrarCapsula('SEB1998', { id: 'K1', kind: 'foto', openAt: Date.now() + 86400e3 });
+    expect(batch.delete).toHaveBeenCalledTimes(2);
+    expect(deleteObject).not.toHaveBeenCalled();
   });
 });

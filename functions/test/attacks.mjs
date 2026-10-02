@@ -159,14 +159,14 @@ await getAuth().importUsers([
   await call('lockPair', { pairId: P }, 'yo-D');
   // El sobre y el contenido, en un commit como el writeBatch del cliente; la foto, en Storage
   const sobre = (openAt) => ({ openAt: ts(openAt), fromIdentity: { stringValue: 'ella' }, forIdentity: { stringValue: 'yo' }, kind: { stringValue: 'foto' }, openedFor: { arrayValue: {} } });
-  const secreto = (openAt) => ({ openAt: ts(openAt), text: { stringValue: 'sorpresa' }, mediaPath: { stringValue: `pairs/${P}/capsules/k1/img.jpg` } });
+  const secreto = (openAt) => ({ openAt: ts(openAt), text: { stringValue: 'sorpresa' }, mediaPath: { stringValue: `pairs/${P}/capsules/k1/${FUTURO}.jpg` } });
   const commit = async (uid, writes) => (await fetch(`${base}:commit`, { method: 'POST', headers: H(uid), body: JSON.stringify({ writes }) })).status;
   const crear = (id, a, b = a) => [
     { update: { name: docName(`/pairs/${P}/capsules/${id}`), fields: sobre(a) }, currentDocument: { exists: false } },
     { update: { name: docName(`/pairs/${P}/capsuleSecrets/${id}`), fields: secreto(b) }, currentDocument: { exists: false } },
   ];
   check(await commit('yo-D', crear('k1', FUTURO)) === 200, 'I se crea una cápsula sellada');
-  check(await sstatus('POST', `pairs/${P}/capsules/k1/img.jpg`, 'yo-D') === 200, 'I se sube su foto');
+  check(await sstatus('POST', `pairs/${P}/capsules/k1/${FUTURO}.jpg`, 'yo-D') === 200, 'I se sube su foto');
 
   // Leer antes de tiempo: get, list, consultas (también filtrando por openAt), batchGet y collection group
   check(await req('GET', `/pairs/${P}/capsuleSecrets/k1`, 'yo-D') === 403, 'I get del contenido antes de openAt');
@@ -178,12 +178,12 @@ await getAuth().importUsers([
   const batchGet = await fetch(`${base}:batchGet`, { method: 'POST', headers: H('yo-D'), body: JSON.stringify({ documents: [docName(`/pairs/${P}/capsuleSecrets/k1`)] }) });
   check(batchGet.status === 403, `I batchGet del contenido, sin caché que valga (status ${batchGet.status})`);
   // Storage: ni los metadatos (donde iría el token de descarga), ni los bytes, ni listar la carpeta
-  check(await sstatus('GET', `pairs/${P}/capsules/k1/img.jpg`, 'yo-D') === 403, 'I Storage: metadatos de la foto antes de openAt');
-  const media = await fetch(`http://${storageHost}/v0/b/demo-relacion.appspot.com/o/${encodeURIComponent(`pairs/${P}/capsules/k1/img.jpg`)}?alt=media`, { headers: { Authorization: `Bearer ${jwt('yo-D')}` } });
+  check(await sstatus('GET', `pairs/${P}/capsules/k1/${FUTURO}.jpg`, 'yo-D') === 403, 'I Storage: metadatos de la foto antes de openAt');
+  const media = await fetch(`http://${storageHost}/v0/b/demo-relacion.appspot.com/o/${encodeURIComponent(`pairs/${P}/capsules/k1/${FUTURO}.jpg`)}?alt=media`, { headers: { Authorization: `Bearer ${jwt('yo-D')}` } });
   check(media.status === 403, `I Storage: bytes de la foto antes de openAt (status ${media.status})`);
   const list = await fetch(`http://${storageHost}/v0/b/demo-relacion.appspot.com/o?prefix=${encodeURIComponent(`pairs/${P}/capsules/`)}`, { headers: { Authorization: `Bearer ${jwt('yo-D')}` } });
   check(list.status === 403, `I Storage: listar las fotos de las cápsulas (status ${list.status})`);
-  check(await sstatus('POST', `pairs/${P}/capsules/k1/img.jpg`, 'yo-D') === 403, 'I Storage: reemplazar la foto sellada');
+  check(await sstatus('POST', `pairs/${P}/capsules/k1/${FUTURO}.jpg`, 'yo-D') === 403, 'I Storage: reemplazar la foto sellada');
 
   // Adelantar la fecha: crear con openAt pasado, editar openAt (sobre o contenido), o borrar y recrear
   check(await commit('yo-D', crear('k2', PASADO)) === 403, 'I crear con openAt pasado');
@@ -200,6 +200,60 @@ await getAuth().importUsers([
   // De fuera de la pareja (cerrada): ni el sobre
   check(await req('GET', `/pairs/${P}/capsules/k1`, 'stranger') === 403, 'I extraño lee el sobre');
   check(await commit('stranger', crear('k4', FUTURO)) === 403, 'I extraño crea una cápsula');
+}
+
+// J. Cápsula, segunda ronda (adversario del lote C): borrar el sobre y el contenido y recrearlos con el mismo id y un
+// openAt futuro pero cercano (+2 s) no adelanta la foto, que lleva su openAt en la ruta; la foto sellada tampoco se
+// borra ni se reemplaza; y el texto no se recupera así (borrar el contenido lo destruye)
+{
+  const P = 'ATKJ';
+  const docName = (p) => `projects/demo-relacion/databases/(default)/documents${p}`;
+  const ts = (ms) => ({ timestampValue: new Date(ms).toISOString() });
+  const so = `http://${storageHost}/v0/b/demo-relacion.appspot.com/o`;
+  const commit = async (uid, writes) => (await fetch(`${base}:commit`, { method: 'POST', headers: H(uid), body: JSON.stringify({ writes }) })).status;
+  const upload = async (p, uid, bytes) => (await fetch(`${so}?name=${encodeURIComponent(p)}`, { method: 'POST', headers: { 'Content-Type': 'image/jpeg', Authorization: `Bearer ${jwt(uid)}` }, body: bytes })).status;
+  const media = async (p, uid) => { const r = await fetch(`${so}/${encodeURIComponent(p)}?alt=media`, { headers: { Authorization: `Bearer ${jwt(uid)}` } }); return { status: r.status, body: r.status === 200 ? await r.text() : '' }; };
+  const sdel = async (p, uid) => (await fetch(`${so}/${encodeURIComponent(p)}`, { method: 'DELETE', headers: { Authorization: `Bearer ${jwt(uid)}` } })).status;
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const foto = (p, id, openAt) => `pairs/${p}/capsules/${id}/${openAt}.jpg`;
+  const sobre = (openAt) => ({ openAt: ts(openAt), fromIdentity: { stringValue: 'ella' }, forIdentity: { stringValue: 'yo' }, kind: { stringValue: 'foto' }, openedFor: { arrayValue: {} } });
+  const secreto = (p, id, openAt, text, fotoAt = openAt) => ({ openAt: ts(openAt), text: { stringValue: text }, mediaPath: { stringValue: foto(p, id, fotoAt) } });
+  const crear = (p, id, openAt, text, fotoAt) => [
+    { update: { name: docName(`/pairs/${p}/capsules/${id}`), fields: sobre(openAt) }, currentDocument: { exists: false } },
+    { update: { name: docName(`/pairs/${p}/capsuleSecrets/${id}`), fields: secreto(p, id, openAt, text, fotoAt) }, currentDocument: { exists: false } },
+  ];
+  const borrar = (p, id) => [{ delete: docName(`/pairs/${p}/capsules/${id}`) }, { delete: docName(`/pairs/${p}/capsuleSecrets/${id}`) }];
+  const FUTURO = Date.now() + 30 * 86400e3;
+
+  // Pareja cerrada: el otro miembro, curioso
+  await call('joinPair', { pairId: P }, 'yo-D');
+  await call('joinPair', { pairId: P }, 'yo-C');
+  await call('lockPair', { pairId: P }, 'yo-D');
+  check(await commit('yo-D', crear(P, 'j1', FUTURO, 'carta original')) === 200, 'J se crea una cápsula con foto');
+  check(await upload(foto(P, 'j1', FUTURO), 'yo-D', 'FOTO-SECRETA') === 200, 'J se sube su foto');
+  check((await media(foto(P, 'j1', FUTURO), 'yo-C')).status === 403, 'J el otro no lee la foto antes de tiempo');
+  check(await commit('yo-C', borrar(P, 'j1')) === 200, 'J el otro borra sobre y contenido (borrar es de cualquiera)');
+  const CERCA = Date.now() + 2000;
+  check(await commit('yo-C', crear(P, 'j1', CERCA, 'falsa', FUTURO)) === 200, 'J el otro los recrea con openAt +2 s apuntando a la foto');
+  await sleep(3000);
+  const m = await media(foto(P, 'j1', FUTURO), 'yo-C');
+  check(m.status === 403 && !m.body.includes('FOTO-SECRETA'), `J la foto sigue sellada tras recrear con openAt cercano (status ${m.status})`);
+  const t = await fetch(`${base}/pairs/${P}/capsuleSecrets/j1`, { headers: H('yo-C') });
+  const texto = t.status === 200 ? (await t.json()).fields?.text?.stringValue : '';
+  check(texto !== 'carta original', `J el texto original no vuelve: se lee el recreado (${JSON.stringify(texto)})`);
+  // La foto sellada no se borra ni se reemplaza (ni por la misma ruta)
+  check(await sdel(foto(P, 'j1', FUTURO), 'yo-C') === 403, 'J borrar la foto sellada');
+  check(await upload(foto(P, 'j1', FUTURO), 'yo-C', 'OTRA') === 403, 'J reemplazar la foto sellada');
+  check(await upload(foto(P, 'j1', Date.now() - 1000), 'yo-C', 'OTRA') === 403, 'J subir una foto con openAt pasado');
+
+  // Pareja abierta, un extraño que nunca se unió: misma vía
+  const Q = 'ATKJ2';
+  check(await commit('yo-B', crear(Q, 'j1', FUTURO, 'carta')) === 200, 'J abierta: se crea una cápsula con foto');
+  check(await upload(foto(Q, 'j1', FUTURO), 'yo-B', 'FOTO-SECRETA') === 200, 'J abierta: se sube su foto');
+  check(await commit('stranger', borrar(Q, 'j1')) === 200, 'J abierta: el extraño borra sobre y contenido');
+  check(await commit('stranger', crear(Q, 'j1', Date.now() + 2000, 'x', FUTURO)) === 200, 'J abierta: el extraño los recrea con openAt +2 s');
+  await sleep(3000);
+  check((await media(foto(Q, 'j1', FUTURO), 'stranger')).status === 403, 'J abierta: el extraño no lee la foto sellada');
 }
 
 if (failures.length) { console.error(`ataques FALLÓ: ${failures.length} check(s) en rojo`); process.exit(1); }

@@ -31,7 +31,7 @@ const req = async (method, p, { uid, body } = {}) => {
   });
   return res.status;
 };
-const allowed = (s) => s === 200 || s === 404;
+const allowed = (s) => s === 200 || s === 204 || s === 404;
 const expectAllow = async (label, method, p, opts) => { const s = await req(method, p, opts); check(allowed(s), `ALLOW ${label} (status ${s})`); };
 const expectDeny = async (label, method, p, opts) => { const s = await req(method, p, opts); check(s === 403, `DENY  ${label} (status ${s})`); };
 
@@ -229,19 +229,24 @@ await expectCommit('deny', 'cerrada, no miembro crea una cápsula', STRANGER, cr
 await expectCommit('allow', 'abierta, no miembro crea una cápsula', STRANGER, crear('ABIERTA1', 'c1', FUTURO));
 await expectAllow('abierta, no miembro list capsules', 'GET', '/pairs/ABIERTA1/capsules', { uid: STRANGER });
 await expectDeny('abierta, no miembro get capsuleSecrets antes de openAt', 'GET', '/pairs/ABIERTA1/capsuleSecrets/c1', { uid: STRANGER });
-// Storage: la foto se sube una vez y se lee solo pasado el openAt de su contenido
-await expectStorage('allow', 'miembro sube la foto de una cápsula', 'POST', `pairs/${PAIR}/capsules/c7/img.jpg`, ME);
-await db.doc(`pairs/${PAIR}/capsuleSecrets/c7`).set({ openAt: Timestamp.fromMillis(FUTURO), mediaPath: `pairs/${PAIR}/capsules/c7/img.jpg` });
-await expectStorage('deny', 'miembro lee la foto antes de openAt', 'GET', `pairs/${PAIR}/capsules/c7/img.jpg`, ME);
-await expectStorage('deny', 'nadie reemplaza la foto de una cápsula', 'POST', `pairs/${PAIR}/capsules/c7/img.jpg`, ME);
-await expectStorage('allow', 'miembro sube la foto de una cápsula abierta (siembra)', 'POST', `pairs/${PAIR}/capsules/c9/img.jpg`, ME);
-await expectStorage('allow', 'miembro lee la foto pasado openAt', 'GET', `pairs/${PAIR}/capsules/c9/img.jpg`, ME);
-await expectStorage('deny', 'cerrada, no miembro lee la foto pasado openAt', 'GET', `pairs/${PAIR}/capsules/c9/img.jpg`, STRANGER);
-await expectStorage('deny', 'foto de una cápsula sin contenido', 'GET', `pairs/${PAIR}/capsules/c8/img.jpg`, ME);
-// Abierta y sin unirse (cliente 3.1 recién abierto): la regla mira tres documentos (contenido, members y pairs/p)
-await db.doc('pairs/ABIERTA1/capsuleSecrets/c9').set({ openAt: Timestamp.fromMillis(PASADO), mediaPath: 'pairs/ABIERTA1/capsules/c9/img.jpg' });
-await expectStorage('allow', 'abierta, no miembro sube la foto de una cápsula', 'POST', 'pairs/ABIERTA1/capsules/c9/img.jpg', STRANGER);
-await expectStorage('allow', 'abierta, no miembro lee la foto pasado openAt', 'GET', 'pairs/ABIERTA1/capsules/c9/img.jpg', STRANGER);
+// Storage: la foto lleva su openAt en el nombre ({openAtMs}.jpg); se sube una vez con openAt futuro, y se lee y se
+// borra solo pasado ese openAt. Las que se abren, con openAt a 2 s y una espera
+await expectStorage('allow', 'miembro sube la foto de una cápsula', 'POST', `pairs/${PAIR}/capsules/c7/${FUTURO}.jpg`, ME);
+await expectStorage('deny', 'miembro lee la foto antes de openAt', 'GET', `pairs/${PAIR}/capsules/c7/${FUTURO}.jpg`, ME);
+await expectStorage('deny', 'nadie reemplaza la foto de una cápsula', 'POST', `pairs/${PAIR}/capsules/c7/${FUTURO}.jpg`, ME);
+await expectStorage('deny', 'nadie borra la foto sellada', 'DELETE', `pairs/${PAIR}/capsules/c7/${FUTURO}.jpg`, ME);
+await expectStorage('deny', 'foto con openAt pasado', 'POST', `pairs/${PAIR}/capsules/c8/${PASADO}.jpg`, ME);
+await expectStorage('deny', 'foto sin openAt en el nombre', 'POST', `pairs/${PAIR}/capsules/c8/img.jpg`, ME);
+const PRONTO = Date.now() + 2000;
+await expectStorage('allow', 'miembro sube la foto de una cápsula que se abre en 2 s', 'POST', `pairs/${PAIR}/capsules/c9/${PRONTO}.jpg`, ME);
+await expectStorage('allow', 'abierta, no miembro sube la foto de una cápsula', 'POST', `pairs/ABIERTA1/capsules/c9/${PRONTO}.jpg`, STRANGER);
+await new Promise((r) => setTimeout(r, PRONTO - Date.now() + 500));
+await expectStorage('allow', 'miembro lee la foto pasado openAt', 'GET', `pairs/${PAIR}/capsules/c9/${PRONTO}.jpg`, ME);
+await expectStorage('deny', 'cerrada, no miembro lee la foto pasado openAt', 'GET', `pairs/${PAIR}/capsules/c9/${PRONTO}.jpg`, STRANGER);
+await expectStorage('deny', 'nadie reemplaza la foto ya abierta', 'POST', `pairs/${PAIR}/capsules/c9/${PRONTO}.jpg`, ME);
+await expectStorage('allow', 'miembro borra la foto ya abierta', 'DELETE', `pairs/${PAIR}/capsules/c9/${PRONTO}.jpg`, ME);
+// Abierta y sin unirse (cliente 3.1 recién abierto): sin firestore.get del contenido, canUse mira dos documentos
+await expectStorage('allow', 'abierta, no miembro lee la foto pasado openAt', 'GET', `pairs/ABIERTA1/capsules/c9/${PRONTO}.jpg`, STRANGER);
 
 // --- Callables de membresía (pareja de prueba propia, para no mezclar con lo de arriba) ---
 const J = 'JOIN2024';
