@@ -461,6 +461,18 @@ describe('photoItem y listPhotosBy', () => {
     await expect(listPhotosBy(PAIR, () => 'q')).rejects.toThrow('permission-denied');
   });
 
+  test('alResponder dice si la respuesta salió de la caché local', async () => {
+    getThumb.mockResolvedValue(null);
+    const alResponder = vi.fn();
+    getDocs.mockResolvedValue({ docs: [], metadata: { fromCache: true } });
+    await listPhotosBy(PAIR, () => 'q', { alResponder });
+    getDocs.mockResolvedValue({ docs: [], metadata: { fromCache: false } });
+    await listPhotosBy(PAIR, () => 'q', { alResponder });
+    getDocs.mockResolvedValue({ docs: [] });
+    await listPhotosBy(PAIR, () => 'q', { alResponder });
+    expect(alResponder.mock.calls).toEqual([[true], [false], [false]]);
+  });
+
   test('los items de listPhotosBy llevan la miniatura de su doc (thumbDoc), también los que keep deja sin resolver', async () => {
     getDocs.mockResolvedValue({ docs: [snap('D0', { thumbUrl: 'https://t/0?alt=media', createdAt: ts(9) }), snap('D1', { createdAt: ts(8) })] });
     getThumb.mockResolvedValue(null);

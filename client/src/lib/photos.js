@@ -196,12 +196,15 @@ function fillThumbs(fblib, pairId, docs, items, onThumb) {
 // buildQuery(firestoreLib, photosCollection) returns the query, with the functions of firebase/firestore that
 // lib/photos loads (collection, query, where, orderBy, limit, startAfter, documentId…); dates go as Date.
 // `keep(item)` drops items before their thumbs are resolved. Returns { items } (+ thumbsDone with onThumb, like
-// listPhotosPage). Local-only (no Firebase) there are no photos to query: { items: [] }. A failed query throws
-export async function listPhotosBy(pairId, buildQuery, { onThumb = null, keep = null } = {}) {
+// listPhotosPage). `alResponder(fromCache)` is told whether the answer came from the local cache (no connection)
+// rather than the server, for whoever cannot trust an empty one. Local-only (no Firebase) there are no photos to
+// query: { items: [] }. A failed query throws
+export async function listPhotosBy(pairId, buildQuery, { onThumb = null, keep = null, alResponder = null } = {}) {
   const fblib = await fb();
   if (!(db && fblib)) return { items: [] };
   if (!(await whenAuthed())) throw Object.assign(new Error('no-auth'), { code: 'no-auth' });
   const snap = await fblib.getDocs(buildQuery(fblib, fblib.collection(db, 'pairs', pairId, 'photos')));
+  alResponder?.(snap.metadata?.fromCache === true);
   const docs = [];
   const items = [];
   for (const docSnap of snap.docs) {

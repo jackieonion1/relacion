@@ -7,11 +7,12 @@ const PAIR = 'SEB1998';
 const foto = (id, createdAt, takenAt = null) => ({ id, thumbUrl: '', createdAt, takenAt });
 
 // Cada consulta sale con el campo por el que filtra, para que el test sepa a cuál contesta
-function consultas({ porCreatedAt = [], porTakenAt = [] }) {
-  listPhotosBy.mockImplementation(async (pairId, build, { keep } = {}) => {
+function consultas({ porCreatedAt = [], porTakenAt = [], desdeCache = false }) {
+  listPhotosBy.mockImplementation(async (pairId, build, { keep, alResponder } = {}) => {
     const where = vi.fn((campo) => campo);
     const query = vi.fn((col, ...campos) => campos[0]);
     const campo = build({ query, where }, 'col');
+    alResponder?.(desdeCache);
     const lista = campo === 'createdAt' ? porCreatedAt : porTakenAt;
     return { items: keep ? lista.filter(keep) : lista };
   });
@@ -66,6 +67,25 @@ describe('fotosDelDia', () => {
     listPhotosBy.mockClear();
     expect(await fotosDelDia(PAIR, hoy)).toEqual([]);
     expect(listPhotosBy).not.toHaveBeenCalled();
+  });
+
+  test('si las consultas salen de la caché (sin red) el día vacío no se recuerda', async () => {
+    consultas({ desdeCache: true });
+    expect(await fotosDelDia(PAIR, hoy)).toEqual([]);
+    expect(localStorage.length).toBe(0);
+    listPhotosBy.mockClear();
+    consultas({});
+    await fotosDelDia(PAIR, hoy);
+    expect(listPhotosBy).toHaveBeenCalledTimes(6); // the next look does ask, and now it is remembered
+    expect(localStorage.length).toBe(1);
+  });
+
+  test('con el móvil sin conexión el día vacío tampoco se recuerda', async () => {
+    const enLinea = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
+    consultas({});
+    expect(await fotosDelDia(PAIR, hoy)).toEqual([]);
+    enLinea.mockRestore();
+    expect(localStorage.length).toBe(0);
   });
 
   test('el 29 de febrero se salta los años que no son bisiestos', async () => {
