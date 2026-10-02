@@ -7,7 +7,7 @@ import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
 import webpush from 'web-push';
 import { createHash, randomInt } from 'node:crypto';
-import { eventBody } from './pushLogic.js';
+import { eventBody, truncate } from './pushLogic.js';
 import { deviceLabel } from './membershipLogic.js';
 import { madridDate, remindersFor, skipPairs } from './reminders.js';
 import { capsuleDay, capsulePushes } from './capsulas.js';
@@ -238,13 +238,6 @@ async function sendToPair(pairId, payload, { excludeIdentity, excludeUid } = {})
   // Una línea por envío; sin endpoints ni claves
   console.log('push', JSON.stringify(summary));
   return summary;
-}
-
-function truncate(str = '', n = 120) {
-  try {
-    const s = String(str || '').replace(/\s+/g, ' ').trim();
-    return s.length > n ? s.slice(0, n - 1) + '…' : s;
-  } catch { return ''; }
 }
 
 export const onNewNote = onDocumentCreated('pairs/{pairId}/notes/{noteId}', async (event) => {

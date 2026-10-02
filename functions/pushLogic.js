@@ -35,3 +35,16 @@ export function eventBody(data) {
   if (place) parts.push(place);
   return parts.join(' · ');
 }
+
+const graphemes = new Intl.Segmenter('es', { granularity: 'grapheme' });
+
+// A push body of at most n characters, cut by graphemes: an emoji (also 👩‍❤️‍👨 or 🇪🇸) at the cut is left out
+// whole, never split into a lone surrogate that shows as «�»
+export function truncate(str = '', n = 120) {
+  try {
+    const s = String(str || '').replace(/\s+/g, ' ').trim();
+    if (s.length <= n) return s;
+    const parts = Array.from(graphemes.segment(s), (g) => g.segment);
+    return parts.length > n ? parts.slice(0, n - 1).join('') + '…' : s;
+  } catch { return ''; }
+}
