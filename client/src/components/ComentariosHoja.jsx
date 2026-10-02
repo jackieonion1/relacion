@@ -79,13 +79,13 @@ export default function ComentariosHoja({ isOpen, onClose, comentarios, cargando
               placeholder="Escribe un comentario…"
               aria-label="Escribe un comentario"
               enterKeyHint="send"
-              className="flex-1 min-w-0 bg-transparent text-base text-ink placeholder:text-ink-2 outline-none"
+              className="flex-1 min-w-0 h-full bg-transparent text-base text-ink placeholder:text-ink-2 outline-none"
             />
             <button
               type="submit"
               aria-label="Enviar"
               disabled={!limpiarComentario(texto) || enviando}
-              className="flex items-center justify-center size-9 shrink-0 rounded-full bg-lacre text-on-lacre disabled:opacity-40 active:scale-95 transition-transform"
+              className="relative flex items-center justify-center size-9 shrink-0 rounded-full bg-lacre text-on-lacre disabled:opacity-40 active:scale-95 transition-transform before:absolute before:-inset-1 before:content-['']"
             >
               <Icon name="enviar" size={20} />
             </button>

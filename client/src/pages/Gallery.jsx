@@ -1091,7 +1091,7 @@ export default function Gallery() {
                     type="button"
                     onClick={() => (seleccionando ? alternar(g.items.map((it) => it.id)) : empezarSeleccion())}
                     aria-label={seleccionando ? `${llena ? 'Quitar' : 'Elegir'} todas las de ${g.label}` : undefined}
-                    className={`absolute right-2 ${gi === 0 ? '-top-2.5' : 'top-2.5'} h-10 px-3 rounded-full text-[13px] font-semibold text-accent-ink active:bg-sunk`}
+                    className={`absolute right-2 ${gi === 0 ? '-top-3' : 'top-2'} h-11 px-3 rounded-full text-[13px] font-semibold text-accent-ink active:bg-sunk`}
                   >
                     {!seleccionando ? 'Seleccionar' : llena ? 'Ninguna' : 'Todas'}
                   </button>
@@ -1100,7 +1100,7 @@ export default function Gallery() {
               <h2 className={`etiqueta px-5 pb-2.5 ${gi === 0 ? 'pt-1' : 'pt-6'}`}>
                 {vista.tipo === 'haceUnAno' ? g.label : (
                   // A month's heading opens «Ir a un mes»
-                  <button type="button" onClick={abrirSaltar} aria-haspopup="dialog" className="inline-flex items-center gap-1 -my-2 py-2 uppercase active:opacity-60">
+                  <button type="button" onClick={abrirSaltar} aria-haspopup="dialog" className="inline-flex items-center gap-1 -my-3.25 py-3.25 uppercase active:opacity-60">
                     {g.label}<Icon name="abajo" size={14} />
                   </button>
                 )}

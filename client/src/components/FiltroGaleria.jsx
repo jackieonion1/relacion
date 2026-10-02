@@ -17,7 +17,8 @@ export default function FiltroGaleria({ valor, onChange }) {
           type="button"
           aria-pressed={valor === f.id}
           onClick={() => onChange(f.id)}
-          className={`min-w-0 flex items-center justify-center gap-1 rounded-full text-[14px] font-semibold transition-colors ${
+          // The ::before grows the touch area to the whole 44 px pill, not the 36 px that shows
+          className={`relative min-w-0 flex items-center justify-center gap-1 rounded-full text-[14px] font-semibold transition-colors before:absolute before:-inset-y-1 before:inset-x-0 before:content-[''] ${
             valor === f.id ? 'bg-raised text-ink shadow-carta' : 'text-ink-2'
           }`}
         >
