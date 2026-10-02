@@ -10,7 +10,7 @@ import { escucharComentarios, addComentario, deleteComentario, marcarLeidos } fr
 import { useNoLeidos, useNoLeidosConfirmados } from '../lib/fotoAvisos';
 import { ponerFecha, ponerFavorita } from '../lib/fotoSeleccion';
 import { madridMediodia } from '../lib/fotoFecha';
-import { registrarTanda, resolverTandas } from '../lib/actividad';
+import { registrarActividad, borrarActividad, registrarTanda, resolverTandas } from '../lib/actividad';
 
 // The real module underneath: a name that lib/photos gains later is there without touching this mock (a closed list
 // would throw «no "x" export is defined» for the modules Gallery pulls in, e.g. lib/recuerdos). Only what the tests
@@ -48,7 +48,7 @@ vi.mock('../lib/fotoComentarios', async (orig) => ({
 vi.mock('../lib/fotoAvisos', () => ({ useNoLeidos: vi.fn(), useNoLeidosConfirmados: vi.fn(), useGaleriaBadge: vi.fn() }));
 vi.mock('../lib/fotoSeleccion', async (orig) => ({ ...(await orig()), ponerFecha: vi.fn(), ponerFavorita: vi.fn() }));
 // What the viewer tells the other one (its own tests are in lib/actividad.test.js)
-vi.mock('../lib/actividad', async (orig) => ({ ...(await orig()), registrarActividad: vi.fn(), registrarTanda: vi.fn(), resolverTandas: vi.fn() }));
+vi.mock('../lib/actividad', async (orig) => ({ ...(await orig()), registrarActividad: vi.fn(), borrarActividad: vi.fn(), registrarTanda: vi.fn(), resolverTandas: vi.fn() }));
 // The picker has its own tests: here it only answers Gallery with what its onDone gets
 const { selectorAlbum } = vi.hoisted(() => ({ selectorAlbum: vi.fn() }));
 vi.mock('../components/AlbumPicker', () => ({
@@ -791,6 +791,61 @@ describe('3.1: selección y fecha en bloque', () => {
     await act(async () => { fireEvent.click(within(screen.getByRole('region', { name: 'Fotos subidas el mismo día' })).getByRole('button', { name: 'Ahora no' })); await flush(); });
     expect(screen.queryByRole('region', { name: 'Fotos subidas el mismo día' })).toBeNull();
     localStorage.removeItem('galeria:golpe-visto:SEB1998');
+  });
+});
+
+describe('3.1: los avisos se retiran con lo que cuentan', () => {
+  const foto = { id: 'K', thumbUrl: '', createdAt: new Date(2025, 2, 12, 12).getTime(), identity: 'ella', commentCount: 1, reactions: {} };
+  const mio = { id: 'c1', photoId: 'K', text: 'Mío', identity: 'yo', createdAt: null, unreadFor: [] };
+  beforeEach(() => {
+    localStorage.setItem('identity', 'yo');
+    listPhotosPage.mockResolvedValue({ items: [foto], cursor: null, hasMore: false, thumbsDone: Promise.resolve() });
+    getOriginal.mockResolvedValue(null);
+    getOriginalUrl.mockResolvedValue('https://example.test/orig.jpg');
+    deleteComentario.mockResolvedValue({ committed: Promise.resolve() });
+  });
+  afterEach(() => localStorage.removeItem('identity'));
+  const abrir = async () => {
+    await mount();
+    await act(async () => { fireEvent.click(cells()[0]); await flush(); });
+    await rest();
+  };
+
+  test('un comentario se cuenta con el id del comentario, y al borrarlo su aviso se va', async () => {
+    await abrir();
+    await act(async () => { escucharComentarios.mock.calls.at(-1)[2]([mio]); await flush(); });
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Comentarios: 1' })); await flush(); });
+    const hoja = screen.getByRole('dialog');
+    fireEvent.change(within(hoja).getByRole('textbox', { name: 'Escribe un comentario' }), { target: { value: 'Mucho' } });
+    await act(async () => { fireEvent.click(within(hoja).getByRole('button', { name: 'Enviar' })); await flush(); });
+    expect(registrarActividad).toHaveBeenCalledWith('SEB1998', 'yo', 'comentario', expect.objectContaining({ clave: 'C1', ref: { photoId: 'K' } }));
+    await act(async () => { fireEvent.click(within(hoja).getByRole('button', { name: 'Mío' })); await flush(); });
+    await act(async () => { fireEvent.click(within(hoja).getByRole('button', { name: 'Borrar comentario' })); await flush(); });
+    expect(deleteComentario).toHaveBeenCalled();
+    expect(borrarActividad).toHaveBeenCalledWith('SEB1998', 'comentario', { clave: 'c1' });
+  });
+
+  test('quitar la reacción borra su aviso; quitar la favorita de una foto del otro, también', async () => {
+    await abrir();
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: '🥹' })); await flush(); });
+    expect(registrarActividad).toHaveBeenCalledWith('SEB1998', 'yo', 'reaccion', expect.objectContaining({ texto: '🥹' }));
+    expect(borrarActividad).not.toHaveBeenCalled();
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: '🥹' })); await flush(); });
+    expect(borrarActividad).toHaveBeenLastCalledWith('SEB1998', 'reaccion', { quien: 'yo', ref: { photoId: 'K' } });
+    const corazon = screen.getByRole('button', { name: 'Favorita' });
+    await act(async () => { fireEvent.click(corazon); await flush(); });
+    expect(registrarActividad).toHaveBeenCalledWith('SEB1998', 'yo', 'favorita', expect.objectContaining({ autor: 'ella' }));
+    await act(async () => { fireEvent.click(corazon); await flush(); });
+    expect(borrarActividad).toHaveBeenLastCalledWith('SEB1998', 'favorita', { quien: 'yo', ref: { photoId: 'K' } });
+  });
+
+  test('quitar la favorita de una foto propia no toca los avisos (nunca dejó ninguno)', async () => {
+    listPhotosPage.mockResolvedValue({ items: [{ ...foto, identity: 'yo' }], cursor: null, hasMore: false, thumbsDone: Promise.resolve() });
+    await abrir();
+    const corazon = screen.getByRole('button', { name: 'Favorita' });
+    await act(async () => { fireEvent.click(corazon); await flush(); });
+    await act(async () => { fireEvent.click(corazon); await flush(); });
+    expect(borrarActividad).not.toHaveBeenCalled();
   });
 });
 

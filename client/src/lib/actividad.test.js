@@ -1,9 +1,9 @@
 import {
   entradaActividad, registrarActividad, textoActividad, lineaActividad, tiempoRelativo, paraMi, noLeidas, insignia,
   agruparActividad, destinoActividad, escucharActividad, escucharVisto, marcarVisto, MOSTRADAS, NUNCA,
-  registrarTanda, resolverTandas,
+  registrarTanda, resolverTandas, idActividad, borrarActividad,
 } from './actividad';
-import { collection, doc, setDoc, onSnapshot, query, orderBy, limit, where, serverTimestamp, Timestamp } from 'firebase/firestore';
+import { collection, doc, setDoc, deleteDoc, onSnapshot, query, orderBy, limit, where, serverTimestamp, Timestamp } from 'firebase/firestore';
 
 vi.mock('./firebase', async () => {
   const { listenAfterAuth } = await vi.importActual('./authGate');
@@ -20,6 +20,7 @@ vi.mock('firebase/firestore', () => ({
   collection: vi.fn(),
   doc: vi.fn(),
   setDoc: vi.fn(),
+  deleteDoc: vi.fn(),
   onSnapshot: vi.fn(),
   query: vi.fn(),
   orderBy: vi.fn(),
@@ -40,6 +41,7 @@ beforeEach(() => {
   serverTimestamp.mockReturnValue('<ahora>');
   Timestamp.fromMillis.mockImplementation((ms) => `ts:${ms}`);
   setDoc.mockResolvedValue();
+  deleteDoc.mockResolvedValue();
 });
 
 describe('entradaActividad: qué deja cada acción', () => {
@@ -71,6 +73,25 @@ describe('entradaActividad: qué deja cada acción', () => {
     expect(entradaActividad('fotos', 'ella', { n: 0 })).toBeNull();
     const c = entradaActividad('capsula', 'yo', { ref: { capsuleId: 'K1' }, ambos: true, texto: '' });
     expect(c.data).toEqual({ tipo: 'capsula', quien: 'yo', para: 'ella', ref: { capsuleId: 'K1' }, ambos: true });
+  });
+
+  // What a delete has to find again: the comment, the note and the event have their own id (their `clave`)
+  test('comentario, nota y evento: id fijo con la clave de lo que cuentan; sin clave, automático', () => {
+    expect(entradaActividad('comentario', 'yo', { ref: { photoId: 'F1' }, clave: 'C1', autor: 'ella' }).id).toBe('comentario-C1');
+    expect(entradaActividad('nota', 'yo', { ref: { noteId: 'N1' }, clave: 'N1' }).id).toBe('nota-N1');
+    expect(entradaActividad('evento', 'yo', { ref: { eventId: 'E1' }, clave: 'E1' }).id).toBe('evento-E1');
+    expect(entradaActividad('eventoEditado', 'yo', { ref: { eventId: 'E1' }, clave: 'E1' }).id).toBe('eventoEditado-E1');
+    expect(entradaActividad('nosVemos', 'yo', { ref: { eventId: 'E1' }, clave: 'E1' }).id).toBe('nosVemos-E1');
+    expect(entradaActividad('comentario', 'yo', { ref: { photoId: 'F1' }, autor: 'ella' }).id).toBe('');
+    expect(entradaActividad('fotos', 'yo', { n: 2, clave: 'X' }).id).toBe('');
+    expect(entradaActividad('nota', 'yo', { clave: 'a/b' }).id).toBe('');
+  });
+
+  test('idActividad: el mismo id que escribió la entrada, también para quitar una reacción', () => {
+    expect(idActividad('reaccion', 'ella', { ref: { photoId: 'F1' } })).toBe('reaccion-F1-ella');
+    expect(idActividad('favorita', 'yo', { ref: { photoId: 'F1' } })).toBe('favorita-F1-yo');
+    expect(idActividad('reaccion', '', { ref: { photoId: 'F1' } })).toBe('');
+    expect(idActividad('comentario', '', { clave: 'C1' })).toBe('comentario-C1');
   });
 
   test('nada sin identidad conocida, con un tipo desconocido o sin la foto', () => {
@@ -115,6 +136,47 @@ describe('registrarActividad', () => {
     registrarActividad('p1', 'yo', 'reaccion', { ref: { photoId: 'F1' }, texto: '' });
     await flush();
     expect(setDoc).not.toHaveBeenCalled();
+  });
+});
+
+// What is taken back (a comment, a note, an event, a reaction, a favourite) takes its aviso away, in the background
+describe('borrarActividad', () => {
+  const rutas = () => deleteDoc.mock.calls.map(([r]) => r.path).sort();
+
+  test('sin saber quién lo escribió, lo busca en las dos colecciones', async () => {
+    expect(borrarActividad('p1', 'comentario', { clave: 'C1' })).toBeUndefined();
+    await flush();
+    expect(rutas()).toEqual(['pairs/p1/actividad-ella/comentario-C1', 'pairs/p1/actividad-yo/comentario-C1']);
+  });
+
+  test('quitar una reacción o una favorita borra la suya, solo en la colección de la otra persona', async () => {
+    borrarActividad('p1', 'reaccion', { quien: 'ella', ref: { photoId: 'F1' } });
+    borrarActividad('p1', 'favorita', { quien: 'yo', ref: { photoId: 'F1' } });
+    await flush();
+    expect(rutas()).toEqual(['pairs/p1/actividad-ella/favorita-F1-yo', 'pairs/p1/actividad-yo/reaccion-F1-ella']);
+  });
+
+  test('un evento borrado se lleva sus tres avisos', async () => {
+    borrarActividad('p1', ['evento', 'eventoEditado', 'nosVemos'], { clave: 'E1' });
+    await flush();
+    expect(rutas()).toHaveLength(6);
+    expect(rutas()).toContain('pairs/p1/actividad-yo/nosVemos-E1');
+    expect(rutas()).toContain('pairs/p1/actividad-ella/eventoEditado-E1');
+  });
+
+  test('si falla solo avisa en la consola; sin pareja o sin id no borra nada', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    deleteDoc.mockRejectedValue(new Error('denied'));
+    expect(() => borrarActividad('p1', 'nota', { clave: 'N1' })).not.toThrow();
+    await flush();
+    expect(warn).toHaveBeenCalledWith('Activity delete failed', expect.any(Error));
+    deleteDoc.mockClear();
+    borrarActividad('', 'nota', { clave: 'N1' });
+    borrarActividad('p1', 'nota', {});
+    borrarActividad('p1', 'reaccion', { ref: { photoId: 'F1' } });
+    await flush();
+    expect(deleteDoc).not.toHaveBeenCalled();
+    warn.mockRestore();
   });
 });
 

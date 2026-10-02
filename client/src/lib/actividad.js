@@ -29,10 +29,18 @@ function corto(text) {
   return t.length > MAX_TEXTO ? `${t.slice(0, MAX_TEXTO - 1).trimEnd()}…` : t;
 }
 
+// The id of the entry an action leaves ('' = an automatic one). A reaction and a favourite have a fixed id per photo and
+// person: changing the reaction rewrites the same entry. A comment, a note and an event have the one of what they tell
+// about (`clave`, its own id): taking it back finds its entry again. Taking back a reaction needs `quien` too
+export function idActividad(tipo, quien, { ref = {}, clave = '' } = {}) {
+  if (tipo === 'reaccion' || tipo === 'favorita') return WHO[quien] && ref.photoId ? `${tipo}-${ref.photoId}-${quien}` : '';
+  if (['comentario', 'nota', 'evento', 'eventoEditado', 'nosVemos'].includes(tipo)) return /^[\w-]+$/.test(clave) ? `${tipo}-${clave}` : '';
+  return '';
+}
+
 // The entry an action leaves: { id, data } (id '' = an automatic one), or null when there is nothing to tell.
-// A reaction and a favourite have a fixed id per photo and person: changing the reaction rewrites the same entry.
 // `autor` is who uploaded the photo: a favourite is only told on the other's photos, and the rest say «tu foto» then
-export function entradaActividad(tipo, quien, { ref = {}, texto = '', n = 0, autor = '', ambos = false } = {}) {
+export function entradaActividad(tipo, quien, { ref = {}, texto = '', n = 0, autor = '', ambos = false, clave = '' } = {}) {
   if (!WHO[quien] || !TIPOS.includes(tipo)) return null;
   const para = otra(quien);
   const limpio = {};
@@ -48,8 +56,7 @@ export function entradaActividad(tipo, quien, { ref = {}, texto = '', n = 0, aut
   if (tipo === 'fotos') data.n = Math.floor(n);
   if (conFoto) data.tuya = autor === para;
   if (tipo === 'capsula') data.ambos = !!ambos;
-  const id = tipo === 'reaccion' || tipo === 'favorita' ? `${tipo}-${limpio.photoId}-${quien}` : '';
-  return { id, data };
+  return { id: idActividad(tipo, quien, { ref: limpio, clave }), data };
 }
 
 // Writes the entry of an action, in the background. Returns nothing and never throws: callers never wait for it
@@ -62,6 +69,20 @@ export function registrarActividad(pairId, quien, tipo, datos) {
     const col = f.collection(db, 'pairs', pairId, `actividad-${e.data.para}`);
     await f.setDoc(e.id ? f.doc(col, e.id) : f.doc(col), { ...e.data, createdAt: f.serverTimestamp() });
   })().catch((err) => console.warn('Activity write failed', err));
+}
+
+// Takes back the avisos of what has been taken back (a comment, a note, an event, a reaction, a favourite), in the
+// background like registrarActividad: it never throws and never holds the action. `tipo` is one or several. With `quien`
+// (who wrote it) only the collection of the other is asked; without it, the two (a note can be deleted by either)
+export function borrarActividad(pairId, tipo, { quien = '', ref = {}, clave = '' } = {}) {
+  (async () => {
+    const ids = [].concat(tipo).map((t) => idActividad(t, quien, { ref, clave })).filter(Boolean);
+    if (!pairId || !db || !ids.length) return;
+    const cols = WHO[quien] ? [`actividad-${otra(quien)}`] : ['actividad-yo', 'actividad-ella'];
+    await whenAuthed();
+    const f = await fb();
+    await Promise.all(cols.flatMap((c) => ids.map((id) => f.deleteDoc(f.doc(f.collection(db, 'pairs', pairId, c), id)))));
+  })().catch((err) => console.warn('Activity delete failed', err));
 }
 
 // --- Batches of photos ---

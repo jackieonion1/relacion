@@ -22,7 +22,7 @@ import { fotosDelDia, fotosEnRango, olvidarVacioHoy } from '../lib/recuerdos';
 import { fechaEfectiva, rangoMesMadrid, madridMediodia } from '../lib/fotoFecha';
 import { escucharComentarios, addComentario, deleteComentario, marcarLeidos } from '../lib/fotoComentarios';
 import { useNoLeidos, useNoLeidosConfirmados } from '../lib/fotoAvisos';
-import { registrarActividad, registrarTanda, resolverTandas } from '../lib/actividad';
+import { registrarActividad, borrarActividad, registrarTanda, resolverTandas } from '../lib/actividad';
 import './Gallery.css';
 
 const PAGE_SIZE = 60;
@@ -339,8 +339,10 @@ export default function Gallery() {
     // An open «Favoritas» keeps the photo (nothing jumps under the finger); the next visit asks again
     vistaCacheRef.current.delete('favoritas');
     setFavorita(pairId, id, identity, on).catch((e) => console.warn('Favourite failed', e));
-    // Avisos of the other one: only a favourite put on, and only on their photo
+    // Avisos of the other one: only a favourite put on, and only on their photo; taking it off takes the aviso away
+    const deLaOtra = viewerFoto?.identity === (identity === 'yo' ? 'ella' : 'yo');
     if (on) registrarActividad(pairId, identity, 'favorita', { ref: { photoId: id }, autor: viewerFoto?.identity });
+    else if (deLaOtra) borrarActividad(pairId, 'favorita', { quien: identity, ref: { photoId: id } });
   }
 
   async function abrirSaltar() {
@@ -502,6 +504,7 @@ export default function Gallery() {
     });
     setReaccion(pairId, id, identity, emoji).catch((e) => console.warn('Reaction failed', e));
     if (emoji) registrarActividad(pairId, identity, 'reaccion', { ref: { photoId: id }, texto: emoji, autor: viewerFoto?.identity });
+    else borrarActividad(pairId, 'reaccion', { quien: identity, ref: { photoId: id } });
   }
 
   async function loadMore() {
@@ -855,16 +858,19 @@ export default function Gallery() {
 
   async function onSendComentario(text) {
     const id = viewer.id;
-    await addComentario(pairId, id, text, identity);
+    const { id: comentarioId } = await addComentario(pairId, id, text, identity);
     patchFoto(id, (it) => ({ commentCount: (it.commentCount || 0) + 1 }));
-    registrarActividad(pairId, identity, 'comentario', { ref: { photoId: id }, texto: text, autor: viewerFoto?.identity });
+    registrarActividad(pairId, identity, 'comentario', { ref: { photoId: id }, clave: comentarioId, texto: text, autor: viewerFoto?.identity });
   }
 
   function onDeleteComentario(c) {
     // The sheet has all the comments of the photo, so the count is set to what is left
     const restantes = deLaFoto && comentarios.id === c.photoId ? deLaFoto.filter((x) => x.id !== c.id).length : undefined;
     deleteComentario(pairId, c, restantes)
-      .then((r) => r?.committed.catch((e) => console.warn('Comment delete failed', e)))
+      .then((r) => {
+        if (r) borrarActividad(pairId, 'comentario', { clave: c.id }); // its aviso goes with it
+        return r?.committed.catch((e) => console.warn('Comment delete failed', e));
+      })
       .catch((e) => console.warn('Comment delete failed', e));
     patchFoto(c.photoId, (it) => ({ commentCount: restantes ?? Math.max(0, (it.commentCount || 0) - 1) }));
   }

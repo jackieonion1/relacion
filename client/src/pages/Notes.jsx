@@ -8,7 +8,7 @@ import RichTextEditor from '../components/RichTextEditor';
 import { addNote, deleteNote, listenNotes, deleteThread, markThreadRead } from '../lib/notes';
 import { sanitizeHtml, htmlToPlain } from '../lib/sanitize';
 import { authorEmoji, noteMillis, noteWhen } from '../lib/noteText';
-import { registrarActividad } from '../lib/actividad';
+import { registrarActividad, borrarActividad } from '../lib/actividad';
 
 export default function Notes() {
   const pairId = useMemo(() => localStorage.getItem('pairId') || '', []);
@@ -74,7 +74,7 @@ export default function Notes() {
       const titleTrim = (title || '').trim();
       // Only waits for the write to be queued, not for the server ack (offline it never arrives)
       const { id, committed } = await addNote(pairId, { html: clean, plain, title: titleTrim }, identity, { threadId: replyThreadId || '' });
-      registrarActividad(pairId, identity, 'nota', { ref: { noteId: id, threadId: replyThreadId || id }, texto: titleTrim || plain });
+      registrarActividad(pairId, identity, 'nota', { ref: { noteId: id, threadId: replyThreadId || id }, clave: id, texto: titleTrim || plain });
       // If the server ends up rejecting it the listener drops the note: say so instead of losing it silently
       committed.catch(() => {
         setNotice(`No se pudo guardar la nota${titleTrim ? ` "${titleTrim}"` : ''}.`);
@@ -112,6 +112,7 @@ export default function Notes() {
     const { id } = deleteConfirmation;
     try {
       await deleteNote(pairId, id);
+      borrarActividad(pairId, 'nota', { clave: id }); // its aviso goes with it
       // If we were viewing this note in the modal, close it and reset state
       if (selectedNote && selectedNote.id === id) {
         setIsModalOpen(false);
@@ -191,7 +192,8 @@ export default function Notes() {
   function askDeleteOpen() {
     setOptionsOpen(false);
     if (isThreadView) {
-      setDeleteThreadConfirmation({ isOpen: true, threadId: selectedThreadId });
+      // The notes of the thread now: their avisos go with it
+      setDeleteThreadConfirmation({ isOpen: true, threadId: selectedThreadId, ids: notes.filter((n) => (n.threadId || n.id) === selectedThreadId).map((n) => n.id) });
     } else if (selectedNote) {
       onDelete(selectedNote.id, selectedNote.body || '', selectedNote.html || '', selectedNote.plain || '');
     }
@@ -379,7 +381,7 @@ export default function Notes() {
           <Button
             variant="dan"
             size="l"
-            onClick={async () => { try { await deleteThread(pairId, deleteThreadConfirmation.threadId); } catch {}; setDeleteThreadConfirmation({ isOpen: false, threadId: '' }); setIsModalOpen(false); setIsThreadView(false); setSelectedThreadId(''); }}
+            onClick={async () => { try { await deleteThread(pairId, deleteThreadConfirmation.threadId); (deleteThreadConfirmation.ids || []).forEach((id) => borrarActividad(pairId, 'nota', { clave: id })); } catch {}; setDeleteThreadConfirmation({ isOpen: false, threadId: '' }); setIsModalOpen(false); setIsThreadView(false); setSelectedThreadId(''); }}
           >Borrar nota</Button>
           <Button variant="txt" size="l" onClick={() => setDeleteThreadConfirmation({ isOpen: false, threadId: '' })}>Cancelar</Button>
         </div>
