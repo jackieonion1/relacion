@@ -1,4 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
+import Sheet from './Sheet';
+import Field from './Field';
+import Button from './Button';
+import { revealFocused, useKeyboardInset } from '../lib/keyboardInset';
 
 function exec(cmd, value = null) {
   try {
@@ -19,6 +23,9 @@ export default function RichTextEditor({ html, onChange, className = '' }) {
   const editorRef = useRef(null);
   const [states, setStates] = useState({ bold: false, italic: false });
   const savedRangeRef = useRef(null);
+  const [linkOpen, setLinkOpen] = useState(false);
+  const [linkUrl, setLinkUrl] = useState('');
+  const linkInset = useKeyboardInset(linkOpen);
 
   const updateStates = () => {
     try {
@@ -149,70 +156,61 @@ export default function RichTextEditor({ html, onChange, className = '' }) {
     onInput();
   };
 
+  // The link asks for its address in a sheet (it was a prompt()); the selection is kept in savedRangeRef meanwhile
   const createLink = () => {
     const sel = window.getSelection();
     if (!sel || sel.rangeCount === 0) return;
     const range = sel.getRangeAt(0);
     if (range.collapsed) return; // require selection
-    const url = prompt('URL (https://...)');
+    savedRangeRef.current = range.cloneRange();
+    setLinkUrl('');
+    setLinkOpen(true);
+  };
+
+  const onLinkSubmit = (e) => {
+    e.preventDefault();
+    e.stopPropagation(); // the sheet is a portal: without this the submit reaches the note form and saves it
+    const url = linkUrl.trim();
+    setLinkOpen(false);
     if (!url) return;
-    let u = url.trim();
+    let u = url;
     if (!/^https?:\/\//i.test(u)) u = 'https://' + u;
     applyInline('createLink', u);
   };
 
+  const TOOLS = [
+    { label: 'Negrita', d: ICON_BOLD, pressed: states.bold, run: () => applyInline('bold') },
+    { label: 'Cursiva', d: ICON_ITALIC, pressed: states.italic, run: () => applyInline('italic') },
+    { label: 'Lista de puntos', d: ICON_LIST, run: () => listify(false) },
+    { label: 'Lista numerada', d: ICON_OLIST, run: () => listify(true) },
+    { label: 'Enlace', d: ICON_LINK, run: createLink },
+  ];
+
   return (
     <div className={className}>
-      <div className="flex flex-wrap gap-2 mb-2">
-        <button
-          type="button"
-          aria-label="Negrita"
-          className={`px-3 py-1.5 rounded-sm text-sm ${states.bold ? 'bg-rose-100 text-rose-700' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={() => applyInline('bold')}
-        >
-          <span className="font-bold">B</span>
-        </button>
-        <button
-          type="button"
-          aria-label="Cursiva"
-          className={`px-3 py-1.5 rounded-sm text-sm ${states.italic ? 'bg-rose-100 text-rose-700' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={() => applyInline('italic')}
-        >
-          <span className="italic">I</span>
-        </button>
-        <button
-          type="button"
-          aria-label="Lista de puntos"
-          className={`px-3 py-1.5 rounded-sm text-sm bg-gray-100 text-gray-700 hover:bg-gray-200`}
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={() => listify(false)}
-        >
-          •
-        </button>
-        <button
-          type="button"
-          aria-label="Lista numerada"
-          className={`px-3 py-1.5 rounded-sm text-sm bg-gray-100 text-gray-700 hover:bg-gray-200`}
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={() => listify(true)}
-        >
-          1.
-        </button>
-        <button
-          type="button"
-          aria-label="Enlace"
-          className={`px-3 py-1.5 rounded-sm text-sm bg-gray-100 text-gray-700 hover:bg-gray-200`}
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={createLink}
-        >
-          ⛓️
-        </button>
+      <div role="toolbar" aria-label="Formato" className="sticky top-0 z-10 flex gap-1 py-1 -mx-1 bg-card">
+        {TOOLS.map((t) => (
+          <button
+            key={t.label}
+            type="button"
+            aria-label={t.label}
+            aria-pressed={t.pressed === undefined ? undefined : t.pressed}
+            className={`flex items-center justify-center w-12 h-11 rounded-xl transition-colors ${t.pressed ? 'bg-lacre-soft text-accent-ink' : 'text-ink-2 active:bg-sunk'}`}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={t.run}
+          >
+            <svg viewBox="0 0 24 24" width={20} height={20} fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
+              <path d={t.d} />
+            </svg>
+          </button>
+        ))}
       </div>
       <div
         ref={editorRef}
-        className="input rte w-full min-h-40 max-h-[50vh] overflow-auto leading-relaxed"
+        role="textbox"
+        aria-multiline="true"
+        aria-label="Texto de la nota"
+        className="rte w-full min-h-[200px] py-2 text-[17px] leading-[1.55] outline-hidden empty:before:content-[attr(placeholder)] empty:before:text-ink-2"
         contentEditable
         suppressContentEditableWarning
         onInput={onInput}
@@ -220,6 +218,31 @@ export default function RichTextEditor({ html, onChange, className = '' }) {
         onKeyUp={updateStates}
         placeholder="Escribe tu nota…"
       />
+      <Sheet isOpen={linkOpen} onClose={() => setLinkOpen(false)}>
+        <form onSubmit={onLinkSubmit} className="flex flex-col gap-3.5 px-5 pt-2 pb-[34px]" style={{ marginBottom: linkInset }}>
+          <h2 className="serif text-[26px] leading-[1.15] font-normal">Añadir enlace</h2>
+          <Field
+            label="Dirección"
+            placeholder="https://…"
+            inputMode="url"
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck={false}
+            value={linkUrl}
+            onChange={(e) => setLinkUrl(e.target.value)}
+            onFocus={(e) => revealFocused(e.target)}
+          />
+          <Button type="submit" size="l" disabled={!linkUrl.trim()}>Añadir enlace</Button>
+          <Button variant="txt" size="l" onClick={() => setLinkOpen(false)}>Cancelar</Button>
+        </form>
+      </Sheet>
     </div>
   );
 }
+
+// Format icons from Prototipo.dc.html (FMT), same 24 grid as Icon
+const ICON_BOLD = 'M7 5h5.5a3.5 3.5 0 0 1 0 7H7zM7 12h6.5a3.5 3.5 0 0 1 0 7H7z';
+const ICON_ITALIC = 'M10 5h8M6 19h8M14 5l-4 14';
+const ICON_LIST = 'M9 7h11M9 12h11M9 17h11M4.5 7h.01M4.5 12h.01M4.5 17h.01';
+const ICON_OLIST = 'M10 7h10M10 12h10M10 17h10M4 6l1.5-1v4M4 14.5a1.5 1.5 0 1 1 2.5 1.2L4 18h3';
+const ICON_LINK = 'M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1';
