@@ -73,19 +73,25 @@ export async function addComentario(pairId, photoId, text, identity) {
     commentCount: f.increment(1),
     lastCommentAt: f.serverTimestamp(),
     lastCommentBy: identity,
-  }).catch(() => {}); // the photo may be gone: the comment stays, and is deleted with it by the server
+  }).catch(() => {}); // the photo may be gone: the comment stays (deletePhoto deletes the ones that exist when the photo goes)
   return { id: ref.id, committed };
 }
 
-// Each one deletes their own (the sheet only offers it on ours)
-export async function deleteComentario(pairId, comentario) {
-  if (!pairId || !comentario?.id || !db) return;
+// Each one deletes their own (the sheet only offers it on ours). Both writes are queued without waiting for the
+// server, as in addComentario: offline the wait would never end and the count would never go down. `restantes` =
+// how many comments are left, when the sheet knows (it has them all): the count is set to that, so it can neither
+// stay above the real number nor go below 0; without it, one less. Resolves once queued; `committed` is the ack
+export async function deleteComentario(pairId, comentario, restantes) {
+  if (!pairId || !comentario?.id || !db) return null;
   await whenAuthed();
   const f = await fb();
-  await f.deleteDoc(f.doc(commentsCol(f, pairId), comentario.id));
+  const committed = f.deleteDoc(f.doc(commentsCol(f, pairId), comentario.id));
+  committed.catch(() => {});
   if (comentario.photoId) {
-    f.updateDoc(photoRef(f, pairId, comentario.photoId), { commentCount: f.increment(-1) }).catch(() => {});
+    const commentCount = Number.isInteger(restantes) ? Math.max(0, restantes) : f.increment(-1);
+    f.updateDoc(photoRef(f, pairId, comentario.photoId), { commentCount }).catch(() => {});
   }
+  return { committed };
 }
 
 // Marks as read the ones already loaded by the viewer (no query of its own: `==` plus array-contains on two fields
@@ -98,12 +104,14 @@ export async function marcarLeidos(pairId, comentarios, identity) {
   await Promise.allSettled(unread.map((c) => f.updateDoc(f.doc(commentsCol(f, pairId), c.id), { unreadFor: f.arrayRemove(identity) })));
 }
 
-// Comments still unread by `identity`, across every photo: [{ id, photoId }]. A single array-contains (automatic index)
+// Comments still unread by `identity`, across every photo: [{ id, photoId }], and whether that answer is still only
+// the cache's (a cold start shows what was there before the server says what has come since; the metadata changes
+// are listened to so the server's answer shows up even when it is the same one). A single array-contains (automatic index)
 export function escucharNoLeidos(pairId, identity, onChange, onError) {
   if (!pairId || !WHO[identity] || !db) return () => {};
   return listenWhenAuthed(async () => {
     const f = await fb();
     const q = f.query(commentsCol(f, pairId), f.where('unreadFor', 'array-contains', identity));
-    return f.onSnapshot(q, (snap) => onChange(snap.docs.map((d) => ({ id: d.id, photoId: d.data()?.photoId || '' }))), onError);
+    return f.onSnapshot(q, { includeMetadataChanges: true }, (snap) => onChange(snap.docs.map((d) => ({ id: d.id, photoId: d.data()?.photoId || '' })), !!snap.metadata?.fromCache), onError);
   }, onError);
 }

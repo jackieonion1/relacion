@@ -3,8 +3,6 @@
 import { db, whenAuthed } from './firebase';
 import { madridDayKey } from './photos';
 
-// Writes per batch: under Firestore's 500, as the design says
-export const LOTE = 400;
 // From this many photos uploaded the same day without a date, the Gallery offers to date them
 export const DE_GOLPE = 15;
 
@@ -14,32 +12,23 @@ async function fb() {
   return _fb;
 }
 
-// The same update on every photo of `ids`, in batches of LOTE; cambio(firestoreLib) gives the fields. A batch with a
-// photo deleted meanwhile fails whole (F2), so then that batch goes again photo by photo, skipping the ones that are
-// gone. updateDoc, never setDoc: nothing deleted comes back. Resolves with { hechas, borradas: [ids], fallidas: [ids] }
-// once the server has answered (offline it waits: the writes are queued and go when the connection is back)
+// The same update on every photo of `ids`; cambio(firestoreLib) gives the fields. One write per photo, never a
+// batch: a batch queued offline is undone whole by the server if one photo was deleted meanwhile (F2), and nobody
+// is left to retry it. Same number of writes, and the one that fails is the one photo. updateDoc, never setDoc:
+// nothing deleted comes back. Resolves with { hechas, borradas: [ids], fallidas: [ids] } once the server has
+// answered (offline it waits: the writes are queued and go when the connection is back)
 export async function actualizarEnLote(pairId, ids, cambio) {
   const res = { hechas: 0, borradas: [], fallidas: [] };
   if (!pairId || !db || !ids?.length) return res;
   await whenAuthed();
   const f = await fb();
   const col = f.collection(db, 'pairs', pairId, 'photos');
-  for (let i = 0; i < ids.length; i += LOTE) {
-    const trozo = ids.slice(i, i + LOTE);
-    const batch = f.writeBatch(db);
-    trozo.forEach((id) => batch.update(f.doc(col, id), cambio(f)));
-    try {
-      await batch.commit();
-      res.hechas += trozo.length;
-    } catch (e) {
-      const unoAUno = await Promise.allSettled(trozo.map((id) => f.updateDoc(f.doc(col, id), cambio(f))));
-      unoAUno.forEach((r, k) => {
-        if (r.status === 'fulfilled') res.hechas += 1;
-        else if (r.reason?.code === 'not-found') res.borradas.push(trozo[k]);
-        else res.fallidas.push(trozo[k]);
-      });
-    }
-  }
+  const escritas = await Promise.allSettled(ids.map((id) => f.updateDoc(f.doc(col, id), cambio(f))));
+  escritas.forEach((r, k) => {
+    if (r.status === 'fulfilled') res.hechas += 1;
+    else if (r.reason?.code === 'not-found') res.borradas.push(ids[k]);
+    else res.fallidas.push(ids[k]);
+  });
   return res;
 }
 

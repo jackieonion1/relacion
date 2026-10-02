@@ -1,13 +1,13 @@
 import React from 'react';
 import { render, act, screen, within, fireEvent } from '@testing-library/react';
-import { MemoryRouter, Routes, Route, useLocation } from 'react-router';
+import { MemoryRouter, Routes, Route, useLocation, useNavigate } from 'react-router';
 import Gallery from './Gallery';
 import { whenAuthed } from '../lib/firebase';
 import { listPhotosPage, listPendingPhotos, getPendingIds, retryPendingPhotos, getOriginal, getOriginalUrl, deletePhoto } from '../lib/photos';
-import { listPhotosBy } from '../lib/photos';
+import { listPhotosBy, madridDayKey } from '../lib/photos';
 import { escucharFoto, setReaccion, setFavorita } from '../lib/fotoSocial';
 import { escucharComentarios, addComentario, deleteComentario, marcarLeidos } from '../lib/fotoComentarios';
-import { useNoLeidos } from '../lib/fotoAvisos';
+import { useNoLeidos, useNoLeidosConfirmados } from '../lib/fotoAvisos';
 import { ponerFecha, ponerFavorita } from '../lib/fotoSeleccion';
 import { madridMediodia } from '../lib/fotoFecha';
 
@@ -44,7 +44,7 @@ vi.mock('../lib/fotoComentarios', async (orig) => ({
   deleteComentario: vi.fn(),
   marcarLeidos: vi.fn(),
 }));
-vi.mock('../lib/fotoAvisos', () => ({ useNoLeidos: vi.fn(), useGaleriaBadge: vi.fn() }));
+vi.mock('../lib/fotoAvisos', () => ({ useNoLeidos: vi.fn(), useNoLeidosConfirmados: vi.fn(), useGaleriaBadge: vi.fn() }));
 vi.mock('../lib/fotoSeleccion', async (orig) => ({ ...(await orig()), ponerFecha: vi.fn(), ponerFavorita: vi.fn() }));
 const NADA_SIN_LEER = new Map();
 beforeEach(() => {
@@ -57,6 +57,7 @@ beforeEach(() => {
   deleteComentario.mockResolvedValue();
   marcarLeidos.mockResolvedValue();
   useNoLeidos.mockReturnValue(NADA_SIN_LEER);
+  useNoLeidosConfirmados.mockReturnValue(true);
   ponerFecha.mockImplementation(async (pairId, ids) => ({ hechas: ids.length, borradas: [], fallidas: [] }));
   ponerFavorita.mockImplementation(async (pairId, ids) => ({ hechas: ids.length, borradas: [], fallidas: [] }));
 });
@@ -193,6 +194,28 @@ describe('cerrar el visor abierto con ?photo=', () => {
 
   test('sin state.volver se queda en la Galería, sin el ?photo=', async () => {
     expect(await abrir('/gallery?photo=D1')).toBe('/gallery');
+  });
+
+  test('si Recuerdos estaba justo antes en el historial, vuelve a él sin duplicarlo (el primer «atrás» sirve)', async () => {
+    getOriginal.mockResolvedValue(null);
+    getOriginalUrl.mockResolvedValue('https://example.test/orig.jpg');
+    function Atras() {
+      const navigate = useNavigate();
+      return <button type="button" onClick={() => navigate(-1)}>Atrás</button>;
+    }
+    render(
+      <MemoryRouter initialEntries={['/', '/recuerdos', { pathname: '/gallery', search: '?photo=D1', state: { volver: '/recuerdos' } }]} initialIndex={2}>
+        <Routes>
+          <Route path="/gallery" element={<><Gallery /><Ruta /></>} />
+          <Route path="*" element={<><Ruta /><Atras /></>} />
+        </Routes>
+      </MemoryRouter>
+    );
+    await act(flush);
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Cerrar' })); await flush(); });
+    expect(screen.getByTestId('ruta').textContent).toBe('/recuerdos');
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Atrás' })); await flush(); });
+    expect(screen.getByTestId('ruta').textContent).toBe('/');
   });
 });
 
@@ -423,6 +446,35 @@ describe('3.1: comentarios en el visor', () => {
     expect(screen.getByRole('heading', { name: 'Comentarios' })).toBeTruthy();
     expect(cells()[0].getAttribute('aria-label')).toMatch('con comentarios sin leer');
   });
+
+  test('en frío el no leído llega tarde: la apertura sola espera al primer dato del servidor', async () => {
+    useNoLeidosConfirmados.mockReturnValue(false);
+    const arbol = () => <MemoryRouter initialEntries={['/gallery?photo=K']}><Gallery /></MemoryRouter>;
+    const { rerender } = render(arbol());
+    await act(flush);
+    await rest();
+    expect(screen.queryByRole('heading', { name: 'Comentarios' })).toBeNull();
+    useNoLeidos.mockReturnValue(new Map([['K', 1]]));
+    useNoLeidosConfirmados.mockReturnValue(true);
+    rerender(arbol());
+    await act(flush);
+    expect(screen.getByRole('heading', { name: 'Comentarios' })).toBeTruthy();
+  });
+
+  test('si el servidor confirma que no hay nada sin leer, la hoja no se abre después', async () => {
+    useNoLeidosConfirmados.mockReturnValue(false);
+    const arbol = () => <MemoryRouter initialEntries={['/gallery?photo=K']}><Gallery /></MemoryRouter>;
+    const { rerender } = render(arbol());
+    await act(flush);
+    await rest();
+    useNoLeidosConfirmados.mockReturnValue(true);
+    rerender(arbol());
+    await act(flush);
+    useNoLeidos.mockReturnValue(new Map([['K', 1]]));
+    rerender(arbol());
+    await act(flush);
+    expect(screen.queryByRole('heading', { name: 'Comentarios' })).toBeNull();
+  });
 });
 
 describe('3.1: favoritas', () => {
@@ -541,6 +593,56 @@ describe('3.1: selección y fecha en bloque', () => {
     expect(screen.getByRole('status').textContent).toMatch('Del 12 mar 2025: 2 fotos');
     expect(screen.queryByRole('toolbar')).toBeNull();
     expect(cells()[0].getAttribute('aria-pressed')).toBeNull();
+  });
+
+  test('al fechar fotos se olvida que «Hace un año» estaba vacío hoy, para que las enseñe ya', async () => {
+    const hoy = `hace-un-ano:SEB1998:${madridDayKey(new Date())}:3`;
+    const otroDia = 'hace-un-ano:SEB1998:2020-01-01:3';
+    localStorage.setItem(hoy, '0');
+    localStorage.setItem(otroDia, '0');
+    await mount();
+    await elegir(0, 2);
+    await ponerDia('2025-03-12');
+    expect(localStorage.getItem(hoy)).toBeNull();
+    expect(localStorage.getItem(otroDia)).toBe('0');
+    localStorage.removeItem(otroDia);
+  });
+
+  test('encolado sin conexión, si al volver una ya no estaba, se avisa de esa y no de todas', async () => {
+    const onLine = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
+    let responde;
+    ponerFecha.mockReturnValueOnce(new Promise((res) => { responde = res; }));
+    await mount();
+    await elegir(0, 1, 2);
+    await ponerDia('2025-03-12');
+    expect(screen.getByRole('status').textContent).toMatch('Sin conexión');
+    await act(async () => { responde({ hechas: 2, borradas: ['D1'], fallidas: [] }); await flush(); });
+    expect(screen.getByRole('status').textContent).toMatch('Una ya no estaba');
+    expect(cells()).toHaveLength(2);
+    onLine.mockRestore();
+  });
+
+  test('con red que no responde la hoja se cierra al encolar, y el resultado llega después como aviso', async () => {
+    let responde;
+    ponerFecha.mockReturnValueOnce(new Promise((res) => { responde = res; }));
+    await mount();
+    await elegir(0, 2);
+    await ponerDia('2025-03-12');
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(screen.queryByRole('toolbar')).toBeNull();
+    await act(async () => { responde({ hechas: 2, borradas: [], fallidas: [] }); await flush(); });
+    expect(screen.getByRole('status').textContent).toMatch('Del 12 mar 2025: 2 fotos');
+  });
+
+  test('si el servidor falla tras cerrar la hoja, el aviso ofrece Reintentar con las que fallaron', async () => {
+    ponerFecha.mockResolvedValueOnce({ hechas: 1, borradas: [], fallidas: ['D2'] });
+    await mount();
+    await elegir(0, 2);
+    await ponerDia('2025-03-12');
+    const aviso = screen.getByRole('alert');
+    await act(async () => { fireEvent.click(within(aviso).getByRole('button', { name: 'Reintentar' })); await flush(); });
+    expect(ponerFecha).toHaveBeenLastCalledWith('SEB1998', ['D2'], madridMediodia('2025-03-12'));
+    expect(screen.getByRole('status').textContent).toMatch('Del 12 mar 2025: 1 foto');
   });
 
   test('F2: lo que no se guarda lo dice y sigue elegido para reintentar; lo borrado no cuenta como fallo', async () => {

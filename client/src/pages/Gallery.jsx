@@ -18,10 +18,10 @@ import AlbumPicker from '../components/AlbumPicker';
 import { ponerFecha, ponerFavorita, subidasDeGolpe, fechaComun } from '../lib/fotoSeleccion';
 import { escucharFoto, setReaccion, setFavorita } from '../lib/fotoSocial';
 import { listFavoritas, primeraFecha } from '../lib/fotoConsultas';
-import { fotosDelDia, fotosEnRango } from '../lib/recuerdos';
+import { fotosDelDia, fotosEnRango, olvidarVacioHoy } from '../lib/recuerdos';
 import { fechaEfectiva, rangoMesMadrid, madridMediodia } from '../lib/fotoFecha';
 import { escucharComentarios, addComentario, deleteComentario, marcarLeidos } from '../lib/fotoComentarios';
-import { useNoLeidos } from '../lib/fotoAvisos';
+import { useNoLeidos, useNoLeidosConfirmados } from '../lib/fotoAvisos';
 import './Gallery.css';
 
 const PAGE_SIZE = 60;
@@ -121,6 +121,7 @@ export default function Gallery() {
   const [comentarios, setComentarios] = useState({ id: null, list: null });
   const [comentariosOpen, setComentariosOpen] = useState(false);
   const noLeidos = useNoLeidos();
+  const noLeidosConfirmados = useNoLeidosConfirmados();
   const comentariosDeUrlRef = useRef(''); // opened from a comment's push: its comments open by themselves
   // 3.1 views other than «Todas»: their own list (by effective date) and their own swipe order. Each one is kept
   // while the Gallery is mounted, and our own changes patch it in place
@@ -139,7 +140,6 @@ export default function Gallery() {
   const [seleccion, setSeleccion] = useState(null);
   const [fechaOpen, setFechaOpen] = useState(false);
   const [albumOpen, setAlbumOpen] = useState(false);
-  const [guardando, setGuardando] = useState(false);
   const [resultado, setResultado] = useState(null); // { titulo, texto, error }
   // Upload days whose «¿les pones su fecha?» was dismissed, per device
   const golpeKey = `galeria:golpe-visto:${pairId}`;
@@ -370,12 +370,12 @@ export default function Gallery() {
   }
 
   // What a change to many photos ended in: said on screen (F2), and what failed stays selected to try again
-  function contarResultado(r, hecho) {
+  function contarResultado(r, hecho, reintentar) {
     const n = r.hechas;
     const borradas = r.borradas.length ? ` ${r.borradas.length === 1 ? 'Una ya no estaba' : `${r.borradas.length} ya no estaban`}.` : '';
     if (r.fallidas.length) {
       setSeleccion(new Set(r.fallidas));
-      setResultado({ error: true, titulo: `No se pudo en ${r.fallidas.length === 1 ? '1 foto' : `${r.fallidas.length} fotos`}`, texto: `Siguen elegidas para volver a intentarlo.${borradas}` });
+      setResultado({ error: true, titulo: `No se pudo en ${r.fallidas.length === 1 ? '1 foto' : `${r.fallidas.length} fotos`}`, texto: `Siguen elegidas para volver a intentarlo.${borradas}`, reintentar });
     } else {
       setResultado({ titulo: hecho(n), texto: borradas.trim() });
     }
@@ -384,16 +384,18 @@ export default function Gallery() {
   // After a change of dates, the other views may hold the photos in the wrong place: asked again
   function recargarVistas() {
     vistaCacheRef.current.clear();
+    olvidarVacioHoy(pairId); // dated photos can fill today's «Hace un año», which may have been seen empty
     if (enVista) setVistaRecarga((k) => k + 1);
   }
 
-  async function guardarFecha(dia) {
-    const ids = [...(seleccion || [])];
+  // `soloIds`: the retry of an aviso, with the photos that failed
+  async function guardarFecha(dia, soloIds) {
+    const ids = soloIds || [...(seleccion || [])];
     if (!ids.length) return;
     const ms = dia ? madridMediodia(dia) : null;
     const hecho = (n) => `${ms == null ? 'Fecha quitada' : `Del ${photoDate(ms)}`}: ${n === 1 ? '1 foto' : `${n} fotos`}`;
     // Painted at once; what does not get saved goes back to the date it had, and the deleted ones leave the grid
-    const previo = new Map([...items, ...vistaDatos.items].filter((it) => seleccion.has(it.id)).map((it) => [it.id, it.takenAt ?? null]));
+    const previo = new Map([...items, ...vistaDatos.items].filter((it) => ids.includes(it.id)).map((it) => [it.id, it.takenAt ?? null]));
     const deshacer = (fallidas) => { if (fallidas.length) patchFotos(new Set(fallidas), (it) => ({ takenAt: previo.get(it.id) ?? null })); };
     const quitarBorradas = (borradas) => {
       if (!borradas.length) return;
@@ -404,32 +406,21 @@ export default function Gallery() {
     if (ms != null && primera?.ms != null && ms < primera.ms) setPrimera({ ms });
     const done = ponerFecha(pairId, ids, ms);
     recargarVistas();
-    // Offline the batch waits for the connection: the change is already on this phone and goes when it is back
-    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
-      terminarSeleccion();
-      setResultado({ titulo: hecho(ids.length), texto: 'Sin conexión: se guarda para los dos cuando vuelva.' });
-      done.then((r) => {
-        deshacer(r.fallidas);
-        quitarBorradas(r.borradas);
-        if (r.fallidas.length) contarResultado(r, hecho);
-      }).catch(() => deshacer(ids));
-      return;
-    }
-    setGuardando(true);
-    try {
-      const r = await done;
-      terminarSeleccion();
+    // The sheet closes as soon as the writes are queued, online or not: a connection that is up but does not answer
+    // would keep it waiting, and the change is already on this phone. What the server says comes after, in the aviso
+    const sinRed = typeof navigator !== 'undefined' && navigator.onLine === false;
+    terminarSeleccion();
+    if (sinRed) setResultado({ titulo: hecho(ids.length), texto: 'Sin conexión: se guarda para los dos cuando vuelva.' });
+    done.then((r) => {
       deshacer(r.fallidas);
       quitarBorradas(r.borradas);
-      contarResultado(r, hecho);
-    } catch (e) {
+      if (!sinRed || r.fallidas.length || r.borradas.length) contarResultado(r, hecho, () => guardarFecha(dia, r.fallidas));
+    }).catch((e) => {
       console.warn('Bulk date failed', e);
       deshacer(ids);
-      setFechaOpen(false);
-      setResultado({ error: true, titulo: 'No se pudo poner la fecha', texto: 'Siguen elegidas para volver a intentarlo.' });
-    } finally {
-      setGuardando(false);
-    }
+      setSeleccion(new Set(ids));
+      setResultado({ error: true, titulo: 'No se pudo poner la fecha', texto: 'Siguen elegidas para volver a intentarlo.', reintentar: () => guardarFecha(dia, ids) });
+    });
   }
 
   async function favoritasEnBloque(on) {
@@ -699,13 +690,17 @@ export default function Gallery() {
 
   function closeViewer() {
     advanceFromRef.current = null;
+    comentariosDeUrlRef.current = '';
     setComentariosOpen(false);
     revokeViewerUrls();
     setViewer({ open: false, id: null, url: '', fallbackUrl: '', loading: false });
     // Navigate to clear the URL parameter, preventing the viewer from re-opening. Opened from an album, a stamp or
-    // «hace un año» (Recuerdos), it goes back there instead of staying on the Gallery
+    // «hace un año» (Recuerdos), it goes back there instead of staying on the Gallery: one step back in the history
+    // when there is a page before (the one that opened it), since replacing would leave that page twice in a row
+    // and the first «atrás» of Android would seem to do nothing
     const volver = location.state?.volver;
-    navigate(typeof volver === 'string' && volver.startsWith('/') ? volver : '/gallery', { replace: true });
+    if (typeof volver === 'string' && volver.startsWith('/') && location.key !== 'default') navigate(-1);
+    else navigate(typeof volver === 'string' && volver.startsWith('/') ? volver : '/gallery', { replace: true });
   }
 
   async function onDeleteCurrent() {
@@ -775,13 +770,16 @@ export default function Gallery() {
     if (comentariosOpen && deLaFoto) marcarLeidos(pairId, deLaFoto, identity).catch(() => {});
   }, [comentariosOpen, deLaFoto]);
 
-  // From the push of a comment (/gallery?photo=ID): with something unread, its comments open by themselves
+  // From the push of a comment (/gallery?photo=ID): with something unread, its comments open by themselves. On a cold
+  // start the viewer can be ready before the server has told what is unread (the cache does not have the comment
+  // that just came), so the note stays until it does
   useEffect(() => {
     const from = comentariosDeUrlRef.current;
     if (!from || !viewer.open || viewer.loading) return;
-    comentariosDeUrlRef.current = '';
     if (viewer.id === from && sinLeer) setComentariosOpen(true);
-  }, [viewer.open, viewer.id, viewer.loading, sinLeer]);
+    else if (viewer.id === from && !noLeidosConfirmados) return;
+    comentariosDeUrlRef.current = '';
+  }, [viewer.open, viewer.id, viewer.loading, sinLeer, noLeidosConfirmados]);
 
   async function onSendComentario(text) {
     const id = viewer.id;
@@ -790,8 +788,12 @@ export default function Gallery() {
   }
 
   function onDeleteComentario(c) {
-    deleteComentario(pairId, c).catch((e) => console.warn('Comment delete failed', e));
-    patchFoto(c.photoId, (it) => ({ commentCount: Math.max(0, (it.commentCount || 0) - 1) }));
+    // The sheet has all the comments of the photo, so the count is set to what is left
+    const restantes = deLaFoto && comentarios.id === c.photoId ? deLaFoto.filter((x) => x.id !== c.id).length : undefined;
+    deleteComentario(pairId, c, restantes)
+      .then((r) => r?.committed.catch((e) => console.warn('Comment delete failed', e)))
+      .catch((e) => console.warn('Comment delete failed', e));
+    patchFoto(c.photoId, (it) => ({ commentCount: restantes ?? Math.max(0, (it.commentCount || 0) - 1) }));
   }
   const pendingCount = pendingIds.length;
 
@@ -892,7 +894,7 @@ export default function Gallery() {
           <p className="text-sm text-ink-2" aria-live={seleccionando ? 'polite' : undefined}>{subtitle}</p>
         </div>
         {seleccionando ? (
-          <Button variant="sec" onClick={terminarSeleccion} disabled={guardando}>Listo</Button>
+          <Button variant="sec" onClick={terminarSeleccion}>Listo</Button>
         ) : (
           <div className="flex items-center gap-1">
             {/* ↻: en la PWA de iPhone no hay otra forma de recargar (plan §0 nº 8) */}
@@ -1220,6 +1222,9 @@ export default function Gallery() {
             <span className="text-[15px] font-semibold leading-snug">{resultado.titulo}</span>
             {resultado.texto && <span className="text-[13px] leading-snug opacity-80">{resultado.texto}</span>}
           </span>
+          {resultado.reintentar && (
+            <button type="button" className="seleccion-accion" onClick={() => { const r = resultado.reintentar; setResultado(null); r(); }}>Reintentar</button>
+          )}
           <button type="button" className="seleccion-accion seleccion-icono" aria-label="Cerrar aviso" onClick={() => setResultado(null)}>
             <Icon name="cerrar" />
           </button>
@@ -1228,7 +1233,6 @@ export default function Gallery() {
         <SeleccionBarra
           n={nSel}
           favOn={elegidasFav}
-          ocupado={guardando}
           onFecha={() => setFechaOpen(true)}
           onAlbum={() => setAlbumOpen(true)}
           onFav={() => favoritasEnBloque(!elegidasFav)}
@@ -1241,7 +1245,6 @@ export default function Gallery() {
         n={nSel}
         inicial={fechaComun(elegidas)}
         puedeQuitar={elegidas.some((it) => it.takenAt != null)}
-        guardando={guardando}
         onGuardar={guardarFecha}
       />
 
