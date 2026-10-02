@@ -11,7 +11,7 @@ export default function ViewSwitcher({ views, activeView, onChange, labels = {} 
           aria-pressed={activeView === view}
           onClick={() => onChange(view)}
           className={`min-w-0 rounded-full text-[15px] font-semibold transition-colors ${
-            activeView === view ? 'bg-card text-ink shadow-carta' : 'text-ink-2'
+            activeView === view ? 'bg-raised text-ink shadow-carta' : 'text-ink-2'
           }`}
         >
           {labels[view] || view}

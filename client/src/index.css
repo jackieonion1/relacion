@@ -7,6 +7,10 @@
   --paper: oklch(0.975 0.009 35);
   --card: oklch(0.993 0.004 30);
   --sunk: oklch(0.94 0.014 25);
+  /* The pressed segment over a sunk track and the knob of a switch: the card in light; in dark the card is darker
+     than sunk and the line, so both get their own lighter value */
+  --raised: oklch(0.993 0.004 30);
+  --knob: oklch(0.993 0.004 30);
   --ink: oklch(0.24 0.020 30);
   --ink-2: oklch(0.47 0.020 40);
   --line: oklch(0.90 0.018 20);
@@ -47,6 +51,8 @@ html[data-tema='oscuro'] {
   --paper: oklch(0.185 0.014 25);
   --card: oklch(0.225 0.016 25);
   --sunk: oklch(0.25 0.016 25);
+  --raised: oklch(0.36 0.018 25);
+  --knob: oklch(0.94 0.012 70);
   --ink: oklch(0.94 0.012 70);
   --ink-2: oklch(0.75 0.016 55);
   --line: oklch(0.31 0.016 25);
@@ -95,6 +101,8 @@ html[data-tema='oscuro'] {
   --color-paper: var(--paper);
   --color-card: var(--card);
   --color-sunk: var(--sunk);
+  --color-raised: var(--raised);
+  --color-knob: var(--knob);
   --color-ink: var(--ink);
   --color-ink-2: var(--ink-2);
   --color-line: var(--line);

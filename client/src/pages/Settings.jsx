@@ -250,7 +250,7 @@ export default function Settings() {
               return (
                 <button
                   key={q.id} type="button" aria-pressed={on} onClick={() => chooseIdentity(q.id)}
-                  className={`h-11 rounded-full flex items-center justify-center gap-2 text-base font-semibold transition-colors duration-200 ease-suave focus-visible:outline-2 focus-visible:outline-lacre ${on ? 'bg-card text-ink shadow-carta' : 'text-ink-2'}`}
+                  className={`h-11 rounded-full flex items-center justify-center gap-2 text-base font-semibold transition-colors duration-200 ease-suave focus-visible:outline-2 focus-visible:outline-lacre ${on ? 'bg-raised text-ink shadow-carta' : 'text-ink-2'}`}
                 >
                   <span aria-hidden="true">{q.emoji}</span>{q.label}
                 </button>
@@ -300,7 +300,7 @@ export default function Settings() {
               return (
                 <button
                   key={id} type="button" aria-pressed={on} onClick={() => chooseTheme(id)}
-                  className={`h-11 rounded-full text-[15px] font-semibold transition-colors duration-200 ease-suave focus-visible:outline-2 focus-visible:outline-lacre ${on ? 'bg-card text-ink shadow-carta' : 'text-ink-2'}`}
+                  className={`h-11 rounded-full text-[15px] font-semibold transition-colors duration-200 ease-suave focus-visible:outline-2 focus-visible:outline-lacre ${on ? 'bg-raised text-ink shadow-carta' : 'text-ink-2'}`}
                 >
                   {label}
                 </button>
