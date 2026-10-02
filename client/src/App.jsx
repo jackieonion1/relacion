@@ -15,7 +15,7 @@ import UpdateBanner from './components/UpdateBanner';
 import PushNotice from './components/PushNotice';
 import MarcaSuperior from './components/MarcaSuperior';
 import { PairGate, IdentityGate } from './components/Entrada';
-import { AvisoSlot } from './components/Aviso';
+import { AvisoSlot, Avisos } from './components/Aviso';
 
 // Screens already in Carta: they lay out their own width, padding and serif h1, so <main> adds none.
 // The rest keep the old px-4 pt-4 until their own step (plan §5.2); the old header is gone everywhere
@@ -36,6 +36,7 @@ export default function App() {
       case '/roulette': return 'Ruleta';
       case '/coin': return 'Moneda';
       case '/music': return 'Música';
+      case '/settings': return 'Ajustes';
       default: return '';
     }
   }, [location.pathname]);
@@ -93,11 +94,11 @@ export default function App() {
             </div>
           </div>
           {/* One slot above the tab bar: Actualizar > Instalar > Notificaciones, one at a time (Aviso.jsx) */}
-          <div className="avisos">
+          <Avisos>
             <UpdateBanner />
             <InstallPrompt />
             <PushNotice />
-          </div>
+          </Avisos>
           <NavBar />
         </div>
         </AvisoSlot>

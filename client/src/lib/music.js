@@ -232,10 +232,12 @@ export async function getOriginal(pairId, id) {
         try {
           const oRef = ref(storage, `pairs/${pairId}/music/${id}/orig`);
           const freshUrl = await getDownloadURL(oRef);
-          try {
-            const dRef = doc(collection(db, 'pairs', pairId, 'music'), id);
-            await setDoc(dRef, { origUrl: freshUrl }, { merge: true });
-          } catch {}
+          if (freshUrl !== url) {
+            try {
+              const dRef = doc(collection(db, 'pairs', pairId, 'music'), id);
+              Promise.resolve(setDoc(dRef, { origUrl: freshUrl }, { merge: true })).catch(() => {});
+            } catch {}
+          }
           const resp2 = await fetch(freshUrl);
           if (resp2.ok) fetched = await resp2.blob();
         } catch {}
@@ -266,11 +268,14 @@ export async function getOriginalUrl(pairId, id) {
     const invalid = url && (/\.appspot\.com\//.test(url) || url.indexOf('alt=media') === -1);
     if (!url || invalid) {
       const oRef = ref(storage, `pairs/${pairId}/music/${id}/orig`);
-      url = await getDownloadURL(oRef);
-      try {
-        const dRef = doc(collection(db, 'pairs', pairId, 'music'), id);
-        await setDoc(dRef, { origUrl: url }, { merge: true });
-      } catch {}
+      const freshUrl = await getDownloadURL(oRef);
+      if (freshUrl !== url) {
+        try {
+          const dRef = doc(collection(db, 'pairs', pairId, 'music'), id);
+          Promise.resolve(setDoc(dRef, { origUrl: freshUrl }, { merge: true })).catch(() => {});
+        } catch {}
+      }
+      url = freshUrl;
     }
     return url || '';
   } catch {

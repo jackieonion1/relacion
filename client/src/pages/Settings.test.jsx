@@ -1,7 +1,7 @@
 import React from 'react';
-import { render, screen, fireEvent, act } from '@testing-library/react';
+import { render, screen, fireEvent, act, within } from '@testing-library/react';
 import Settings from './Settings';
-import { getPushSubscription, getPushDiag, subscribeToPush } from '../lib/push';
+import { getPushSubscription, getPushDiag, subscribeToPush, unsubscribeFromPush } from '../lib/push';
 import { checkForUpdate, getRegistration, applyUpdate } from '../lib/appUpdate';
 
 vi.mock('../lib/push', () => ({
@@ -46,10 +46,27 @@ test('No activadas: Activar', async () => {
   expect(screen.getByRole('button', { name: 'Activar' }).disabled).toBe(false);
 });
 
-test('Bloqueadas', async () => {
+test('Bloqueadas: sin Activar, con cómo desbloquearlas en el móvil', async () => {
   await mount({ perm: 'denied' });
   expect(screen.queryByText('Bloqueadas')).not.toBeNull();
-  expect(botones()).toContain('Activar');
+  expect(botones()).not.toContain('Activar');
+  expect(screen.queryByText(/Desbloquéalas en los ajustes del móvil/)).not.toBeNull();
+});
+
+test('mientras no se sabe si hay suscripción: Comprobando…, sin Suscribirme', async () => {
+  window.Notification = { permission: 'granted', requestPermission: vi.fn() };
+  let resolve;
+  getPushSubscription.mockReturnValue(new Promise((r) => { resolve = r; }));
+  getPushDiag.mockReturnValue('');
+  render(<Settings />);
+  await act(flush);
+  expect(screen.queryByText('Comprobando…')).not.toBeNull();
+  expect(screen.queryByText('Permiso concedido, sin suscripción')).toBeNull();
+  expect(botones()).not.toContain('Suscribirme');
+  expect(botones()).not.toContain('Activar');
+  await act(async () => { resolve({}); await flush(); });
+  expect(screen.queryByText('Suscrito')).not.toBeNull();
+  expect(botones()).toContain('Desactivar');
 });
 
 test('Permiso concedido, sin suscripción: Suscribirme; un fallo se dice en la pantalla, sin alert', async () => {
@@ -71,6 +88,22 @@ test('Suscrito: Probar y Desactivar, con la línea de sincronización', async ()
   expect(screen.queryByText(/^Última sincronización con el servidor: /)).not.toBeNull();
   expect(botones()).toEqual(expect.arrayContaining(['Probar', 'Desactivar']));
   expect(botones()).not.toContain('Suscribirme');
+});
+
+test('Desactivar pide confirmación en una hoja y solo entonces desuscribe', async () => {
+  await mount({ perm: 'granted', sub: {} });
+  fireEvent.click(screen.getByRole('button', { name: 'Desactivar' }));
+  expect(screen.queryByText('¿Desactivar las notificaciones?')).not.toBeNull();
+  expect(unsubscribeFromPush).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: 'Cancelar' }));
+  expect(screen.queryByText('¿Desactivar las notificaciones?')).toBeNull();
+  expect(unsubscribeFromPush).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: 'Desactivar' }));
+  unsubscribeFromPush.mockResolvedValue();
+  const hoja = screen.getByRole('dialog');
+  await act(async () => { fireEvent.click(within(hoja).getByRole('button', { name: 'Desactivar' })); await flush(); });
+  expect(unsubscribeFromPush).toHaveBeenCalledWith('SEB1998', 'yo');
+  expect(screen.queryByText('Permiso concedido, sin suscripción')).not.toBeNull();
 });
 
 test('el diagnóstico plegable solo aparece si hay diagnóstico', async () => {

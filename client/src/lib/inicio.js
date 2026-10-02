@@ -59,6 +59,16 @@ export function longDateText(d) {
   return hasTime(d) ? `${date} · ${d.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}` : date;
 }
 
+// "14:32", the time now in an IANA time zone (C8). Null without a zone, or with one the device does not know
+export function cityTimeText(timeZone, now = new Date()) {
+  if (!timeZone) return null;
+  try {
+    return new Intl.DateTimeFormat('es-ES', { timeZone, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(now);
+  } catch {
+    return null;
+  }
+}
+
 // "sáb 24 oct"
 export function shortDateText(d) {
   return d.toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric', month: 'short' }).replace(',', '').replace(/\./g, '');

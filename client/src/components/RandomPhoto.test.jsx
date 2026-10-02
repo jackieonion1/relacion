@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, act } from '@testing-library/react';
+import { render, act, screen, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 import RandomPhoto from './RandomPhoto';
 import { getDailyPhotoId, getOriginal, getOriginalUrl, madridDayKey } from '../lib/photos';
@@ -80,6 +80,22 @@ test('el pie dice quién subió la foto y cuándo (C11)', async () => {
   const { container } = await mount();
   expect(photoUploader).toHaveBeenCalledWith('SEB1998', 'P1');
   expect(container.querySelector('figcaption').textContent).toMatch(/La subió 🍪 · 12 mar 2025/);
+});
+
+test('sin red y sin foto sale «Reintentar» (no el hueco) y el botón vuelve a pedirla', async () => {
+  const onLine = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
+  getDailyPhotoId.mockResolvedValue('');
+  try {
+    await mount();
+    expect(screen.getByRole('alert').textContent).toMatch(/No se pudo cargar la foto/);
+    expect(document.querySelector('.hueco')).toBeNull();
+    getDailyPhotoId.mockResolvedValue('P1');
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Reintentar' })); await flush(); });
+    expect(getDailyPhotoId).toHaveBeenCalledTimes(2);
+    expect(document.querySelector('img')).not.toBeNull();
+  } finally {
+    onLine.mockRestore();
+  }
 });
 
 test('sin identity (foto antigua) no hay pie de autor', async () => {

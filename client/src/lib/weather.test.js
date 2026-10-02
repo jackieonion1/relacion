@@ -94,6 +94,16 @@ describe('fetchCityWeather', () => {
     expect(w.moon).toBe(moonPhaseEmoji(new Date('2026-10-02T22:00')));
   });
 
+  test('lleva la zona horaria de la ciudad, o null si la respuesta no la trae', async () => {
+    const forecast = (extra) => vi.fn((url) => (url.includes('geocoding')
+      ? json({ results: [{ latitude: 1, longitude: 2 }] })
+      : json({ current: { time: '2026-10-02T12:00', weather_code: 0 }, ...extra })));
+    vi.stubGlobal('fetch', forecast({ timezone: 'Europe/Madrid' }));
+    expect((await fetchCityWeather('Ciudad Seis')).timezone).toBe('Europe/Madrid');
+    vi.stubGlobal('fetch', forecast({}));
+    expect((await fetchCityWeather('Ciudad Seis')).timezone).toBeNull();
+  });
+
   test('sin ciudad, sin coordenadas o con la previsión caída da null', async () => {
     vi.stubGlobal('fetch', vi.fn((url) => (url.includes('geocoding') ? json({ results: [{ latitude: 1, longitude: 2 }] }) : json({}, false))));
     expect(await fetchCityWeather('')).toBeNull();

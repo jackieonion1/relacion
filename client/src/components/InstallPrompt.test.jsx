@@ -1,6 +1,7 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { render, screen, fireEvent, act } from '@testing-library/react';
 import InstallPrompt from './InstallPrompt';
+import { AvisoSlot, useAvisoTurn } from './Aviso';
 
 const UA = navigator.userAgent;
 function setUA(ua) { Object.defineProperty(navigator, 'userAgent', { value: ua, configurable: true }); }
@@ -41,6 +42,29 @@ test('Android: Instalar lanza el aviso del sistema y no vuelve a insistir', asyn
   expect(e.prompt).toHaveBeenCalledTimes(1);
   expect(localStorage.getItem('installPromptDismissed')).toBe('1');
   expect(screen.queryByRole('dialog')).toBeNull();
+});
+
+test('iPhone: si «Actualizar» le quita el turno con la hoja abierta, la hoja vuelve a su turno (también tras recargar)', () => {
+  setUA('Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)');
+  function Update() {
+    const [wants, setWants] = useState(false);
+    useAvisoTurn('update', wants);
+    return <button onClick={() => setWants((w) => !w)}>actualizar</button>;
+  }
+  const mount = () => render(<AvisoSlot><Update /><InstallPrompt /></AvisoSlot>);
+  const { unmount } = mount();
+  act(() => { vi.advanceTimersByTime(2400); });
+  expect(screen.queryByRole('dialog')).not.toBeNull();
+  fireEvent.click(screen.getByText('actualizar'));
+  expect(screen.queryByRole('dialog')).toBeNull();
+  expect(localStorage.getItem('installPromptShown')).toBeNull();
+  fireEvent.click(screen.getByText('actualizar'));
+  expect(screen.queryByRole('dialog')).not.toBeNull();
+  expect(localStorage.getItem('installPromptShown')).toBe('1');
+  // La hoja cerrada sí cuenta como vista
+  fireEvent.click(screen.getByRole('button', { name: 'Entendido' }));
+  expect(localStorage.getItem('installPromptShown')).toBe('1');
+  unmount();
 });
 
 test('ya mostrada antes: no sale', () => {

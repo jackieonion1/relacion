@@ -74,7 +74,9 @@ export default function Settings() {
     try { return (typeof window !== 'undefined' && 'Notification' in window) ? Notification.permission : 'unsupported'; } catch { return 'unsupported'; }
   });
   const [supports, setSupports] = useState({ notif: false, sw: false });
-  const [subscribed, setSubscribed] = useState(false);
+  // null = aún no se sabe: getPushSubscription espera al service worker, y un SW lento no es «sin suscripción»
+  const [subscribed, setSubscribed] = useState(null);
+  const [confirmOff, setConfirmOff] = useState(false);
   // Última vez que el doc de esta suscripción se escribió en Firestore desde este móvil (null = sin confirmar)
   const [syncedAt, setSyncedAt] = useState(() => getResyncInfo(localStorage)?.at || null);
   const [pushDiag, setPushDiag] = useState(() => getPushDiag());
@@ -149,6 +151,7 @@ export default function Settings() {
   }
 
   async function onUnsubscribe() {
+    setConfirmOff(false);
     setNotifMsg(null);
     try {
       const identity = localStorage.getItem(IDENTITY_KEY) || 'yo';
@@ -176,11 +179,16 @@ export default function Settings() {
   }
 
   const notifState = supports.notif
-    ? (notifPerm === 'granted' ? (subscribed ? 'Suscrito' : 'Permiso concedido, sin suscripción') : notifPerm === 'denied' ? 'Bloqueadas' : 'No activadas')
+    ? (notifPerm === 'granted' ? (subscribed === null ? 'Comprobando…' : subscribed ? 'Suscrito' : 'Permiso concedido, sin suscripción') : notifPerm === 'denied' ? 'Bloqueadas' : 'No activadas')
     : 'No soportadas';
-  const notifLine = subscribed && notifPerm === 'granted'
-    ? (syncedAt ? `Última sincronización con el servidor: ${new Date(syncedAt).toLocaleDateString()}` : 'Suscrito en este móvil, sin confirmar en el servidor')
-    : 'Requiere instalar la PWA y HTTPS.';
+  const checking = notifState === 'Comprobando…';
+  const notifLine = notifState === 'Bloqueadas'
+    ? 'Desbloquéalas en los ajustes del móvil: Notificaciones › 🍪🫒.'
+    : checking
+      ? 'Mirando si este móvil ya está suscrito.'
+      : subscribed && notifPerm === 'granted'
+        ? (syncedAt ? `Última sincronización con el servidor: ${new Date(syncedAt).toLocaleDateString()}` : 'Suscrito en este móvil, sin confirmar en el servidor')
+        : 'Requiere instalar la PWA y HTTPS.';
 
   return (
     <div className="max-w-(--breakpoint-md) mx-auto px-4">
@@ -242,12 +250,12 @@ export default function Settings() {
             </div>
             <p className="text-[13px] text-ink-2">{notifLine}</p>
             <div className="flex flex-wrap gap-2">
-              {notifPerm !== 'granted' ? (
+              {notifPerm === 'denied' && supports.notif ? null : notifPerm !== 'granted' ? (
                 <Button onClick={requestNotifications} disabled={!supports.notif}>Activar</Button>
-              ) : subscribed ? (
+              ) : checking ? null : subscribed ? (
                 <>
                   <Button variant="sec" onClick={onTestPush} busy={notifBusy === 'test'} busyText="Enviando…">Probar</Button>
-                  <Button variant="txt" onClick={onUnsubscribe} disabled={!!notifBusy} className="text-ink-2">Desactivar</Button>
+                  <Button variant="txt" onClick={() => setConfirmOff(true)} disabled={!!notifBusy} className="text-ink-2">Desactivar</Button>
                 </>
               ) : (
                 <Button onClick={onSubscribe} busy={notifBusy === 'subscribe'} busyText="Suscribiendo…">Suscribirme</Button>
@@ -280,6 +288,17 @@ export default function Settings() {
         {/* Qué versión tiene cada móvil, sin pedir nada técnico */}
         <p className="num pt-2 text-center text-[13px] text-ink-2">{versionLabel()}</p>
       </div>
+
+      <Sheet isOpen={confirmOff} onClose={() => setConfirmOff(false)}>
+        <div className="flex flex-col gap-1.5 px-5 pt-2 pb-[34px]">
+          <h2 className="serif text-[26px] leading-[1.15] font-normal">¿Desactivar las notificaciones?</h2>
+          <p className="pb-3.5 text-[15px] text-ink-2">
+            Este móvil dejará de recibir avisos de la pareja. Podrás volver a activarlos desde aquí.
+          </p>
+          <Button variant="dan" size="l" onClick={onUnsubscribe}>Desactivar</Button>
+          <Button variant="txt" size="l" onClick={() => setConfirmOff(false)}>Cancelar</Button>
+        </div>
+      </Sheet>
 
       <Sheet isOpen={!!pairConfirm} onClose={() => setPairConfirm('')}>
         <div className="flex flex-col gap-1.5 px-5 pt-2 pb-[34px]">

@@ -316,6 +316,9 @@ body {
 :root {
   color-scheme: light;
   --navbar-height: 4rem; /* 64px */
+  /* Top edge of the shell chrome: tab bar + safe area + the visible notice, if any (--aviso-room, published by <Avisos>).
+     What floats above the bar (.fab) sits on this, so a notice never covers it */
+  --shell-bottom: calc(var(--navbar-height) + env(safe-area-inset-bottom, 0px) + var(--aviso-room, 0px));
 }
 
 html, body, #root { height: 100%; }
@@ -408,19 +411,12 @@ html, body, #root { height: 100%; }
   .rte ul, .note-content ul { @apply list-disc pl-5; }
   .rte ol, .note-content ol { @apply list-decimal pl-5; }
   /* Ensure lists render bullets/numbers in card previews (inside to avoid clamp clipping) */
-  .note-card ul, .note-snippet ul { @apply list-disc list-inside pl-5; }
-  .note-card ol, .note-snippet ol { @apply list-decimal list-inside pl-5; }
+  .note-card ul { @apply list-disc list-inside pl-5; }
+  .note-card ol { @apply list-decimal list-inside pl-5; }
   /* In the notes grid cards, keep link styling but disable click */
   .note-card a { pointer-events: none; cursor: default; }
   /* Break long words/URLs so they don't overflow */
-  .note-card, .note-card *, .note-snippet, .note-snippet * {
-    overflow-wrap: anywhere;
-    word-break: break-word;
-    hyphens: auto;
-    min-width: 0;
-  }
-  /* Ensure titles and all content in notes grid also wrap */
-  .masonry-grid .card, .masonry-grid .card * {
+  .note-card, .note-card * {
     overflow-wrap: anywhere;
     word-break: break-word;
     hyphens: auto;
@@ -433,14 +429,6 @@ html, body, #root { height: 100%; }
     hyphens: auto;
     min-width: 0;
   }
-  /* Let previews grow naturally (no gradient/clamp) */
-  .note-snippet {
-    font-size: 0.875rem;
-    line-height: 1.25rem;
-  }
-  /* Flex-based masonry grid (stable reflow) */
-  .masonry-grid { display: flex; gap: 12px; align-items: flex-start; }
-  .masonry-col { flex: 1 1 0%; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 
   /* Cáscara (R2). MarcaSuperior: sticky inside .app-scroll, so it takes its own room and needs no spacer */
   .marca {
@@ -502,7 +490,7 @@ html, body, #root { height: 100%; }
 
   /* Safe-area helpers and FAB placement */
   .navbar-safe { padding-bottom: env(safe-area-inset-bottom); }
-  .fab { position: fixed; right: 1rem; bottom: calc(4rem + env(safe-area-inset-bottom) + 0.75rem); z-index: 50; }
+  .fab { position: fixed; right: 1rem; bottom: calc(var(--shell-bottom) + 0.75rem); z-index: 50; }
 
   /* Content bottom padding accounting for navbar (h-16 ~ 4rem) + extra + safe area */
   .pb-safe-content { padding-bottom: 170px; }
