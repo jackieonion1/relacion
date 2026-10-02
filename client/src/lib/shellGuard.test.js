@@ -1,8 +1,8 @@
 import fs from 'fs';
 import path from 'path';
 import {
-  ensureShell, guardShell, shellAssets, isGoodAsset, isGoodShell, isStaticAsset, hasEntryAssets, runtimeEvictions,
-  APP_SHELL_CACHE, RUNTIME_CACHE, MAX_RUNTIME,
+  ensureShell, guardShell, shellAssets, isGoodAsset, isGoodShell, isStaticAsset, hasEntryAssets, runtimeEvictions, cacheEvictions,
+  APP_SHELL_CACHE, RUNTIME_CACHE, MAX_RUNTIME, MAX_FONTS,
 } from './shellGuard';
 
 const ORIGIN = 'https://relacion.test';
@@ -82,6 +82,7 @@ describe('names shared with sw.js', () => {
     expect(APP_SHELL_CACHE).toBe(`app-shell-${version}`);
     expect(RUNTIME_CACHE).toBe(`runtime-${version}`);
     expect(MAX_RUNTIME).toBe(Number(sw.match(/const MAX_RUNTIME = (\d+)/)[1]));
+    expect(MAX_FONTS).toBe(Number(sw.match(/const MAX_FONTS = (\d+)/)[1]));
   });
 });
 
@@ -121,6 +122,18 @@ describe('ensureShell', () => {
     const paths = await runtimePaths(c);
     expect(paths).toHaveLength(MAX_RUNTIME);
     expect(paths).toEqual(expect.arrayContaining(['/static/js/main.new.js', '/static/css/main.new.css']));
+  });
+
+  it('trims fonts apart from js/css: old fonts never push out the new shell files', async () => {
+    const runtime = await c.open(RUNTIME_CACHE);
+    for (let i = 0; i < MAX_FONTS; i += 1) await runtime.put(`/static/media/f${i}.woff2`, new FakeResponse('f', { contentType: 'font/woff2' }));
+    for (let i = 0; i < MAX_RUNTIME - 2; i += 1) await runtime.put(`/static/js/old${i}.js`, jsRes());
+    global.fetch = fakeServer('new');
+    expect(await ensureShell()).toBe('repaired');
+    const paths = await runtimePaths(c);
+    expect(paths.filter((p) => p.endsWith('.woff2'))).toHaveLength(MAX_FONTS);
+    expect(paths).toEqual(expect.arrayContaining(['/static/js/main.new.js', '/static/css/main.new.css']));
+    expect(paths.filter((p) => !p.endsWith('.woff2'))).toHaveLength(MAX_RUNTIME);
   });
 
   it('stores nothing when the server already has another main', async () => {
@@ -351,7 +364,7 @@ describe('guardShell', () => {
 // --- Los criterios copiados son los de public/sw.js: se evalúa el fichero real, como hace sw.test.js ---
 
 const REAL_SW = fs.readFileSync(path.join(__dirname, '..', '..', 'public', 'sw.js'), 'utf8');
-const SW_HELPERS = ['isGoodAsset', 'isGoodShell', 'shellAssets', 'hasEntryAssets', 'runtimeEvictions', 'isStaticAsset'];
+const SW_HELPERS = ['isGoodAsset', 'isGoodShell', 'shellAssets', 'hasEntryAssets', 'runtimeEvictions', 'cacheEvictions', 'isStaticAsset'];
 
 function loadSw(caches, server) {
   const handlers = {};
@@ -390,8 +403,10 @@ describe('parity with public/sw.js: the same inputs give the same answers', () =
   const PATHS = [
     '/static/js/main.aaa.js', '/static/css/main.aaa.css', '/static/js/626.abc.chunk.js', '/static/js/main.aaa.js.map',
     '/static/js/a/b.js', '/static/css/x.css?v=1', '/static/media/foto.jpg', '/manifest.json', '/index.html', '',
+    '/static/media/newsreader-latin-opsz-normal.2cfa2cdf.woff2', '/static/media/sub/a.woff2', '/static/media/a.woff', '/static/js/a.woff2',
   ];
-  const TYPES = ['text/javascript; charset=utf-8', 'application/javascript', 'TEXT/CSS', 'text/html; charset=utf-8', 'application/json', 'text/plain', ''];
+  const TYPES = ['text/javascript; charset=utf-8', 'application/javascript', 'TEXT/CSS', 'text/html; charset=utf-8', 'application/json', 'text/plain', '',
+    'font/woff2', 'application/font-woff2', 'application/octet-stream'];
   const VARIANTS = [{}, { status: 206 }, { status: 404 }, { redirected: true }, { status: 0, type: 'opaque' }, { type: 'cors' }];
   const RESPONSES = [null, undefined, ...TYPES.flatMap((contentType) => VARIANTS.map((v) => new FakeResponse('x', { contentType, ...v })))];
   const HTMLS = [
@@ -399,6 +414,7 @@ describe('parity with public/sw.js: the same inputs give the same answers', () =
     '<script defer src="/static/js/main.aaa.js"></script><link href="/static/css/main.aaa.css" rel="stylesheet">',
     '<link rel="modulepreload" href="/static/js/vendor.aaa.chunk.js?v=1"><script src=\'/static/js/main.aaa.js#x\'></script>',
     '<script src="/static/js/main.aaa.js.map"></script><img src="/static/media/foto.jpg">',
+    '<script src="/static/js/main.aaa.js"></script><style>@font-face{src:url(/static/media/a.1.woff2)}</style>',
     '<script src="/static/js/a/b.js"></script><script src="/static/js/main.aaa.js"></script><script src="/static/js/main.aaa.js"></script>',
     '<script src="/static/js/main.aaa.mjs"></script><link href="/static/css/main.aaa.css">',
     'sin nada', '', null, undefined, 42,
@@ -435,6 +451,16 @@ describe('parity with public/sw.js: the same inputs give the same answers', () =
 
   it('hasEntryAssets', () => {
     for (const u of URL_LISTS) expect(hasEntryAssets(u), u.join()).toBe(api.hasEntryAssets(u));
+  });
+
+  it('cacheEvictions, with js/css and fonts mixed', () => {
+    const keeps = [[], ['/p0.js', '/f0.woff2']];
+    for (let n = 0; n <= 9; n += 1) {
+      for (let m = 0; m <= 9; m += 1) {
+        const paths = [...Array.from({ length: m }, (_, i) => `/f${i}.woff2`), ...Array.from({ length: n }, (_, i) => `/p${i}.js`)];
+        for (const keep of keeps) expect(cacheEvictions(paths, keep), `${n} ${m} ${keep}`).toEqual(api.cacheEvictions(paths, keep));
+      }
+    }
   });
 
   it('runtimeEvictions, with the default limit and with others', () => {

@@ -1,21 +1,23 @@
-/* simple PWA service worker (v2) */
+/* simple PWA service worker (v3) */
 // The browser only updates the worker when this file's bytes change, and a normal deploy does not touch
 // it (the in-app banner compares asset-manifest.json instead). Bump CACHE_VERSION when the caching changes.
 // Keep the URL /sw.js and scope /: the push subscription hangs off this registration.
 // Emergency rollback: public/sw-neutral.js (see relacion-docs/runbook-sw.md).
-const CACHE_VERSION = 'v2';
+const CACHE_VERSION = 'v3';
 const APP_SHELL_CACHE = `app-shell-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `runtime-${CACHE_VERSION}`;
 const MAX_RUNTIME = 6; // a build has 3 servable files (main.js, main.css, one chunk): room for two builds
+const MAX_FONTS = 6; // 3 fonts (Newsreader upright and italic, Instrument Sans): room for two generations
 
 // --- Pure helpers (tested in src/sw.test.js, which evaluates this file) ---
 
 const contentType = (resp) => (resp.headers.get('content-type') || '').toLowerCase();
 const isHtml = (resp) => contentType(resp).includes('text/html');
 
-// Only hashed build files: /static/js/*.js and /static/css/*.css. Media, maps, etc. are not intercepted
+// Only hashed build files: /static/js/*.js, /static/css/*.css and the fonts in /static/media/*.woff2.
+// Other media, maps, etc. are not intercepted
 function isStaticAsset(pathname) {
-  return /^\/static\/(js\/[^/]+\.js|css\/[^/]+\.css)$/.test(pathname);
+  return /^\/static\/(js\/[^/]+\.js|css\/[^/]+\.css|media\/[^/]+\.woff2)$/.test(pathname);
 }
 
 // Worth caching: a full 200 (not 206, not opaque, not redirected) whose type matches the extension.
@@ -25,6 +27,7 @@ function isGoodAsset(pathname, resp) {
   const type = contentType(resp);
   if (pathname.endsWith('.js')) return type.includes('javascript');
   if (pathname.endsWith('.css')) return type.includes('text/css');
+  if (pathname.endsWith('.woff2')) return type.includes('font/woff2') || type.includes('application/font-woff2');
   return false;
 }
 
@@ -32,7 +35,9 @@ function isGoodShell(resp) {
   return !!resp && resp.status === 200 && !resp.redirected && isHtml(resp);
 }
 
-// The /static entry files that an index.html loads (CRA injects main.js and main.css)
+// The /static entry files that an index.html loads (CRA injects main.js and main.css). Fonts are not here on
+// purpose: they are never precached, so one that fails to load cannot fail the install (without network and
+// without having loaded them the serif falls back to Georgia)
 function shellAssets(html) {
   const found = String(html || '').match(/\/static\/(?:js|css)\/[^"'\s>?#]+\.(?:js|css)/g) || [];
   return [...new Set(found)].filter(isStaticAsset);
@@ -50,6 +55,15 @@ function runtimeEvictions(paths, keep, max = MAX_RUNTIME) {
   const extra = paths.length - max;
   if (extra <= 0) return [];
   return paths.filter((p) => !keepSet.has(p)).slice(0, extra);
+}
+
+// js/css and fonts are trimmed apart: fonts stored before a build's js/css would be the "oldest" and go first
+function cacheEvictions(paths, keep) {
+  const isFont = (p) => p.endsWith('.woff2');
+  return [
+    ...runtimeEvictions(paths.filter((p) => !isFont(p)), keep),
+    ...runtimeEvictions(paths.filter(isFont), [], MAX_FONTS),
+  ];
 }
 
 // --- Cache plumbing ---
@@ -85,7 +99,7 @@ async function storeShell(resp) {
 async function trimRuntime(keep) {
   const runtime = await caches.open(RUNTIME_CACHE);
   const paths = (await runtime.keys()).map((r) => new URL(r.url).pathname);
-  await Promise.all(runtimeEvictions(paths, keep).map((p) => runtime.delete(p)));
+  await Promise.all(cacheEvictions(paths, keep).map((p) => runtime.delete(p)));
 }
 
 async function cachedShellAssets() {
@@ -118,7 +132,7 @@ self.addEventListener('pushsubscriptionchange', (event) => {
   })());
 });
 
-// Every other cache goes (app-shell-v1 and runtime-v1 included: that is where v1 could keep HTML as JS)
+// Every other cache goes (app-shell-v1/-v2 and runtime-v1/-v2 included: that is where v1 could keep HTML as JS)
 self.addEventListener('activate', (event) => {
   event.waitUntil((async () => {
     const keys = await caches.keys();
@@ -158,7 +172,7 @@ self.addEventListener('message', (event) => {
   } catch {}
 });
 
-// Only same-origin GET navigations and hashed /static files. Everything else (Firebase Storage images,
+// Only same-origin GET navigations and hashed /static files (js, css, woff2). Everything else (Firebase Storage images,
 // audio with Range, manifest, icons, APIs) goes straight to the network as if there were no SW
 self.addEventListener('fetch', (event) => {
   const { request } = event;

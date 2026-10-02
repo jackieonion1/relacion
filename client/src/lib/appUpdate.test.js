@@ -121,10 +121,10 @@ describe('repairApp', () => {
     const reload = vi.fn();
     const { reg } = fakeSw();
     global.fetch = vi.fn(async () => htmlRes());
-    global.caches = { keys: vi.fn(async () => ['app-shell-v2', 'runtime-v2']), delete: vi.fn(async () => true) };
+    global.caches = { keys: vi.fn(async () => ['app-shell-v3', 'runtime-v3']), delete: vi.fn(async () => true) };
     await repairApp(reload);
     expect(global.fetch).toHaveBeenCalledWith('/index.html', { cache: 'no-store' });
-    expect(global.caches.delete.mock.calls.map((c) => c[0])).toEqual(['app-shell-v2', 'runtime-v2']);
+    expect(global.caches.delete.mock.calls.map((c) => c[0])).toEqual(['app-shell-v3', 'runtime-v3']);
     expect(reg.update).toHaveBeenCalled();
     expect(reg.unregister).not.toHaveBeenCalled();
     expect(localStorage.getItem('pairId')).toBe('SEB1998');
@@ -139,7 +139,7 @@ describe('repairApp', () => {
     const { listeners } = fakeSw({ waiting });
     waiting.postMessage.mockImplementation(() => { order.push('skip'); listeners.controllerchange(); });
     global.fetch = vi.fn(async () => htmlRes());
-    global.caches = { keys: vi.fn(async () => ['app-shell-v2']), delete: vi.fn(async () => { order.push('delete'); return true; }) };
+    global.caches = { keys: vi.fn(async () => ['app-shell-v3']), delete: vi.fn(async () => { order.push('delete'); return true; }) };
     await repairApp(reload);
     expect(order).toEqual(['skip', 'delete']);
     expect(reload).toHaveBeenCalledTimes(1);
@@ -149,7 +149,7 @@ describe('repairApp', () => {
     const reload = vi.fn();
     fakeSw();
     global.fetch = vi.fn(async () => { throw new TypeError('Failed to fetch'); });
-    global.caches = { keys: vi.fn(async () => ['app-shell-v2']), delete: vi.fn() };
+    global.caches = { keys: vi.fn(async () => ['app-shell-v3']), delete: vi.fn() };
     await expect(repairApp(reload)).rejects.toThrow();
     expect(global.caches.delete).not.toHaveBeenCalled();
     expect(reload).not.toHaveBeenCalled();
