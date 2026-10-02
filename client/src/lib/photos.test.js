@@ -1,6 +1,6 @@
-import { deletePhoto, retryPendingPhotos, uploadPhoto, listPhotosPage, madridDayKey, getOriginal, getOriginalUrl, getPhotoThumbUrl, getDailyPhotoId } from './photos';
-import { deleteThumb, deleteOrig, getThumb, getOrig } from './photoCache';
-import { collection, doc, deleteDoc, setDoc, updateDoc, getDoc, getDocs } from 'firebase/firestore';
+import { deletePhoto, retryPendingPhotos, uploadPhoto, listPhotosPage, photoItem, listPhotosBy, thumbDeItem, madridDayKey, getOriginal, getOriginalUrl, getPhotoThumbUrl, getDailyPhotoId, dailyPhotoIndex } from './photos';
+import { deleteThumb, deleteOrig, getThumb, putThumb, getOrig } from './photoCache';
+import { collection, doc, deleteDoc, setDoc, updateDoc, getDoc, getDocs, getCountFromServer, documentId, query, where, orderBy, limit } from 'firebase/firestore';
 import { ref, getDownloadURL, deleteObject, uploadBytes } from 'firebase/storage';
 
 vi.mock('./firebase', () => ({
@@ -32,7 +32,10 @@ vi.mock('firebase/firestore', () => ({
   updateDoc: vi.fn(),
   getDoc: vi.fn(),
   getDocs: vi.fn(),
+  getCountFromServer: vi.fn(),
+  documentId: vi.fn(() => '__name__'),
   query: vi.fn(),
+  where: vi.fn(),
   orderBy: vi.fn(),
   limit: vi.fn(),
   startAfter: vi.fn(),
@@ -112,6 +115,50 @@ describe('deletePhoto: orden de pasos', () => {
 
     await expect(deletePhoto(PAIR, P1)).rejects.toThrow('denied');
     expect(deleteObject).not.toHaveBeenCalled();
+  });
+});
+
+describe('deletePhoto: comentarios de la foto', () => {
+  const comentario = (id) => ({ ref: { path: `pairs/${PAIR}/photoComments/${id}` } });
+
+  test('borra también sus comentarios, para que no quede un no leído huérfano', async () => {
+    getDocs.mockResolvedValue({ docs: [comentario('c1'), comentario('c2')] });
+
+    await deletePhoto(PAIR, P1);
+    await flush();
+
+    expect(where).toHaveBeenCalledWith('photoId', '==', P1);
+    const borrados = deleteDoc.mock.calls.map(([r]) => r.path);
+    expect(borrados).toEqual(expect.arrayContaining([`pairs/${PAIR}/photoComments/c1`, `pairs/${PAIR}/photoComments/c2`, `pairs/${PAIR}/photos/${P1}`]));
+  });
+
+  test('si la consulta falla, la foto se borra igual', async () => {
+    getDocs.mockRejectedValue(new Error('unavailable'));
+
+    await deletePhoto(PAIR, P1);
+    await flush();
+
+    expect(deleteDoc).toHaveBeenCalledWith({ path: `pairs/${PAIR}/photos/${P1}` });
+    expect(deleteObject).toHaveBeenCalledTimes(2);
+  });
+
+  test('si falla el borrado de un comentario, la foto se borra igual', async () => {
+    getDocs.mockResolvedValue({ docs: [comentario('c1')] });
+    deleteDoc.mockImplementation(async (r) => { if (r.path.includes('photoComments')) throw new Error('denied'); });
+
+    await deletePhoto(PAIR, P1);
+    await flush();
+
+    expect(deleteDoc).toHaveBeenCalledWith({ path: `pairs/${PAIR}/photos/${P1}` });
+    expect(deleteObject).toHaveBeenCalledTimes(2);
+  });
+
+  test('offline (la consulta no resuelve) no retiene el borrado de la foto', async () => {
+    getDocs.mockImplementation(() => new Promise(() => {}));
+
+    await deletePhoto(PAIR, P1);
+
+    expect(deleteDoc).toHaveBeenCalledWith({ path: `pairs/${PAIR}/photos/${P1}` });
   });
 });
 
@@ -227,6 +274,75 @@ describe('uploadPhoto', () => {
     expect(result.cancelled).toBeUndefined();
     expect(setDoc).toHaveBeenCalledTimes(1);
     expect(result.pending).toBe(false);
+  });
+
+  describe('fecha de la foto (EXIF)', () => {
+    // JPEG mínimo con DateTimeOriginal '2024:07:14 18:30:15' (big endian, sin offset: hora de Madrid)
+    const fechaTexto = [...'2024:07:14 18:30:15'].map((c) => c.charCodeAt(0)).concat(0);
+    const tiff = [0x4d, 0x4d, 0, 42, 0, 0, 0, 8, 0, 1, 0x87, 0x69, 0, 4, 0, 0, 0, 1, 0, 0, 0, 26, 0, 0, 0, 0,
+      0, 1, 0x90, 0x03, 0, 2, 0, 0, 0, 20, 0, 0, 0, 44, 0, 0, 0, 0, ...fechaTexto];
+    const conExif = () => new File([new Uint8Array([0xff, 0xd8, 0xff, 0xe1, 0, tiff.length + 8, 0x45, 0x78, 0x69, 0x66, 0, 0, ...tiff, 0xff, 0xd9])], 'f.jpg');
+    const TOMADA = Date.UTC(2024, 6, 14, 16, 30, 15);
+
+    test('takenAt sale del EXIF del original y se guarda con takenAtFuente', async () => {
+      const result = await uploadPhoto(PAIR, conExif());
+
+      expect(result.pending).toBe(false);
+      const datos = setDoc.mock.calls[0][1];
+      expect(datos.takenAt).toEqual(new Date(TOMADA));
+      expect(datos.takenAtFuente).toBe('exif');
+    });
+
+    test('sin EXIF el doc queda como antes: ni takenAt ni takenAtFuente', async () => {
+      await uploadPhoto(PAIR, new Blob(['f']));
+
+      const datos = setDoc.mock.calls[0][1];
+      expect('takenAt' in datos).toBe(false);
+      expect('takenAtFuente' in datos).toBe(false);
+    });
+
+    test('si el lector falla la foto se sube igual, sin fecha', async () => {
+      const rota = Object.assign(new Blob(['f']), { slice() { throw new Error('boom'); } });
+
+      const result = await uploadPhoto(PAIR, rota);
+
+      expect(result.cancelled).toBeUndefined();
+      expect(setDoc).toHaveBeenCalledTimes(1);
+      expect('takenAt' in setDoc.mock.calls[0][1]).toBe(false);
+    });
+
+    test('la fecha se guarda en la marca de pendiente, antes de tocar la red', async () => {
+      let marca;
+      uploadBytes.mockImplementation(() => {
+        marca = JSON.parse(localStorage.getItem(PENDING_KEY)).find((p) => p.id !== P1);
+        return Promise.resolve();
+      });
+
+      await uploadPhoto(PAIR, conExif());
+
+      expect(marca.takenAt).toBe(TOMADA);
+    });
+
+    test('el reintento de una marca con takenAt lo escribe en el doc', async () => {
+      localStorage.setItem(PENDING_KEY, JSON.stringify([{ id: P1, identity: 'yo', createdAt: 1, takenAt: TOMADA }]));
+      getDoc.mockResolvedValue({ exists: () => false });
+      getThumb.mockResolvedValue(new Blob(['t']));
+      getOrig.mockResolvedValue(new Blob(['o']));
+
+      await retryPendingPhotos(PAIR);
+
+      expect(setDoc.mock.calls[0][1]).toMatchObject({ takenAt: new Date(TOMADA), takenAtFuente: 'exif' });
+    });
+
+    test('el reintento de una marca sin fecha no escribe takenAt', async () => {
+      getDoc.mockResolvedValue({ exists: () => false });
+      getThumb.mockResolvedValue(new Blob(['t']));
+      getOrig.mockResolvedValue(new Blob(['o']));
+
+      await retryPendingPhotos(PAIR);
+
+      expect('takenAt' in setDoc.mock.calls[0][1]).toBe(false);
+    });
   });
 
   test('borrada mientras el setDoc espera al servidor no se reescribe la meta y devuelve cancelled', async () => {
@@ -363,6 +479,109 @@ describe('listPhotosPage', () => {
   });
 });
 
+describe('photoItem y listPhotosBy', () => {
+  const ts = (ms) => ({ toMillis: () => ms });
+  const snap = (id, data) => ({ id, data: () => data });
+  const realFetch = global.fetch;
+  beforeEach(() => { global.fetch = vi.fn(() => Promise.reject(new TypeError('blocked'))); });
+  afterEach(() => { global.fetch = realFetch; });
+
+  test('photoItem copia los campos de la 3.1 y da valores neutros a los que faltan', () => {
+    expect(photoItem(snap('A', {
+      createdAt: ts(500), identity: 'ella', reactions: { yo: '💖' }, favBy: ['yo'], takenAt: ts(100), commentCount: 2, albumIds: ['x'],
+    }))).toEqual({
+      id: 'A', thumbUrl: '', createdAt: 500, identity: 'ella', reactions: { yo: '💖' }, favBy: ['yo'], takenAt: 100, commentCount: 2, albumIds: ['x'],
+    });
+    expect(photoItem(snap('B', { createdAt: ts(7) }))).toEqual({
+      id: 'B', thumbUrl: '', createdAt: 7, identity: '', reactions: {}, favBy: [], takenAt: null, commentCount: 0, albumIds: [],
+    });
+  });
+
+  test('photoItem no deja que commentCount sea negativo', () => {
+    expect(photoItem(snap('A', { createdAt: ts(1), commentCount: -1 })).commentCount).toBe(0);
+  });
+
+  test('listPhotosBy ejecuta la consulta sobre las fotos de la pareja y rellena las miniaturas', async () => {
+    getDocs.mockResolvedValue({ docs: [snap('D0', { thumbUrl: 'https://t/0?alt=media', createdAt: ts(9) })] });
+    getThumb.mockResolvedValue(null);
+    const build = vi.fn(() => 'la-consulta');
+    const { items } = await listPhotosBy(PAIR, build);
+    expect(build).toHaveBeenCalledWith(expect.objectContaining({ query, where, documentId }), { path: `pairs/${PAIR}/photos` });
+    expect(getDocs).toHaveBeenCalledWith('la-consulta');
+    expect(items.map((it) => [it.id, it.thumbUrl])).toEqual([['D0', 'https://t/0?alt=media']]);
+  });
+
+  test('keep descarta antes de resolver miniaturas, y con onThumb las avisa una a una', async () => {
+    getDocs.mockResolvedValue({ docs: [
+      snap('D0', { thumbUrl: 'https://t/0?alt=media', createdAt: ts(9) }),
+      snap('D1', { thumbUrl: 'https://t/1?alt=media', createdAt: ts(8), takenAt: ts(1) }),
+    ] });
+    getThumb.mockResolvedValue(null);
+    const onThumb = vi.fn();
+    const r = await listPhotosBy(PAIR, () => 'q', { onThumb, keep: (it) => it.takenAt == null });
+    await r.thumbsDone;
+    expect(r.items.map((it) => it.id)).toEqual(['D0']);
+    expect(onThumb).toHaveBeenCalledTimes(1);
+    expect(onThumb).toHaveBeenCalledWith('D0', 'https://t/0?alt=media');
+  });
+
+  test('si la consulta falla lanza, como listPhotosPage', async () => {
+    getDocs.mockRejectedValue(new Error('permission-denied'));
+    await expect(listPhotosBy(PAIR, () => 'q')).rejects.toThrow('permission-denied');
+  });
+
+  test('alResponder dice si la respuesta salió de la caché local', async () => {
+    getThumb.mockResolvedValue(null);
+    const alResponder = vi.fn();
+    getDocs.mockResolvedValue({ docs: [], metadata: { fromCache: true } });
+    await listPhotosBy(PAIR, () => 'q', { alResponder });
+    getDocs.mockResolvedValue({ docs: [], metadata: { fromCache: false } });
+    await listPhotosBy(PAIR, () => 'q', { alResponder });
+    getDocs.mockResolvedValue({ docs: [] });
+    await listPhotosBy(PAIR, () => 'q', { alResponder });
+    expect(alResponder.mock.calls).toEqual([[true], [false], [false]]);
+  });
+
+  test('los items de listPhotosBy llevan la miniatura de su doc (thumbDoc), también los que keep deja sin resolver', async () => {
+    getDocs.mockResolvedValue({ docs: [snap('D0', { thumbUrl: 'https://t/0?alt=media', createdAt: ts(9) }), snap('D1', { createdAt: ts(8) })] });
+    getThumb.mockResolvedValue(null);
+    const vistos = [];
+    await listPhotosBy(PAIR, () => 'q', { keep: (it) => { vistos.push(it); return false; } });
+    expect(vistos.map((it) => [it.id, it.thumbDoc])).toEqual([['D0', 'https://t/0?alt=media'], ['D1', '']]);
+  });
+
+  describe('thumbDeItem', () => {
+    const realCrear = URL.createObjectURL;
+    afterEach(() => { URL.createObjectURL = realCrear; });
+
+    test('usa la miniatura en caché, como la galería, sin leer el doc', async () => {
+      const blob = new Blob(['x']);
+      getThumb.mockResolvedValue(blob);
+      URL.createObjectURL = vi.fn(() => 'blob:cacheada');
+      expect(await thumbDeItem(PAIR, { id: 'D0', thumbDoc: 'https://t/0?alt=media' })).toBe('blob:cacheada');
+      expect(getThumb).toHaveBeenCalledWith('D0');
+      expect(getDoc).not.toHaveBeenCalled();
+    });
+
+    test('sin caché, parte de la URL del item y la deja en la caché, sin leer el doc', async () => {
+      getThumb.mockResolvedValue(null);
+      global.fetch = vi.fn(async () => ({ ok: true, blob: async () => new Blob(['y']) }));
+      URL.createObjectURL = vi.fn(() => 'blob:nueva');
+      expect(await thumbDeItem(PAIR, { id: 'D0', thumbDoc: 'https://t/0?alt=media' })).toBe('blob:nueva');
+      expect(global.fetch.mock.calls[0][0]).toBe('https://t/0?alt=media');
+      expect(putThumb).toHaveBeenCalledWith('D0', expect.any(Blob));
+      expect(getDoc).not.toHaveBeenCalled();
+    });
+
+    test('si no llevaba URL válida, pide la de Storage como la galería, sin leer el doc', async () => {
+      getThumb.mockResolvedValue(null);
+      getDownloadURL.mockResolvedValue('https://x/new?alt=media');
+      expect(await thumbDeItem(PAIR, { id: 'D0', thumbDoc: '' })).toBe('https://x/new?alt=media'); // fetch is blocked: the URL itself
+      expect(getDoc).not.toHaveBeenCalled();
+    });
+  });
+});
+
 // Sin red una escritura de Firestore no resuelve hasta que el servidor confirma: ninguna lectura puede esperarla
 describe('escrituras de reparación de URL', () => {
   const never = () => new Promise(() => {});
@@ -409,6 +628,7 @@ describe('escrituras de reparación de URL', () => {
 
   test('getDailyPhotoId devuelve la foto sin esperar a la escritura de meta/dailyPhoto', async () => {
     getDoc.mockResolvedValue({ exists: () => false });
+    getCountFromServer.mockResolvedValue({ data: () => ({ count: 1 }) });
     getDocs.mockResolvedValue({ docs: [{ id: 'A1' }] });
     setDoc.mockImplementation(never);
     expect(await getDailyPhotoId(PAIR)).toBe('A1');
@@ -416,8 +636,119 @@ describe('escrituras de reparación de URL', () => {
     expect(setDoc.mock.calls[0][2]).toEqual({ merge: true });
   });
 
+  describe('getDailyPhotoId sobre una galería falsa', () => {
+    // `ids` va de la más antigua a la más nueva; getDocs respeta el sentido del orderBy y el limit
+    let reads;
+    const fakeGallery = (ids) => {
+      reads = 0;
+      getDoc.mockResolvedValue({ exists: () => false });
+      getCountFromServer.mockResolvedValue({ data: () => ({ count: ids.length }) });
+      query.mockImplementation((c, ...parts) => parts);
+      orderBy.mockImplementation((f, dir) => ({ orderBy: f, dir }));
+      limit.mockImplementation((n) => ({ limit: n }));
+      getDocs.mockImplementation(async (parts) => {
+        const dir = parts.find((p) => p.orderBy).dir;
+        const n = parts.find((p) => p.limit).limit;
+        const ordered = dir === 'desc' ? [...ids].reverse() : ids;
+        const docs = ordered.slice(0, n).map((id) => ({ id }));
+        reads += docs.length;
+        return { docs };
+      });
+      setDoc.mockResolvedValue();
+    };
+
+    test('elige la k-ésima de todas las fotos, no solo las últimas, con un orden total', async () => {
+      const ids = Array.from({ length: 1625 }, (_, i) => `F${i}`);
+      fakeGallery(ids);
+      const id = await getDailyPhotoId(PAIR);
+      expect(id).toBe(ids[dailyPhotoIndex(PAIR, madridDayKey(), ids.length)]);
+      // El desempate por id hace el orden total aunque varias fotos compartan createdAt
+      expect(orderBy).toHaveBeenCalledWith('createdAt', expect.any(String));
+      expect(orderBy).toHaveBeenCalledWith('__name__', expect.any(String));
+      expect(setDoc.mock.calls[0][1].photoId).toBe(id);
+    });
+
+    test('lee desde el extremo más cercano: como mucho count/2 + 1 documentos', async () => {
+      const ids = Array.from({ length: 1000 }, (_, i) => `F${i}`);
+      let max = 0;
+      for (let d = 1; d <= 28; d++) {
+        const noon = new Date(Date.UTC(2026, 10, d, 12));
+        vi.useFakeTimers({ toFake: ['Date'] });
+        vi.setSystemTime(noon);
+        fakeGallery(ids);
+        const id = await getDailyPhotoId(PAIR);
+        vi.useRealTimers();
+        expect(id).toBe(ids[dailyPhotoIndex(PAIR, madridDayKey(noon), ids.length)]);
+        max = Math.max(max, reads);
+      }
+      expect(max).toBeLessThanOrEqual(501);
+    });
+
+    test('sin fotos devuelve vacío y no escribe; con una foto, esa', async () => {
+      fakeGallery([]);
+      expect(await getDailyPhotoId(PAIR)).toBe('');
+      expect(setDoc).not.toHaveBeenCalled();
+      fakeGallery(['SOLO']);
+      expect(await getDailyPhotoId(PAIR)).toBe('SOLO');
+      expect(reads).toBe(1);
+    });
+
+    test('si la foto elegida se borró, se vuelve a elegir (determinista) y se persiste', async () => {
+      const ids = Array.from({ length: 50 }, (_, i) => `F${i}`);
+      fakeGallery(ids);
+      // meta apunta a una foto de hoy que ya no existe
+      getDoc.mockImplementation(async (ref) => (ref.path.endsWith('/meta/dailyPhoto')
+        ? { exists: () => true, data: () => ({ dayKey: madridDayKey(), photoId: 'BORRADA' }) }
+        : { exists: () => false }));
+      const id = await getDailyPhotoId(PAIR);
+      expect(id).toBe(ids[dailyPhotoIndex(PAIR, madridDayKey(), 50)]);
+      expect(setDoc.mock.calls[0][1].photoId).toBe(id);
+    });
+
+    test('sin conexión para contar: la más nueva de la caché, sin escribir meta', async () => {
+      fakeGallery(['A', 'B', 'C']);
+      getCountFromServer.mockRejectedValue(new Error('offline'));
+      expect(await getDailyPhotoId(PAIR)).toBe('C');
+      expect(setDoc).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('dailyPhotoIndex', () => {
+    const days = (n) => Array.from({ length: n }, (_, i) => madridDayKey(new Date(Date.UTC(2026, 9, 1) + i * 86400000)));
+
+    test('es uniforme: chi² por deciles sobre 10 años, con 1625 fotos', () => {
+      const count = 1625;
+      const bins = new Array(10).fill(0);
+      for (const day of days(3650)) bins[Math.floor((dailyPhotoIndex(PAIR, day, count) / count) * 10)]++;
+      const expected = 365;
+      const chi2 = bins.reduce((s, o) => s + (o - expected) ** 2 / expected, 0);
+      // gl = 9; 21,7 deja el 1 % de falsos fallos
+      expect(chi2).toBeLessThan(21.7);
+    });
+
+    test('una ráfaga de 300 fotos el primer día sale en proporción: el hueco anterior no pesa', () => {
+      // Con índices por posición, las 300 primeras fotos son 300/1625 de las opciones, vengan juntas o no
+      const count = 1625;
+      const hits = days(3650).filter((day) => dailyPhotoIndex(PAIR, day, count) < 300).length;
+      const p = 300 / count;
+      const mean = 3650 * p;
+      const sd = Math.sqrt(3650 * p * (1 - p));
+      expect(Math.abs(hits - mean)).toBeLessThan(4 * sd);
+    });
+
+    test('días seguidos no caen en fotos vecinas', () => {
+      const count = 1625;
+      const idx = days(365).map((day) => dailyPhotoIndex(PAIR, day, count));
+      // Con salto aleatorio, |Δ| < count/20 ocurre ~10 % de las veces (con FNV sin mezclar era la mayoría)
+      const near = idx.slice(1).filter((v, i) => Math.abs(v - idx[i]) < count / 20).length;
+      expect(near / 364).toBeLessThan(0.2);
+      expect(new Set(idx).size).toBeGreaterThan(300);
+    });
+  });
+
   test('si la escritura de dailyPhoto falla, sigue devolviendo la foto', async () => {
     getDoc.mockResolvedValue({ exists: () => false });
+    getCountFromServer.mockResolvedValue({ data: () => ({ count: 1 }) });
     getDocs.mockResolvedValue({ docs: [{ id: 'A1' }] });
     setDoc.mockRejectedValue(new Error('offline'));
     expect(await getDailyPhotoId(PAIR)).toBe('A1');

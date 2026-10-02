@@ -74,6 +74,17 @@ test('«Más» se marca en las 4 rutas que agrupa', () => {
   }
 });
 
+test('«Recuerdos» es la quinta entrada de «Más», a ancho completo, y mantiene «Más» marcado en sus pantallas', () => {
+  const { unmount } = mountNav('/recuerdos/sellos');
+  expect(screen.getByRole('button', { name: 'Más' }).className).toMatch(/is-on/);
+  fireEvent.click(screen.getByRole('button', { name: 'Más' }));
+  const item = screen.getByText('Recuerdos').closest('button');
+  expect(item.className).toMatch(/col-span-2/);
+  fireEvent.click(item);
+  expect(screen.getByTestId('ruta').textContent).toBe('/recuerdos');
+  unmount();
+});
+
 test('Avisos publica en --aviso-room lo que ocupa el aviso visible y lo quita al desmontar', () => {
   const real = global.ResizeObserver;
   let notify;

@@ -1,0 +1,169 @@
+/* The animated sky of the weather cards (CieloAnimado.jsx, lib/escena.js). Only transform and opacity move. The layer
+   sits between .cielo-fondo and the text (both z-index -1, this one later); it is a size container so the particles
+   fall in cqh (iOS 16+), with a px fallback just before each */
+.cielo-anim {
+  --esc-gota: oklch(0.36 0.08 250 / 0.65);
+  --esc-copo: oklch(0.6 0.09 240 / 0.95);
+  --esc-nube: oklch(1 0 0 / 0.8);
+  --esc-niebla: oklch(1 0 0 / 0.55);
+  --esc-escarcha: oklch(1 0 0 / 0.65);
+  --esc-granizo: oklch(1 0 0 / 0.95);
+  --esc-sol: oklch(0.86 0.15 85);
+  --esc-halo: oklch(0.92 0.12 85 / 0.55);
+  --esc-estrella: oklch(0.98 0.03 90);
+  --esc-brillo: oklch(0.82 0.15 55 / 0.5);
+  position: absolute; inset: 0; z-index: -1; overflow: hidden; pointer-events: none;
+  container-type: size; border-radius: inherit;
+}
+/* By night, and in the dark theme at any hour (the sky is dimmed there): light particles, softer clouds */
+.cielo-anim.es-noche,
+html[data-tema='oscuro'] .cielo-anim {
+  --esc-gota: oklch(0.92 0.04 250 / 0.6);
+  --esc-copo: oklch(0.98 0.01 240 / 0.95);
+  --esc-nube: oklch(0.85 0.03 280 / 0.3);
+  --esc-niebla: oklch(0.9 0.02 280 / 0.24);
+  --esc-escarcha: oklch(0.95 0.03 240 / 0.4);
+  --esc-granizo: oklch(0.97 0.01 240);
+}
+.cielo-anim[data-pausa] *, .cielo-anim[data-pausa] ::before, .cielo-anim[data-pausa] ::after { animation-play-state: paused; }
+.cielo-anim i, .cielo-anim b { display: block; }
+
+/* Dawn and dusk: a warm glow low in the card */
+.esc-resplandor {
+  position: absolute; inset: auto 0 0; height: 60%;
+  background: radial-gradient(ellipse 80% 100% at 50% 100%, var(--esc-brillo), transparent 70%);
+}
+
+/* Sun: disc, halo that breathes and rays that turn slowly; at the corner, away from the text */
+.esc-sol { position: absolute; right: -20px; top: 38%; width: 76px; height: 76px; margin-top: -38px; }
+.esc-sol > * { position: absolute; }
+.esc-aura {
+  inset: -26px; border-radius: 50%; background: radial-gradient(closest-side, var(--esc-halo), transparent);
+  animation: esc-respira 6s ease-in-out infinite;
+}
+.esc-disco { inset: 22px; border-radius: 50%; background: radial-gradient(circle at 35% 35%, oklch(0.95 0.1 95), var(--esc-sol)); }
+.esc-rayos { inset: 0; width: 100%; height: 100%; stroke: var(--esc-sol); stroke-width: 2.5; stroke-linecap: round; opacity: 0.8; animation: esc-gira 40s linear infinite; }
+@keyframes esc-respira { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.06); } }
+@keyframes esc-gira { to { transform: rotate(360deg); } }
+.rafaga .esc-sol { animation: esc-pulso 1.8s var(--ease-suave); }
+@keyframes esc-pulso { 0% { transform: scale(1); } 30% { transform: scale(1.3); } 100% { transform: scale(1); } }
+
+/* Stars: twinkle in opacity, each with its own time; the tap sends a shooting one */
+.esc-estrella {
+  position: absolute; left: var(--x); top: var(--y); width: 2px; height: 2px; border-radius: 1px; background: var(--esc-estrella);
+  animation: esc-titila var(--t) ease-in-out var(--d) infinite;
+}
+@keyframes esc-titila { 0%, 100% { opacity: 0.2; } 50% { opacity: 1; } }
+.esc-fugaz {
+  position: absolute; left: 70%; top: 14%; width: 30px; height: 1.5px; border-radius: 1px; opacity: 0;
+  background: linear-gradient(90deg, transparent, var(--esc-estrella));
+  animation: esc-fugaz 1.1s ease-out both;
+}
+@keyframes esc-fugaz {
+  0% { opacity: 0; transform: translate3d(0, 0, 0) rotate(28deg); }
+  15% { opacity: 1; }
+  100% { opacity: 0; transform: translate3d(-80px, 44px, 0) rotate(28deg); }
+}
+
+/* Clouds: soft blobs (radial gradients, no blur) that drift to and fro; the tap makes them swell for a moment */
+.esc-nube {
+  position: absolute; left: calc(var(--x) * 0.6); top: var(--y); width: calc(70px * var(--s)); height: calc(28px * var(--s));
+  animation: esc-deriva var(--t) ease-in-out var(--d) infinite alternate;
+}
+.esc-nube i {
+  width: 100%; height: 100%; transition: transform 320ms var(--ease-suave);
+  background:
+    radial-gradient(ellipse 28% 48% at 26% 64%, var(--esc-nube) 55%, transparent),
+    radial-gradient(ellipse 24% 58% at 52% 42%, var(--esc-nube) 55%, transparent),
+    radial-gradient(ellipse 26% 46% at 76% 64%, var(--esc-nube) 55%, transparent),
+    radial-gradient(ellipse 48% 28% at 50% 78%, var(--esc-nube) 55%, transparent);
+}
+.rafaga .esc-nube i { transform: scale(1.15); }
+@keyframes esc-deriva { from { transform: translate3d(-14px, 0, 0); } to { transform: translate3d(24px, 0, 0); } }
+
+/* Fog: two bands that slide the opposite way; frost: white in the corners */
+.esc-banda {
+  position: absolute; left: -20%; top: 22%; width: 140%; height: 30%;
+  background: linear-gradient(90deg, transparent, var(--esc-niebla) 30%, var(--esc-niebla) 70%, transparent);
+  animation: esc-desliza 20s ease-in-out infinite alternate;
+}
+.esc-banda-2 { top: 54%; animation-direction: alternate-reverse; }
+@keyframes esc-desliza { from { transform: translate3d(-8%, 0, 0); } to { transform: translate3d(8%, 0, 0); } }
+.esc-escarcha {
+  position: absolute; inset: 0;
+  background:
+    radial-gradient(circle at 0 0, var(--esc-escarcha), transparent 42%),
+    radial-gradient(circle at 100% 0, var(--esc-escarcha), transparent 42%),
+    radial-gradient(circle at 0 100%, var(--esc-escarcha), transparent 42%),
+    radial-gradient(circle at 100% 100%, var(--esc-escarcha), transparent 42%);
+}
+
+/* Rain: the layer is wider than the card and tilted with the wind (an inline rotate); each drop falls in cqh */
+.esc-lluvia, .esc-nieve { position: absolute; inset: -8% -14%; transform-origin: 50% 0; will-change: transform; }
+.esc-gota {
+  position: absolute; left: var(--x); top: 0; width: 2px; height: 16px; border-radius: 1px; opacity: var(--o);
+  background: linear-gradient(transparent, var(--esc-gota));
+  animation: esc-cae var(--t) linear var(--d) infinite;
+}
+.esc-lluvia.rachas, .esc-nieve.rachas { animation: esc-rachas 8s ease-in-out infinite; }
+@keyframes esc-cae {
+  from { transform: translate3d(0, -20px, 0); transform: translate3d(0, -14cqh, 0); }
+  to { transform: translate3d(0, 220px, 0); transform: translate3d(0, 130cqh, 0); }
+}
+@keyframes esc-rachas { 0%, 100% { opacity: 0.1; } 40%, 60% { opacity: 1; } }
+/* The tap's extra drops come in with a fade, so they do not pop */
+.esc-extra { animation-name: esc-cae, esc-entra; animation-duration: var(--t), 300ms; animation-iteration-count: infinite, 1; animation-delay: var(--d), 0s; }
+@keyframes esc-entra { from { opacity: 0; } }
+
+/* Snow: the flake falls, the <b> inside sways. A tap shakes the layer up and lets everything settle again */
+.esc-copo {
+  position: absolute; left: var(--x); top: 0; opacity: var(--o);
+  animation: esc-cae var(--t) linear var(--d) infinite;
+}
+.esc-copo b {
+  width: calc(5px * var(--s)); height: calc(5px * var(--s)); border-radius: 50%; background: var(--esc-copo);
+  animation: esc-vaiven 2.4s ease-in-out infinite alternate;
+}
+.esc-granos .esc-copo b { width: 2px; height: 2px; animation: none; }
+@keyframes esc-vaiven { from { transform: translate3d(-5px, 0, 0); } to { transform: translate3d(5px, 0, 0); } }
+.rafaga .esc-nieve { animation: esc-agita 1.8s var(--ease-suave); }
+.rafaga .esc-nieve.rachas { animation: esc-rachas 8s ease-in-out infinite, esc-agita 1.8s var(--ease-suave); }
+@keyframes esc-agita { 0% { transform: translate3d(0, 0, 0); } 18% { transform: translate3d(0, -30px, 0); } 100% { transform: translate3d(0, 0, 0); } }
+
+/* Hail: small white balls that bounce at the bottom */
+.esc-granizo {
+  position: absolute; left: var(--x); top: 0; width: 3px; height: 3px; border-radius: 50%; background: var(--esc-granizo);
+  animation: esc-rebota var(--t) ease-in var(--d) infinite;
+}
+@keyframes esc-rebota {
+  0% { transform: translate3d(0, -20px, 0); transform: translate3d(0, -14cqh, 0); opacity: 0.9; }
+  84% { transform: translate3d(0, 150px, 0); transform: translate3d(0, calc(100cqh - 8px), 0); }
+  92% { transform: translate3d(0, 138px, 0); transform: translate3d(0, calc(100cqh - 14px), 0); }
+  100% { transform: translate3d(0, 150px, 0); transform: translate3d(0, calc(100cqh - 8px), 0); opacity: 0; }
+}
+
+/* Storm: a white flash of 180 ms every 6-9 s with a bolt. The tap brings one right away (.esc-ya) */
+.esc-destello {
+  position: absolute; inset: 0; background: oklch(1 0 0); opacity: 0;
+  animation: esc-destello var(--t) linear var(--d) infinite;
+}
+.esc-rayo {
+  position: absolute; left: var(--x, 30%); top: 6%; width: 18px; height: 32px; opacity: 0; fill: oklch(0.97 0.08 95);
+  animation: esc-rayo var(--t) linear var(--d) infinite;
+}
+@keyframes esc-destello { 0% { opacity: 0; } 1% { opacity: 0.35; } 2.6% { opacity: 0; } 100% { opacity: 0; } }
+@keyframes esc-rayo { 0% { opacity: 0; } 1% { opacity: 1; } 4% { opacity: 0.9; } 6% { opacity: 0; } 100% { opacity: 0; } }
+.esc-destello.esc-ya { animation: esc-destello-ya 900ms ease-out both; }
+.esc-rayo.esc-ya { animation: esc-rayo-ya 900ms ease-out both; }
+@keyframes esc-destello-ya { 0% { opacity: 0; } 8% { opacity: 0.35; } 20% { opacity: 0; } 30% { opacity: 0.2; } 45%, 100% { opacity: 0; } }
+@keyframes esc-rayo-ya { 0% { opacity: 0; } 8% { opacity: 1; } 30% { opacity: 0.9; } 60%, 100% { opacity: 0; } }
+
+/* Reduced motion: nothing moves and nothing flashes. A still frame keeps the weather readable: 3 drops, flakes or
+   hail where their y puts them, the stars and clouds as they are, the sun without turning rays */
+@media (prefers-reduced-motion: reduce) {
+  .cielo-anim *, .cielo-anim ::before, .cielo-anim ::after { animation: none !important; }
+  .esc-gota, .esc-copo, .esc-granizo { top: var(--y); transform: none; }
+  .esc-gota:nth-child(n+4), .esc-copo:nth-child(n+4), .esc-granizo:nth-child(n+4) { display: none; }
+  .esc-estrella { opacity: var(--o); }
+  .esc-destello, .esc-rayo, .esc-fugaz { display: none; }
+}

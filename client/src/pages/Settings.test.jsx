@@ -4,12 +4,19 @@ import { MemoryRouter, Routes, Route } from 'react-router';
 import Settings from './Settings';
 import { getPushSubscription, getPushDiag, subscribeToPush, unsubscribeFromPush } from '../lib/push';
 import { checkForUpdate, getRegistration, applyUpdate } from '../lib/appUpdate';
+import { getPairInfo, createInvite, lockPair, removeMember } from '../lib/pair';
+import { membership } from '../lib/firebase';
 
 vi.mock('../lib/push', () => ({
   getPushSubscription: vi.fn(), getPushDiag: vi.fn(), subscribeToPush: vi.fn(), unsubscribeFromPush: vi.fn(),
 }));
 vi.mock('../lib/appUpdate', () => ({
   checkForUpdate: vi.fn(), getRegistration: vi.fn(), applyUpdate: vi.fn(), repairApp: vi.fn(),
+}));
+// Entrada (IDENTITIES) imports firebase.js, which would start the real project
+vi.mock('../lib/firebase', () => ({ membership: {} }));
+vi.mock('../lib/pair', () => ({
+  getPairInfo: vi.fn(), createInvite: vi.fn(), lockPair: vi.fn(), removeMember: vi.fn(),
 }));
 
 const flush = async () => { for (let i = 0; i < 10; i++) await Promise.resolve(); };
@@ -205,4 +212,77 @@ test('«Así era» en La app lleva a /asi-era', async () => {
   await act(flush);
   fireEvent.click(screen.getByRole('link', { name: /Así era/ }));
   expect(screen.queryByText('pantalla así era')).not.toBeNull();
+});
+
+test('Dispositivos: lista, invitación de un solo uso, quitar otro y cerrar la pareja con confirmación', async () => {
+  const members = [
+    { uid: 'u1', label: 'iPhone', joinedAt: Date.UTC(2026, 9, 1), via: 'code', me: true },
+    { uid: 'u2', label: 'Android', joinedAt: Date.UTC(2026, 9, 2), via: 'invite', me: false },
+  ];
+  getPairInfo.mockResolvedValue({ locked: false, members });
+  createInvite.mockResolvedValue({ code: 'ABCDEFGH', expiresAt: Date.now() + 15 * 60 * 1000 });
+  lockPair.mockResolvedValue({ ok: true });
+  removeMember.mockResolvedValue({ ok: true });
+  await mount();
+  expect(getPairInfo).toHaveBeenCalledWith('SEB1998');
+  expect(screen.queryByText('iPhone · este dispositivo')).not.toBeNull();
+  // Fecha y hora del alta y por dónde entró (lo pone joinPair)
+  expect(screen.queryByText(/^Desde el .+ 2026, \d\d:\d\d · con el código$/)).not.toBeNull();
+  expect(screen.queryByText(/^Desde el .+ 2026, \d\d:\d\d · con una invitación$/)).not.toBeNull();
+  expect(screen.getAllByRole('button', { name: 'Quitar' })).toHaveLength(1); // este no se quita a sí mismo
+
+  await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Añadir un dispositivo' })); await flush(); });
+  expect(createInvite).toHaveBeenCalledWith('SEB1998');
+  expect(screen.queryByText('ABCD-EFGH')).not.toBeNull();
+
+  fireEvent.click(screen.getByRole('button', { name: 'Quitar' }));
+  const quitar = screen.getByRole('heading', { name: '¿Quitar este dispositivo?' }).parentElement;
+  await act(async () => { fireEvent.click(within(quitar).getByRole('button', { name: 'Quitar' })); await flush(); });
+  expect(removeMember).toHaveBeenCalledWith('SEB1998', 'u2');
+
+  expect(screen.queryByText(/Ciérrala solo cuando estén en la lista todos vuestros dispositivos/)).not.toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Cerrar la pareja' }));
+  expect(lockPair).not.toHaveBeenCalled();
+  expect(screen.queryByText(/ahora hay 2 en la lista/)).not.toBeNull();
+  getPairInfo.mockResolvedValue({ locked: true, members });
+  const cerrar = screen.getByRole('heading', { name: '¿Cerrar la pareja?' }).parentElement;
+  await act(async () => { fireEvent.click(within(cerrar).getByRole('button', { name: 'Cerrar la pareja' })); await flush(); });
+  expect(lockPair).toHaveBeenCalledWith('SEB1998');
+  expect(screen.queryByText('Cerrada: un dispositivo nuevo solo entra con una invitación.')).not.toBeNull();
+  expect(screen.queryByRole('button', { name: 'Cerrar la pareja' })).toBeNull();
+});
+
+test('Dispositivos sin red: no se puede invitar ni cerrar', async () => {
+  Object.defineProperty(navigator, 'onLine', { value: false, configurable: true });
+  getPairInfo.mockResolvedValue({ locked: false, members: [] });
+  await mount();
+  expect(screen.getByRole('button', { name: 'Añadir un dispositivo' }).disabled).toBe(true);
+  expect(screen.getByRole('button', { name: 'Cerrar la pareja' }).disabled).toBe(true);
+});
+
+test('Dispositivos en un dispositivo que aún no se ha unido: lo dice, no culpa a la conexión', async () => {
+  const state = { status: 'retrying' };
+  membership.get = () => state;
+  membership.subscribe = () => () => {};
+  getPairInfo.mockRejectedValue(Object.assign(new Error('denied'), { code: 'permission-denied' }));
+  try {
+    await mount();
+    expect(screen.queryByText(/Este dispositivo aún no está en la lista/)).not.toBeNull();
+    expect(screen.queryByText(/con conexión\.$/)).toBeNull();
+  } finally {
+    delete membership.get;
+    delete membership.subscribe;
+  }
+});
+
+test('Dispositivos en un dispositivo sin permiso: los botones se explican en vez de fallar', async () => {
+  getPairInfo.mockResolvedValue({ locked: false, members: [
+    { uid: 'u1', label: 'iPhone', joinedAt: Date.UTC(2026, 9, 1), me: false, trusted: true },
+    { uid: 'u3', label: 'Mac', joinedAt: Date.UTC(2026, 9, 3), me: true, trusted: false },
+  ] });
+  await mount();
+  expect(screen.getByRole('button', { name: 'Añadir un dispositivo' }).disabled).toBe(true);
+  expect(screen.getByRole('button', { name: 'Cerrar la pareja' }).disabled).toBe(true);
+  expect(screen.getByRole('button', { name: 'Quitar' }).disabled).toBe(true);
+  expect(screen.queryByText(/no puede añadir, quitar ni cerrar: hazlo desde el otro móvil/)).not.toBeNull();
 });

@@ -39,7 +39,8 @@ const HISTORIA = [
   { version: '1.9', fecha: '18 ago 2025', texto: 'Empezó a sonar la música.' },
   { version: '2.0', fecha: '20 ago 2025', texto: 'Reproductor de verdad y el tiempo de cada ciudad.' },
   { version: '2.5', fecha: 'oct 2026', texto: 'Más rápida, más fiable y con mil arreglos pequeños.' },
-  { version: '3.0', fecha: '2 oct 2026', texto: 'La Carta: papel, tinta y lacre.', ahora: true },
+  { version: '3.0', fecha: '2 oct 2026', texto: 'La Carta: papel, tinta y lacre.' },
+  { version: '3.1', fecha: 'oct 2026', texto: 'Recuerdos, comentarios, la cápsula del tiempo y nuestro año.', ahora: true },
 ];
 
 // Postmark over each print: the version and the day it was photographed, its last one

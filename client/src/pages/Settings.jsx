@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useSyncExternalStore } from 'react';
 import { Link } from 'react-router';
 import Button from '../components/Button';
 import Icon from '../components/Icon';
@@ -12,6 +12,8 @@ import { applyUpdate, checkForUpdate, getRegistration } from '../lib/appUpdate';
 import { normalizePairCode, isValidPairCode } from '../lib/pairCode';
 import { versionLabel } from '../lib/buildInfo';
 import { readTheme, setTheme } from '../lib/theme';
+import { getPairInfo, createInvite, lockPair, removeMember } from '../lib/pair';
+import { membership } from '../lib/firebase';
 
 const IDENTITY_KEY = 'identity'; // 'yo' | 'ella'
 const PAIR_KEY = 'pairId';
@@ -244,6 +246,8 @@ export default function Settings() {
           </div>
         </Seccion>
 
+        <Dispositivos pair={pair} />
+
         <Seccion title="Quién eres">
           <div className="grid grid-cols-2 gap-1 p-1 rounded-[26px] bg-sunk">
             {IDENTITIES.map((q) => {
@@ -403,5 +407,144 @@ export function BuscarActualizaciones() {
         </div>
       )}
     </div>
+  );
+}
+
+const fecha = (ms) => new Date(ms).toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' });
+const hora = (ms) => new Date(ms).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+const VIA = { code: 'con el código', invite: 'con una invitación' };
+// Until the background joinPair lands (membership.js) the rules don't let this device read the list
+const AUN_NO = 'Este dispositivo aún no está en la lista: se apunta solo al abrir la app con conexión. Vuelve a mirarlo en un momento.';
+const noSubscribe = () => () => {};
+const noState = () => null;
+const SIN_PERMISO ='Este dispositivo es nuevo en la pareja y entró con el código, así que no puede añadir, quitar ni cerrar: hazlo desde el otro móvil. Para poder hacerlo aquí, quítalo desde el otro con la pareja cerrada y vuelve a entrar con una invitación suya.';
+
+// Who is in the pair (lib/pair.js): invite another device, lock the pair, take a device out. Every change is a
+// callable, so all of it needs a connection; the list itself also comes from the cache
+export function Dispositivos({ pair }) {
+  const online = useOnline();
+  const [info, setInfo] = useState(null); // null = loading | { locked, members } | { failed: true }
+  const [invite, setInvite] = useState(null); // { code, expiresAt }
+  const [busy, setBusy] = useState(''); // '' | 'invite' | 'lock' | 'remove'
+  const [msg, setMsg] = useState('');
+  const [confirm, setConfirm] = useState(null); // 'lock' | member to remove
+  const joined = useSyncExternalStore(membership?.subscribe || noSubscribe, membership?.get || noState);
+  const notJoined = !!joined && joined.status !== 'member';
+
+  async function load() {
+    try {
+      const res = await getPairInfo(pair);
+      setInfo(res || { failed: true });
+    } catch (e) {
+      console.warn('pair info error', e);
+      setInfo({ failed: true });
+    }
+  }
+  // Again once this device joins, so the list shows up without leaving Ajustes
+  useEffect(() => { if (pair) load(); }, [pair, notJoined]);
+
+  async function run(kind, fn, okMsg = '') {
+    setBusy(kind);
+    setMsg('');
+    try {
+      await fn();
+      setMsg(okMsg);
+      return true;
+    } catch (e) {
+      console.warn(`${kind} error`, e);
+      setMsg(e?.message === 'trusted' ? SIN_PERMISO : notJoined ? AUN_NO : 'No se pudo hacer. Prueba otra vez con conexión.');
+      return false;
+    } finally {
+      setBusy('');
+    }
+  }
+
+  const onInvite = () => run('invite', async () => setInvite(await createInvite(pair)));
+  async function onLock() {
+    setConfirm(null);
+    if (await run('lock', () => lockPair(pair), 'Pareja cerrada.')) load();
+  }
+  async function onRemove(m) {
+    setConfirm(null);
+    if (await run('remove', () => removeMember(pair, m.uid), 'Dispositivo quitado.')) load();
+  }
+
+  if (!pair) return null;
+  const locked = !!info?.locked;
+  const members = info?.members || [];
+  // A device that came in with the code after 3.1 can't invite, lock nor remove (functions: requireTrusted)
+  const untrusted = members.some((m) => m.me && m.trusted === false);
+  const code =invite?.code ? `${invite.code.slice(0, 4)}-${invite.code.slice(4)}` : '';
+
+  return (
+    <Seccion title="Dispositivos">
+      <div className={`${tarjeta} px-4 py-3.5 flex flex-col gap-2.5`}>
+        {info === null ? (
+          <p className="text-[13px] text-ink-2">Cargando…</p>
+        ) : info.failed ? (
+          <p className="text-[13px] text-ink-2">{notJoined ? AUN_NO : 'No se pudo cargar la lista. Vuelve a mirarlo con conexión.'}</p>
+        ) : (
+          <ul className="flex flex-col divide-y divide-line">
+            {members.map((m) => (
+              <li key={m.uid} className="flex items-center gap-3 min-h-12 py-1.5">
+                <span className="flex-1 min-w-0 flex flex-col">
+                  <span className="text-base">{m.label || 'Dispositivo'}{m.me ? ' · este dispositivo' : ''}</span>
+                  {m.joinedAt > 0 && (
+                    <span className="text-[13px] text-ink-2">Desde el {fecha(m.joinedAt)}, {hora(m.joinedAt)}{VIA[m.via] ? ` · ${VIA[m.via]}` : ''}</span>
+                  )}
+                </span>
+                {!m.me && (
+                  <Button variant="txt" onClick={() => setConfirm(m)} disabled={!!busy || !online || untrusted} className="text-danger">Quitar</Button>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+        <div className="flex flex-col gap-1.5 pt-2.5 border-t border-line">
+          <Button variant="sec" onClick={onInvite} disabled={!online || !!busy || untrusted} busy={busy === 'invite'} busyText="Creando…" className="self-start">Añadir un dispositivo</Button>
+          {code ? (
+            <div role="status" className="flex flex-col gap-1">
+              <span className="num text-[28px] font-semibold tracking-[0.18em]">{code}</span>
+              <span className="text-[13px] text-ink-2">Escríbelo en el otro dispositivo antes de las {hora(invite.expiresAt)}. Sirve una vez.</span>
+            </div>
+          ) : (
+            <p className="text-[13px] text-ink-2">Da un código para entrar desde otro móvil, una tablet o un navegador.</p>
+          )}
+        </div>
+        <div className="flex flex-col gap-1.5 pt-2.5 border-t border-line">
+          {locked ? (
+            <p className="text-[13px] text-ink-2">Cerrada: un dispositivo nuevo solo entra con una invitación.</p>
+          ) : (
+            <>
+              <p className="text-[13px] text-ink-2">Ahora basta con el código de pareja. Cerrada, solo entran los dispositivos de la lista y los que invitéis.</p>
+              <p className="text-[13px] text-danger">Ciérrala solo cuando estén en la lista todos vuestros dispositivos: cada uno aparece al abrir esta versión. Los que falten no podrán entrar sin una invitación.</p>
+              <Button variant="sec" onClick={() => setConfirm('lock')} disabled={!online || !!busy || !info || !!info.failed || untrusted} busy={busy === 'lock'} busyText="Cerrando…" className="self-start">Cerrar la pareja</Button>
+            </>
+          )}
+        </div>
+        {!online && <p className="text-[13px] text-danger">Necesita conexión.</p>}
+        {untrusted && msg !== SIN_PERMISO && <p className="text-[13px] text-ink-2">{SIN_PERMISO}</p>}
+        {msg &&<p role="status" className="text-[13px] text-ink-2">{msg}</p>}
+      </div>
+
+      <Sheet isOpen={!!confirm} onClose={() => setConfirm(null)}>
+        <div className="flex flex-col gap-1.5 px-5 pt-2 pb-[34px]">
+          <h2 className="serif text-[26px] leading-[1.15] font-normal">
+            {confirm === 'lock' ? '¿Cerrar la pareja?' : '¿Quitar este dispositivo?'}
+          </h2>
+          <p className="pb-3.5 text-[15px] text-ink-2">
+            {confirm === 'lock'
+              ? `Mira antes que estén todos vuestros dispositivos (ahora hay ${members.length} en la lista). Los de la lista siguen igual; cualquier otro, también uno con la app sin actualizar, necesitará un código de «Añadir un dispositivo». No se puede deshacer desde la app.`
+              : locked
+                ? `${confirm?.label || 'Ese dispositivo'} dejará de ver la pareja.`
+                : `${confirm?.label || 'Ese dispositivo'} sale de la lista, pero mientras la pareja no esté cerrada podrá seguir entrando con el código.`}
+          </p>
+          <Button variant="dan" size="l" onClick={() => (confirm === 'lock' ? onLock() : onRemove(confirm))}>
+            {confirm === 'lock' ? 'Cerrar la pareja' : 'Quitar'}
+          </Button>
+          <Button variant="txt" size="l" onClick={() => setConfirm(null)}>Cancelar</Button>
+        </div>
+      </Sheet>
+    </Seccion>
   );
 }

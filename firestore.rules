@@ -1,9 +1,80 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    // Until someone locks the pair (lockPair, from Ajustes), knowing the code is enough, as before: 2.5.1 and 3.0
+    // keep working and 3.1 joins in the background. Once pairs/{pair} has locked: true, only uids listed in
+    // pairs/{pair}/members get in, and only the joinPair callable writes there (Admin SDK)
+    function isMember(pairId) {
+      return exists(/databases/$(database)/documents/pairs/$(pairId)/members/$(request.auth.uid));
+    }
+    function isOpen(pairId) {
+      let pair = /databases/$(database)/documents/pairs/$(pairId);
+      return !exists(pair) || get(pair).data.get('locked', false) != true;
+    }
+    // Member first: once locked, the usual request costs one lookup instead of two
+    function canUse(pairId) {
+      return request.auth != null && (isMember(pairId) || isOpen(pairId));
+    }
+
+    // The pair doc only carries `locked` (written by lockPair); members read it for Ajustes
+    match /pairs/{pairId} {
+      allow get: if request.auth != null && isMember(pairId);
+    }
+
+    match /pairs/{pairId}/members/{uid} {
+      allow read: if request.auth != null && isMember(pairId);
+    }
+
     // Rutas explícitas pairs/{pair}/{colección}/{doc}: sin `**`, que también casaba /pairs y /pairs/{pair}
     match /pairs/{pairId}/{col}/{docId} {
-      allow read, write: if request.auth != null;
+      allow read, write: if !(col in ['members', 'pushSubs', 'capsules', 'capsuleSecrets']) && canUse(pairId);
     }
+
+    // Time capsules (3.1). Out of the generic rule on purpose: Firestore ORs every matching rule, so that one would
+    // open them. capsules/{id} is the envelope (who, for whom, openAt): everyone reads it. Its content lives in
+    // capsuleSecrets/{id} and is only got, one by one, once the server clock (request.time) reaches openAt
+    function validOpenAt(data) {
+      return data.openAt is timestamp && data.openAt > request.time;
+    }
+    // A few short fields from known values: both phones download every envelope with the listener
+    function validEnvelope(data) {
+      return data.keys().hasOnly(['openAt', 'fromIdentity', 'forIdentity', 'kind', 'title', 'createdBy', 'createdAt', 'openedFor'])
+        && data.fromIdentity in ['yo', 'ella', ''] && data.forIdentity in ['yo', 'ella', 'ambos'] && data.kind in ['texto', 'foto']
+        && (!('title' in data) || (data.title is string && data.title.size() <= 120))
+        && data.openedFor is list && data.openedFor.size() == 0;
+    }
+    // openedFor only grows, by one identity at a time (arrayUnion of whoever opens it). Which identity is the caller's
+    // the rules can't tell: identities are not tied to uids
+    function opensOnce(before, after) {
+      return after is list && after.hasAll(before) && after.size() <= before.size() + 1
+        && after.hasOnly(['yo', 'ella']) && after.toSet().size() == after.size();
+    }
+    match /pairs/{pairId}/capsules/{capsuleId} {
+      allow read, delete: if canUse(pairId);
+      // Never without its content, in the same batch: an envelope alone would get a morning push and never open
+      allow create: if canUse(pairId) && validOpenAt(request.resource.data) && validEnvelope(request.resource.data)
+        && existsAfter(/databases/$(database)/documents/pairs/$(pairId)/capsuleSecrets/$(capsuleId));
+      // Only who has opened it changes; openAt never moves
+      allow update: if canUse(pairId) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['openedFor'])
+        && opensOnce(resource.data.get('openedFor', []), request.resource.data.openedFor);
+    }
+    // No list (a query could not be told apart from reading them all) and no update (nothing overwrites a sealed one).
+    // Created in the same batch as its envelope and with the same openAt (getAfter), so the countdown can't lie
+    match /pairs/{pairId}/capsuleSecrets/{capsuleId} {
+      allow get: if canUse(pairId) && resource.data.openAt <= request.time;
+      allow create: if canUse(pairId) && validOpenAt(request.resource.data)
+        && request.resource.data.openAt == getAfter(/databases/$(database)/documents/pairs/$(pairId)/capsules/$(capsuleId)).data.openAt;
+      allow delete: if canUse(pairId);
+    }
+
+    // A push subscription carries the uid that wrote it (every client since 1.6 does), so lockPair can drop the
+    // ones that are not of a member. Old docs without uid are still sent to, and rewritten with it on resync
+    match /pairs/{pairId}/pushSubs/{subId} {
+      allow read, delete: if canUse(pairId);
+      allow create, update: if canUse(pairId) && request.resource.data.get('uid', '') == request.auth.uid;
+    }
+
+    // pairInvites/{hash} (createInvite, joinPair) and reminderLocks/{pair}_{day} (morningReminders): Admin SDK only;
+    // no rule, so the client never reaches them
   }
 }

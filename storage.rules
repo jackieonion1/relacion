@@ -1,14 +1,44 @@
 rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
+    // The same access as firestore.rules: anyone with a session while the pair is open, only members once locked
+    function canUse(pairId) {
+      return request.auth != null && (
+        firestore.exists(/databases/(default)/documents/pairs/$(pairId)/members/$(request.auth.uid))
+        || !firestore.exists(/databases/(default)/documents/pairs/$(pairId))
+        || firestore.get(/databases/(default)/documents/pairs/$(pairId)).data.get('locked', false) != true
+      );
+    }
+
     // Fotos: pairs/{pairId}/photos/{photoId}/(thumb.jpg|orig.jpg)
     match /pairs/{pairId}/photos/{photoId}/{fileName} {
-      allow read, write: if request.auth != null;
+      allow read, write: if canUse(pairId);
     }
 
     // Música: pairs/{pairId}/music/{musicId}/orig
     match /pairs/{pairId}/music/{musicId}/{fileName} {
-      allow read, write: if request.auth != null;
+      allow read, write: if canUse(pairId);
+    }
+
+    // Time capsule photo: pairs/{pairId}/capsules/{capsuleId}/{openAtMs}.jpg. Its openAt is its own name, not a
+    // Firestore doc: deleting the capsule and recreating it with the same id and a nearer openAt leaves these bytes
+    // on their day. Read (getBlob) only once the server clock reaches it; no download URL is ever stored. The upload
+    // response does carry a download token that skips these rules: only the author gets it, and the client drops it.
+    // Neither replaced nor deleted while sealed: created once with a future openAt, deleted only after it. Without a
+    // firestore.get here, a read costs canUse's lookups only (2 at most: the limit of Storage rules reading
+    // Firestore, which the emulator does not enforce, firebase-tools#11167)
+    match /pairs/{pairId}/capsules/{capsuleId}/{fileName} {
+      function opensAt() {
+        return timestamp.value(int(fileName.split('[.]')[0]));
+      }
+      function named() {
+        return fileName.matches('[0-9]{1,15}[.]jpg');
+      }
+      allow get: if named() && request.time >= opensAt() && canUse(pairId);
+      // resource == null as well: the emulator counted an upload over an existing object as create
+      allow create: if resource == null && named() && opensAt() > request.time && canUse(pairId)
+        && request.resource.size < 5 * 1024 * 1024 && request.resource.contentType.matches('image/.*');
+      allow delete: if named() && request.time >= opensAt() && canUse(pairId);
     }
   }
 }

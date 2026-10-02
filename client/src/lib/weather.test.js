@@ -118,6 +118,29 @@ describe('fetchCityWeather', () => {
     expect((await fetchCityWeather('Ciudad Seis')).timezone).toBeNull();
   });
 
+  test('pide hoy y mañana en la misma petición y devuelve el de mañana, o null si falta', async () => {
+    const urls = [];
+    const forecast = (daily) => vi.fn((url) => {
+      urls.push(url);
+      return url.includes('geocoding')
+        ? json({ results: [{ latitude: 1, longitude: 2 }] })
+        : json({ current: { time: '2026-10-02T12:00', weather_code: 3 }, daily });
+    });
+    vi.stubGlobal('fetch', forecast({
+      sunrise: ['2026-10-02T07:00', '2026-10-03T07:01'], sunset: ['2026-10-02T19:00', '2026-10-03T18:58'],
+      weather_code: [3, 61], temperature_2m_max: [20.4, 14.5], temperature_2m_min: [11, 8.6],
+    }));
+    const w = await fetchCityWeather('Ciudad Siete');
+    expect(w.tomorrow).toEqual({ code: 61, max: 15, min: 9 });
+    const forecastUrl = urls.find((u) => u.includes('/v1/forecast'));
+    expect(forecastUrl).toContain('forecast_days=2');
+    expect(forecastUrl).toContain('daily=sunrise,sunset,weather_code,temperature_2m_max,temperature_2m_min');
+    expect(w.sunrise).toBe('2026-10-02T07:00'); // today is still the first day
+
+    vi.stubGlobal('fetch', forecast({ sunrise: ['2026-10-02T07:00'], sunset: ['2026-10-02T19:00'] }));
+    expect((await fetchCityWeather('Ciudad Siete')).tomorrow).toBeNull();
+  });
+
   test('sin ciudad, sin coordenadas o con la previsión caída da null', async () => {
     vi.stubGlobal('fetch', vi.fn((url) => (url.includes('geocoding') ? json({ results: [{ latitude: 1, longitude: 2 }] }) : json({}, false))));
     expect(await fetchCityWeather('')).toBeNull();

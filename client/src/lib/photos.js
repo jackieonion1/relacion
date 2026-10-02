@@ -1,6 +1,7 @@
 import { auth, db, storage, whenAuthed } from './firebase';
 import { getThumb, putThumb, getOrig, putOrig, pruneOrig, deleteThumb, deleteOrig } from './photoCache';
 import { splitPage } from './pagination';
+import { leerFechaExif } from './exifFecha';
 import { mapLimit } from './pool';
 
 // Thumbnails resolved at once on a cold cache (each one: getDownloadURL + fetch + IndexedDB write)
@@ -82,8 +83,8 @@ async function fb() {
   if (!_fb) {
     try {
       const { ref, uploadBytes, getDownloadURL, deleteObject } = await import('firebase/storage');
-      const { collection, doc, setDoc, updateDoc, getDoc, getDocs, query, orderBy, limit, startAfter, serverTimestamp, deleteDoc, waitForPendingWrites } = await import('firebase/firestore');
-      _fb = { ref, uploadBytes, getDownloadURL, deleteObject, collection, doc, setDoc, updateDoc, getDoc, getDocs, query, orderBy, limit, startAfter, serverTimestamp, deleteDoc, waitForPendingWrites };
+      const { collection, doc, setDoc, updateDoc, getDoc, getDocs, getCountFromServer, documentId, query, where, orderBy, limit, startAfter, serverTimestamp, deleteDoc, waitForPendingWrites } = await import('firebase/firestore');
+      _fb = { ref, uploadBytes, getDownloadURL, deleteObject, collection, doc, setDoc, updateDoc, getDoc, getDocs, getCountFromServer, documentId, query, where, orderBy, limit, startAfter, serverTimestamp, deleteDoc, waitForPendingWrites };
     } catch (e) {
       _fb = null;
     }
@@ -166,6 +167,72 @@ export async function listPhotos(pairId, max = 100) {
   return items.slice(0, max);
 }
 
+// The item the UI gets for a photo doc (thumbUrl is filled in later). Dates are ms; everything added in 3.1 is
+// optional in the doc, so it comes with a neutral default (identity '' on the oldest photos, takenAt null)
+export function photoItem(docSnap) {
+  const d = docSnap.data() || {};
+  return {
+    id: docSnap.id,
+    thumbUrl: '',
+    createdAt: d.createdAt?.toMillis?.() || Date.now(),
+    identity: d.identity || '', // who uploaded it ('yo' | 'ella')
+    reactions: d.reactions || {}, // { yo?: '💖', ella?: '🥹' }
+    favBy: Array.isArray(d.favBy) ? d.favBy : [],
+    takenAt: d.takenAt?.toMillis?.() ?? null, // the day it was really taken, when set by hand
+    commentCount: Math.max(0, d.commentCount || 0),
+    albumIds: Array.isArray(d.albumIds) ? d.albumIds : [],
+  };
+}
+
+// Resolves the thumbs of `docs` (6 at a time, cached first) into `items[i].thumbUrl`, or reports each one to
+// onThumb(id, url) when given. A failed thumb leaves its slot empty
+function fillThumbs(fblib, pairId, docs, items, onThumb) {
+  return mapLimit(docs, THUMB_CONCURRENCY, async (docSnap, i) => {
+    const url = await resolveThumbUrl(fblib, pairId, docSnap);
+    if (onThumb) { if (url) onThumb(docSnap.id, url); } else items[i].thumbUrl = url || '';
+  });
+}
+
+// Photos of any query over the pair's photos, with the same thumb pipeline as the gallery.
+// buildQuery(firestoreLib, photosCollection) returns the query, with the functions of firebase/firestore that
+// lib/photos loads (collection, query, where, orderBy, limit, startAfter, documentId…); dates go as Date.
+// `keep(item)` drops items before their thumbs are resolved. Returns { items } (+ thumbsDone with onThumb, like
+// listPhotosPage). `alResponder(fromCache)` is told whether the answer came from the local cache (no connection)
+// rather than the server, for whoever cannot trust an empty one. Local-only (no Firebase) there are no photos to
+// query: { items: [] }. A failed query throws
+export async function listPhotosBy(pairId, buildQuery, { onThumb = null, keep = null, alResponder = null } = {}) {
+  const fblib = await fb();
+  if (!(db && fblib)) return { items: [] };
+  if (!(await whenAuthed())) throw Object.assign(new Error('no-auth'), { code: 'no-auth' });
+  const snap = await fblib.getDocs(buildQuery(fblib, fblib.collection(db, 'pairs', pairId, 'photos')));
+  alResponder?.(snap.metadata?.fromCache === true);
+  const docs = [];
+  const items = [];
+  for (const docSnap of snap.docs) {
+    const item = photoItem(docSnap);
+    // The thumb URL of the doc, for the ones `keep` leaves without a thumb to ask for it later (thumbDeItem)
+    item.thumbDoc = docSnap.data()?.thumbUrl || '';
+    if (!keep || keep(item)) { docs.push(docSnap); items.push(item); }
+  }
+  const thumbs = fillThumbs(fblib, pairId, docs, items, onThumb);
+  if (onThumb) return { items, thumbsDone: thumbs };
+  await thumbs;
+  return { items };
+}
+
+// The thumb of an item from listPhotosBy that came without one, by its own `thumbDoc`: the cached blob first and
+// else the URL, like the gallery, and no read of the doc as getPhotoThumbUrl does. '' when it cannot be had
+export async function thumbDeItem(pairId, item) {
+  const fblib = await fb();
+  if (!(db && storage && fblib)) return '';
+  try {
+    await whenAuthed();
+    return await resolveThumbUrl(fblib, pairId, { id: item.id, data: () => ({ thumbUrl: item.thumbDoc || '' }) });
+  } catch {
+    return '';
+  }
+}
+
 // One page of the gallery, newest first. `cursor` is the last doc of the previous page.
 // Returns { items, cursor, hasMore } (+ thumbsDone with onThumb(id, url)). With Firebase a failed page throws,
 // the first one too (also with no session after the wait), so the UI tells "could not load" from "empty"
@@ -182,18 +249,9 @@ export async function listPhotosPage(pairId, { pageSize = 60, cursor = null, onT
       : query(col, orderBy('createdAt', 'desc'), limit(pageSize + 1));
     const snap = await getDocs(q);
     const { page, hasMore } = splitPage(snap.docs, pageSize);
-    // identity: who uploaded it ('yo' | 'ella'); missing on the oldest photos
-    const items = page.map((docSnap) => ({
-      id: docSnap.id,
-      thumbUrl: '',
-      createdAt: docSnap.data()?.createdAt?.toMillis?.() || Date.now(),
-      identity: docSnap.data()?.identity || '',
-    }));
+    const items = page.map(photoItem);
     const nextCursor = page.length ? page[page.length - 1] : cursor;
-    const thumbs = mapLimit(page, THUMB_CONCURRENCY, async (docSnap, i) => {
-      const url = await resolveThumbUrl(fblib, pairId, docSnap);
-      if (onThumb) { if (url) onThumb(docSnap.id, url); } else items[i].thumbUrl = url || '';
-    });
+    const thumbs = fillThumbs(fblib, pairId, page, items, onThumb);
     // With onThumb: return the grid now (empty slots) and report each thumb as it arrives; the caller owns
     // those blob URLs, also the ones arriving after it moved on. Without it: wait and return them filled in
     if (onThumb) return { items, cursor: nextCursor, hasMore, thumbsDone: thumbs };
@@ -237,6 +295,22 @@ function hash32(str) {
   return (h >>> 0);
 }
 
+// FNV-1a barely changes its high bits when only the last character does (consecutive days), so it is
+// finalized with murmur3's fmix32 before being used as a position
+function mix32(h) {
+  h ^= h >>> 16;
+  h = Math.imul(h, 0x85ebca6b);
+  h ^= h >>> 13;
+  h = Math.imul(h, 0xc2b2ae35);
+  h ^= h >>> 16;
+  return h >>> 0;
+}
+
+// Position (0-based, oldest first) of the day's photo among `count` photos
+export function dailyPhotoIndex(pairId, dayKey, count) {
+  return mix32(hash32(`${pairId}|${dayKey}`)) % count;
+}
+
 // Get or compute the shared daily photo id for today (Europe/Madrid). Writes to Firestore so all devices share it.
 export async function getDailyPhotoId(pairId) {
   if (!pairId) return '';
@@ -263,12 +337,26 @@ export async function getDailyPhotoId(pairId) {
 
     // Compute deterministically
     const col = collection(db, 'pairs', pairId, 'photos');
-    const q = query(col, orderBy('createdAt', 'desc'), limit(200));
-    const snap = await getDocs(q);
-    const ids = snap.docs.map((d) => d.id);
-    if (ids.length === 0) return '';
-    const idx = hash32(`${pairId}|${dayKey}`) % ids.length;
-    const chosen = ids[idx];
+    // Uniform over all photos, with no new field and no writes: count them, take k = hash mod count and read
+    // the k-th photo in a total order (createdAt, then id). Counting costs 1 read per 1000 photos and the walk
+    // starts from the nearer end, so at most count/2 + 1 documents (once a day per couple, the first to open)
+    let count;
+    try {
+      count = (await fblib.getCountFromServer(col)).data().count;
+    } catch {
+      // Offline: the newest photo (from cache if need be), not persisted so it cannot override the other phone
+      const newest = await getDocs(query(col, orderBy('createdAt', 'desc'), limit(1)));
+      return newest.docs[0]?.id || '';
+    }
+    if (!count) return '';
+    const k = dailyPhotoIndex(pairId, dayKey, count);
+    const fromEnd = k >= count - 1 - k;
+    const dir = fromEnd ? 'desc' : 'asc';
+    const steps = (fromEnd ? count - 1 - k : k) + 1;
+    const walk = await getDocs(query(col, orderBy('createdAt', dir), orderBy(fblib.documentId(), dir), limit(steps)));
+    // Photos without createdAt fall out of the order; if the count ran ahead of them, settle for the last one read
+    const chosen = walk.docs[walk.docs.length - 1]?.id;
+    if (!chosen) return '';
     // Persist so all devices use the same
     // Not awaited: offline the write only resolves once the server confirms, and Inicio must paint meanwhile
     Promise.resolve(setDoc(metaRef, { dayKey, photoId: chosen, updatedAt: fblib.serverTimestamp ? fblib.serverTimestamp() : new Date() }, { merge: true })).catch(() => {});
@@ -438,7 +526,7 @@ export async function listPendingPhotos(pairId) {
 // missing mark can't be told apart from a photo that never got one.
 const inflight = new Map();
 const deletedIds = new Set();
-function pushRemote(pairId, id, identity, thumbBlob, origBlob) {
+function pushRemote(pairId, id, identity, thumbBlob, origBlob, takenAt = null) {
   const key = `${pairId}:${id}`;
   if (inflight.has(key)) return inflight.get(key);
   const p = (async () => {
@@ -476,6 +564,8 @@ function pushRemote(pairId, id, identity, thumbBlob, origBlob) {
       identity,
       thumbUrl: thumbUrlRemote,
       origUrl: origUrlRemote,
+      // Only when the file said so: without it the photo stays as before (dated by hand, if at all)
+      ...(takenAt != null ? { takenAt: new Date(takenAt), takenAtFuente: 'exif' } : {}),
     });
     removePending(pairId, id);
   })().finally(() => inflight.delete(key));
@@ -492,6 +582,8 @@ function isOffline() {
 const UPLOAD_WAIT_MS = 45 * 1000;
 export async function uploadPhoto(pairId, file, identity = 'yo') {
   const id = genId();
+  // The canvas derivatives carry no EXIF, so the date is read from the original file (it never blocks the upload)
+  const takenAt = await leerFechaExif(file);
   // make derivatives
   const thumbBlob = await resizeToBlob(file, 480, 0.8);
   const origBlob = await resizeToBlob(file, 1600, 0.9);
@@ -508,7 +600,7 @@ export async function uploadPhoto(pairId, file, identity = 'yo') {
   const fblib = await fb();
   if (db && storage && fblib) {
     // Write-ahead: mark as pending before touching the network
-    addPending(pairId, { id, identity, createdAt: now });
+    addPending(pairId, { id, identity, createdAt: now, ...(takenAt != null ? { takenAt } : {}) });
     pending = true;
   }
   await pruneOrig(20, getPendingIds(pairId));
@@ -520,7 +612,7 @@ export async function uploadPhoto(pairId, file, identity = 'yo') {
     } else {
       // "Online" but useless network: the SDK keeps retrying for minutes. Stop waiting at 45 s without
       // cancelling: the push goes on (joined via `inflight`), the photo stays pending and `done` settles with it
-      const push = pushRemote(pairId, id, identity, thumbBlob, origBlob);
+      const push = pushRemote(pairId, id, identity, thumbBlob, origBlob, takenAt);
       let timer;
       const slow = new Promise((resolve) => { timer = setTimeout(() => resolve('slow'), UPLOAD_WAIT_MS); });
       try {
@@ -584,7 +676,7 @@ export function retryPendingPhotos(pairId) {
           result.lost += 1;
           continue;
         }
-        await pushRemote(pairId, p.id, p.identity || 'yo', thumbBlob, origBlob);
+        await pushRemote(pairId, p.id, p.identity || 'yo', thumbBlob, origBlob, p.takenAt ?? null);
         result.sent += 1;
       } catch (e) {
         if (e?.message !== 'cancelled') result.failed += 1; // deleted while uploading: nothing to retry
@@ -613,6 +705,17 @@ export async function confirmQueued(pairId, ids) {
   }
 }
 
+// The comments of a deleted photo (pairs/{p}/photoComments, 3.1) go with it, or their unread mark would keep the dot
+// on «Galería» for good. Best effort and never throws: the photo is deleted whatever happens here
+async function deleteComments({ collection, query, where, getDocs, deleteDoc }, pairId, id) {
+  try {
+    const snap = await getDocs(query(collection(db, 'pairs', pairId, 'photoComments'), where('photoId', '==', id)));
+    await Promise.allSettled((snap?.docs || []).map((d) => deleteDoc(d.ref)));
+  } catch (e) {
+    console.warn('Comments delete failed (orphan comments left):', e);
+  }
+}
+
 // Delete photo from Firestore, Storage and local cache/meta.
 // Local state goes first, before any network await: offline the server calls don't resolve, and a
 // pending mark left behind would make the retry upload the deleted photo again. The tombstone makes an
@@ -636,6 +739,7 @@ export async function deletePhoto(pairId, id) {
 
   if (db && storage && fblib) {
     const { ref, deleteObject, collection, doc, deleteDoc } = fblib;
+    deleteComments(fblib, pairId, id); // not awaited: offline the query would hold the photo's own delete
     await deleteDoc(doc(collection(db, 'pairs', pairId, 'photos'), id));
     const base = `pairs/${pairId}/photos/${id}`;
     const results = await Promise.allSettled([

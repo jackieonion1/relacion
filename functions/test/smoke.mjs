@@ -1,9 +1,11 @@
 // Smoke test para el emulador (falla con exit 1 si algo no funciona). Ejecutar desde la raíz del repo:
-//   firebase emulators:exec --config firebase.test.json --only functions,firestore --project demo-relacion "node functions/test/smoke.mjs"
+//   firebase emulators:exec --config firebase.test.json --only auth,functions,firestore,storage --project demo-relacion "node functions/test/smoke.mjs"
 // firebase.test.json carga firestore.rules reales; la siembra por Admin SDK se las salta.
 // index.js se traga los errores de los triggers, así que se asserta sobre efectos observables: un servidor
 // HTTPS local hace de endpoint push y responde 410; web-push solo habla https, y el emulador de functions
-// acepta el certificado autofirmado gracias a functions/.env.demo-relacion (NODE_TLS_REJECT_UNAUTHORIZED=0).
+// acepta el certificado autofirmado gracias a functions/.env.demo-relacion (NODE_TLS_REJECT_UNAUTHORIZED=0),
+// que también trae las claves VAPID de prueba sin las que no se envía nada. El servidor descifra cada push
+// (RFC 8291) con las claves de la suscripción sembrada, para asertar también sobre el texto.
 import crypto from 'node:crypto';
 import https from 'node:https';
 import os from 'node:os';
@@ -11,7 +13,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { initializeApp } from 'firebase-admin/app';
-import { getFirestore, FieldValue } from 'firebase-admin/firestore';
+import { getFirestore, FieldValue, Timestamp } from 'firebase-admin/firestore';
 
 if (!process.env.FIRESTORE_EMULATOR_HOST) throw new Error('FIRESTORE_EMULATOR_HOST no definido: ejecuta con emulators:exec');
 
@@ -22,14 +24,42 @@ const fail = (msg) => { console.error(`FAIL ${msg}`); process.exit(1); };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const b64url = (buf) => Buffer.from(buf).toString('base64url');
 
-// Servidor push falso: cuenta peticiones por ruta y responde 410 (Gone)
+// Servidor push falso: cuenta peticiones por ruta, guarda el payload descifrado y responde 410 (Gone)
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'smoke-'));
 execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-keyout', `${dir}/k.pem`, '-out', `${dir}/c.pem`, '-days', '1', '-subj', '/CN=127.0.0.1'], { stdio: 'ignore' });
 const hits = {};
+const payloads = {}; // ruta -> payloads recibidos, ya descifrados
+const receivers = {}; // ruta -> { ecdh, auth } de la suscripción sembrada
+
+// aes128gcm de web push (RFC 8291): salt | rs | idlen | clave pública del servidor | texto cifrado
+function decryptPush({ ecdh, auth }, body) {
+  try {
+    const salt = body.subarray(0, 16);
+    const idlen = body[20];
+    const asPublic = body.subarray(21, 21 + idlen);
+    const data = body.subarray(21 + idlen);
+    const keyInfo = Buffer.concat([Buffer.from('WebPush: info\0'), ecdh.getPublicKey(), asPublic]);
+    const ikm = Buffer.from(crypto.hkdfSync('sha256', ecdh.computeSecret(asPublic), auth, keyInfo, 32));
+    const cek = Buffer.from(crypto.hkdfSync('sha256', ikm, salt, 'Content-Encoding: aes128gcm\0', 16));
+    const nonce = Buffer.from(crypto.hkdfSync('sha256', ikm, salt, 'Content-Encoding: nonce\0', 12));
+    const decipher = crypto.createDecipheriv('aes-128-gcm', cek, nonce);
+    decipher.setAuthTag(data.subarray(data.length - 16));
+    const plain = Buffer.concat([decipher.update(data.subarray(0, data.length - 16)), decipher.final()]);
+    return JSON.parse(plain.subarray(0, plain.lastIndexOf(2)).toString()); // 0x02 cierra el registro, luego relleno
+  } catch {
+    return null;
+  }
+}
+
 const server = https.createServer({ key: fs.readFileSync(`${dir}/k.pem`), cert: fs.readFileSync(`${dir}/c.pem`) }, (req, res) => {
-  hits[req.url] = (hits[req.url] || 0) + 1;
-  req.resume();
-  res.writeHead(req.url.endsWith('/ok') ? 201 : 410).end();
+  const chunks = [];
+  req.on('data', (c) => chunks.push(c));
+  req.on('end', () => {
+    // El contador y el payload se anotan juntos, antes de responder: quien espere el contador ya ve el payload
+    if (receivers[req.url]) (payloads[req.url] ||= []).push(decryptPush(receivers[req.url], Buffer.concat(chunks)));
+    hits[req.url] = (hits[req.url] || 0) + 1;
+    res.writeHead(req.url.endsWith('/ok') ? 201 : 410).end();
+  });
 });
 await new Promise((r) => server.listen(0, '127.0.0.1', r));
 const port = server.address().port;
@@ -42,9 +72,11 @@ async function seedSub(pairId, uid) {
   const ecdh = crypto.createECDH('prime256v1');
   ecdh.generateKeys();
   const ref = db.collection('pairs').doc(pairId).collection('pushSubs').doc('x');
+  const auth = crypto.randomBytes(16);
+  receivers[`/${pairId}`] = { ecdh, auth };
   await ref.set({
     endpoint: `https://127.0.0.1:${port}/${pairId}`,
-    keys: { p256dh: b64url(ecdh.getPublicKey()), auth: b64url(crypto.randomBytes(16)) },
+    keys: { p256dh: b64url(ecdh.getPublicKey()), auth: b64url(auth) },
     enabled: true,
     identity: 'smoke',
     uid,
@@ -54,6 +86,11 @@ async function seedSub(pairId, uid) {
 const subNote = await seedSub('NOTE', 'sub-uid');
 const subEvent = await seedSub('EVENT', 'sub-uid');
 const subTest = await seedSub('TEST', 'sub-uid');
+
+// sendTestPush exige ser miembro: el llamante (caller-uid, abajo) lo es de TEST y DEDUP, y no de NOTE ni EVENT
+const addMember = (pairId, uid) => db.collection('pairs').doc(pairId).collection('members').doc(uid).set({ joinedAt: FieldValue.serverTimestamp(), label: 'smoke', via: 'code' });
+await addMember('TEST', 'caller-uid');
+await addMember('DEDUP', 'caller-uid');
 
 // 1) sendTestPush sin auth -> unauthenticated y sin envío
 const callUrl = 'http://127.0.0.1:5001/demo-relacion/europe-southwest1/sendTestPush';
@@ -77,7 +114,9 @@ const seedDoc = async (pairId, id, endpoint, uid) => {
   const ecdh = crypto.createECDH('prime256v1');
   ecdh.generateKeys();
   const ref = db.collection('pairs').doc(pairId).collection('pushSubs').doc(id);
-  await ref.set({ endpoint: `https://127.0.0.1:${port}/${endpoint}`, keys: { p256dh: b64url(ecdh.getPublicKey()), auth: b64url(crypto.randomBytes(16)) }, enabled: true, identity: id, uid });
+  const auth = crypto.randomBytes(16);
+  receivers[`/${endpoint}`] = { ecdh, auth };
+  await ref.set({ endpoint: `https://127.0.0.1:${port}/${endpoint}`, keys: { p256dh: b64url(ecdh.getPublicKey()), auth: b64url(auth) }, enabled: true, identity: id, uid });
   return ref;
 };
 const dd = {
@@ -103,7 +142,8 @@ check(!(await exists('other')), '410 borra el doc del otro endpoint');
 // 3) Triggers: crean nota y evento y esperamos a que intenten enviar
 const pair = (id) => db.collection('pairs').doc(id);
 await pair('NOTE').collection('notes').add({ title: 'Nota smoke', plain: 'Cuerpo de prueba', identity: 'otro', createdBy: 'otro-uid', createdAt: FieldValue.serverTimestamp() });
-await pair('EVENT').collection('events').add({ title: 'Evento smoke', description: 'Descripción de prueba', createdBy: 'otro-uid', createdAt: FieldValue.serverTimestamp() });
+// 24 oct 2026 a las 18:30 en Madrid (CEST, UTC+2): el cuerpo de la push dice cuándo y dónde, «fecha · hora · lugar»
+await pair('EVENT').collection('events').add({ title: 'Evento smoke', description: 'Descripción de prueba', start: Timestamp.fromDate(new Date('2026-10-24T16:30:00Z')), allDay: false, location: 'Parque de prueba', createdBy: 'otro-uid', createdAt: FieldValue.serverTimestamp() });
 
 // Efecto observable: petición recibida y, tras el 410, suscripción borrada
 const deadline = Date.now() + TIMEOUT_MS;
@@ -116,8 +156,26 @@ while (Date.now() < deadline) {
 }
 check(hits['/NOTE'] >= 1, `onNewNote intentó enviar (peticiones: ${hits['/NOTE'] || 0})`);
 check(hits['/EVENT'] >= 1, `onNewEvent intentó enviar (peticiones: ${hits['/EVENT'] || 0})`);
+const note = payloads['/NOTE']?.[0];
+check(note?.title === 'Nueva nota: Nota smoke' && note?.body === 'Cuerpo de prueba' && note?.url === '/notes', `push de nota: título, cuerpo y ruta (${JSON.stringify(note)})`);
+const evt = payloads['/EVENT']?.[0];
+check(evt?.title === 'Nuevo evento: Evento smoke' && evt?.url === '/calendar', `push de evento: título y ruta (${JSON.stringify(evt)})`);
+check(/^\S+, 24 \S+ · 18:30 · Parque de prueba$/.test(evt?.body || ''), `push de evento: cuerpo «fecha · hora · lugar» (${JSON.stringify(evt?.body)})`);
 check(hits['/TEST'] === 1, `sendTestPush con auth envió (peticiones: ${hits['/TEST'] || 0})`);
 for (const id of Object.keys(subs)) check(gone[id] === true, `suscripción ${id} borrada tras 410`);
+
+// 4) onNewPhotoComment: avisa al otro (ella) y no a quien comenta (yo), ni por identidad ni por uid
+await seedDoc('COMMENT', 'ella', 'comment-ella', 'ella-uid');
+await seedDoc('COMMENT', 'yo', 'comment-yo', 'yo-uid');
+await seedDoc('COMMENT', 'yo-otro', 'comment-mismo-uid', 'yo-uid');
+await pair('COMMENT').collection('photoComments').add({ photoId: 'F1', text: 'Qué foto más bonita', identity: 'yo', createdBy: 'yo-uid', unreadFor: ['ella'], createdAt: FieldValue.serverTimestamp() });
+const commentDeadline = Date.now() + TIMEOUT_MS;
+while (Date.now() < commentDeadline && !hits['/comment-ella']) await sleep(250);
+await sleep(500); // por si llegara también a quien comenta
+check(hits['/comment-ella'] === 1, `onNewPhotoComment avisa al otro (peticiones: ${hits['/comment-ella'] || 0})`);
+check(!hits['/comment-yo'] && !hits['/comment-mismo-uid'], 'onNewPhotoComment no avisa a quien comenta');
+const comment = payloads['/comment-ella']?.[0];
+check(comment?.title === '🫒 ha comentado una foto' && comment?.body === 'Qué foto más bonita' && comment?.url === '/gallery?photo=F1', `push de comentario: título, cuerpo y ruta (${JSON.stringify(comment)})`);
 
 server.close();
 fs.rmSync(dir, { recursive: true, force: true });
