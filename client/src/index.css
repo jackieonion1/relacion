@@ -13,8 +13,10 @@
   --ink: oklch(0.24 0.020 30);
   --ink-2: oklch(0.47 0.020 40);
   --line: oklch(0.90 0.018 20);
-  /* lacre is today's rose-600 (#e11d48): 4.5:1 or more with on-lacre, measured in R1 */
-  --lacre: oklch(0.586 0.222 17.6);
+  /* The canvas lacre is today's rose-600 (oklch(0.586 0.222 17.6), #e11d48): 4.56:1 under on-lacre but 4.36:1 as
+     text on paper and 4.23:1 on the rosy page, so it is darkened a little (plan §0 nº 1): #d61d44, measured
+     4.95:1 under on-lacre, 4.73:1 on paper, 4.60:1 on the page */
+  --lacre: oklch(0.565 0.213 17.6);
   --lacre-soft: oklch(0.941 0.03 12.6);
   --accent-ink: oklch(0.514 0.2 16.9);
   --on-lacre: oklch(0.99 0.004 30);
