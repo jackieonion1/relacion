@@ -3,8 +3,10 @@ import { getFirestore } from 'firebase-admin/firestore';
 import { onDocumentCreated } from 'firebase-functions/v2/firestore';
 import { setGlobalOptions } from 'firebase-functions/v2/options';
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
+import { onSchedule } from 'firebase-functions/v2/scheduler';
 import webpush from 'web-push';
 import { eventBody } from './pushLogic.js';
+import { remindersFor } from './reminders.js';
 
 // Global options
 setGlobalOptions({ region: 'europe-southwest1', maxInstances: 5 });
@@ -136,5 +138,32 @@ export const onNewEvent = onDocumentCreated('pairs/{pairId}/events/{eventId}', a
     }, { excludeUid: data.createdBy });
   } catch (e) {
     console.warn('onNewEvent error', e);
+  }
+});
+
+// Every morning at 9:00 Madrid time: the monthiversary (every 24th, anniversary in November) and birthdays.
+// What is due today is decided in reminders.js; each identity gets its own text
+export const morningReminders = onSchedule({ schedule: '0 9 * * *', timeZone: 'Europe/Madrid' }, async () => {
+  const due = remindersFor(new Date());
+  if (due.length === 0) return;
+  // listDocuments also returns pair ids that only have subcollections (no pair doc of their own)
+  const pairs = await db.collection('pairs').listDocuments();
+  for (const pair of pairs) {
+    for (const reminder of due) {
+      for (const [identity, text] of Object.entries(reminder.texts)) {
+        try {
+          await sendToPair(pair.id, {
+            title: text.title,
+            body: text.body,
+            url: reminder.kind === 'birthday' ? '/calendar' : '/',
+            icon: '/icon.svg',
+            badge: '/icon.svg',
+            data: { type: reminder.kind, pairId: pair.id },
+          }, { excludeIdentity: identity === 'yo' ? 'ella' : 'yo' });
+        } catch (e) {
+          console.warn('morningReminders error', pair.id, e);
+        }
+      }
+    }
   }
 });
