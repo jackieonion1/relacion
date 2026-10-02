@@ -1,4 +1,4 @@
-import { BIRTHDAYS, START, madridDate, remindersFor, skipPairs } from '../../../functions/reminders';
+import { BIRTHDAYS, START, eachLimit, madridDate, remindersFor, skipPairs } from '../../../functions/reminders';
 import { ANNIVERSARY } from './together';
 import { BIRTHDAYS as APP_BIRTHDAYS } from './specialDays';
 
@@ -63,6 +63,49 @@ describe('REMINDER_SKIP_PAIRS', () => {
     expect(skipPairs(undefined).size).toBe(0);
     expect(skipPairs('').size).toBe(0);
     expect(skipPairs(' , ').size).toBe(0);
+  });
+});
+
+// morningReminders recorre todas las parejas (también las inventadas) de 8 en 8, no una detrás de otra
+describe('eachLimit', () => {
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  test('40 parejas: como mucho 8 a la vez, y en mucho menos tiempo que en serie', async () => {
+    const pairs = Array.from({ length: 40 }, (_, i) => ({ id: `P${i}`, subs: i % 4 === 0 }));
+    let now = 0;
+    let max = 0;
+    const done = [];
+    const t0 = performance.now();
+    await eachLimit(pairs, 8, async (pair) => {
+      now++;
+      max = Math.max(max, now);
+      await sleep(5); // la consulta de pushSubs
+      if (pair.subs) await sleep(40); // cápsulas, candado y envíos
+      done.push(pair.id);
+      now--;
+    });
+    const ms = performance.now() - t0;
+    const serie = 40 * 5 + 10 * 40;
+    expect(done).toHaveLength(40);
+    expect(max).toBe(8);
+    expect(ms).toBeLessThan(serie / 3);
+    console.log(`eachLimit: 40 parejas en ${Math.round(ms)} ms (en serie, ≥ ${serie} ms), ${max} a la vez`);
+  });
+
+  test('una pareja que falla no deja sin mañana a las demás', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const done = [];
+    await eachLimit(['A', 'B', 'C', 'D'], 2, async (id) => {
+      if (id === 'B') throw new Error('x');
+      done.push(id);
+    });
+    expect(done.sort()).toEqual(['A', 'C', 'D']);
+    expect(warn).toHaveBeenCalledTimes(1);
+    warn.mockRestore();
+  });
+
+  test('sin parejas, termina', async () => {
+    await expect(eachLimit([], 8, async () => {})).resolves.toBeUndefined();
   });
 });
 

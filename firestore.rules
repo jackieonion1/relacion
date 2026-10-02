@@ -36,13 +36,27 @@ service cloud.firestore {
     function validOpenAt(data) {
       return data.openAt is timestamp && data.openAt > request.time;
     }
+    // A few short fields from known values: both phones download every envelope with the listener
+    function validEnvelope(data) {
+      return data.keys().hasOnly(['openAt', 'fromIdentity', 'forIdentity', 'kind', 'title', 'createdBy', 'createdAt', 'openedFor'])
+        && data.fromIdentity in ['yo', 'ella', ''] && data.forIdentity in ['yo', 'ella', 'ambos'] && data.kind in ['texto', 'foto']
+        && (!('title' in data) || (data.title is string && data.title.size() <= 120))
+        && data.openedFor is list && data.openedFor.size() == 0;
+    }
+    // openedFor only grows, by one identity at a time (arrayUnion of whoever opens it). Which identity is the caller's
+    // the rules can't tell: identities are not tied to uids
+    function opensOnce(before, after) {
+      return after is list && after.hasAll(before) && after.size() <= before.size() + 1
+        && after.hasOnly(['yo', 'ella']) && after.toSet().size() == after.size();
+    }
     match /pairs/{pairId}/capsules/{capsuleId} {
       allow read, delete: if canUse(pairId);
-      allow create: if canUse(pairId) && validOpenAt(request.resource.data)
-        && request.resource.data.keys().hasOnly(['openAt', 'fromIdentity', 'forIdentity', 'kind', 'title', 'createdBy', 'createdAt', 'openedFor']);
+      // Never without its content, in the same batch: an envelope alone would get a morning push and never open
+      allow create: if canUse(pairId) && validOpenAt(request.resource.data) && validEnvelope(request.resource.data)
+        && existsAfter(/databases/$(database)/documents/pairs/$(pairId)/capsuleSecrets/$(capsuleId));
       // Only who has opened it changes; openAt never moves
       allow update: if canUse(pairId) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['openedFor'])
-        && request.resource.data.openedFor is list;
+        && opensOnce(resource.data.get('openedFor', []), request.resource.data.openedFor);
     }
     // No list (a query could not be told apart from reading them all) and no update (nothing overwrites a sealed one).
     // Created in the same batch as its envelope and with the same openAt (getAfter), so the countdown can't lie
@@ -60,6 +74,7 @@ service cloud.firestore {
       allow create, update: if canUse(pairId) && request.resource.data.get('uid', '') == request.auth.uid;
     }
 
-    // pairInvites/{hash}: Admin SDK only (createInvite, joinPair); no rule, so the client never reaches it
+    // pairInvites/{hash} (createInvite, joinPair) and reminderLocks/{pair}_{day} (morningReminders): Admin SDK only;
+    // no rule, so the client never reaches them
   }
 }

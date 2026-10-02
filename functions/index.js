@@ -7,9 +7,9 @@ import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
 import webpush from 'web-push';
 import { createHash, randomInt } from 'node:crypto';
-import { eventBody } from './pushLogic.js';
+import { eventBody, truncate } from './pushLogic.js';
 import { deviceLabel } from './membershipLogic.js';
-import { madridDate, remindersFor, skipPairs } from './reminders.js';
+import { eachLimit, madridDate, remindersFor, skipPairs } from './reminders.js';
 import { capsuleDay, capsulePushes } from './capsulas.js';
 
 // Global options
@@ -240,13 +240,6 @@ async function sendToPair(pairId, payload, { excludeIdentity, excludeUid } = {})
   return summary;
 }
 
-function truncate(str = '', n = 120) {
-  try {
-    const s = String(str || '').replace(/\s+/g, ' ').trim();
-    return s.length > n ? s.slice(0, n - 1) + '…' : s;
-  } catch { return ''; }
-}
-
 export const onNewNote = onDocumentCreated('pairs/{pairId}/notes/{noteId}', async (event) => {
   try {
     const { pairId } = event.params;
@@ -316,10 +309,12 @@ export const morningReminders = onSchedule({ schedule: '0 9 * * *', timeZone: 'E
   const { year, month, day } = madridDate(now);
   const today = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
   const { start, end } = capsuleDay(now);
-  // listDocuments also returns pair ids that only have subcollections (no pair doc of their own)
+  // listDocuments also returns pair ids that only have subcollections (no pair doc of their own). Anyone with a session
+  // can make up pair ids, so they go a few at a time instead of one after another
   const pairs = await db.collection('pairs').listDocuments();
-  for (const pair of pairs) {
-    if (skip.has(pair.id)) continue;
+  await eachLimit(pairs.filter((pair) => !skip.has(pair.id)), 8, async (pair) => {
+    // No subscription, nobody to tell (a pair without members is still served: an open one, on 3.0 phones)
+    if ((await pair.collection('pushSubs').limit(1).get()).empty) return;
     // Capsules opening today: a range on a single field, so the automatic index serves it
     let capsules = {};
     try {
@@ -329,13 +324,14 @@ export const morningReminders = onSchedule({ schedule: '0 9 * * *', timeZone: 'E
     } catch (e) {
       console.warn('morningReminders capsules error', pair.id, e);
     }
-    if (due.length === 0 && Object.keys(capsules).length === 0) continue;
-    // One lock per pair and day: if Scheduler delivers the run twice, the second finds it and sends nothing
+    if (due.length === 0 && Object.keys(capsules).length === 0) return;
+    // One lock per pair and day: if Scheduler delivers the run twice, the second finds it and sends nothing. At the top
+    // level, where no rule reaches: under pairs/{p}/meta a client could take it first and silence the morning
     try {
-      await pair.collection('meta').doc(`reminders-${today}`).create({ at: FieldValue.serverTimestamp() });
+      await db.collection('reminderLocks').doc(`${pair.id}_${today}`).create({ at: FieldValue.serverTimestamp() });
     } catch (e) {
       // 6 = ALREADY_EXISTS; any other failure sends anyway (a duplicate beats a missed greeting)
-      if (e?.code === 6) continue;
+      if (e?.code === 6) return;
       console.warn('morningReminders lock error', pair.id, e);
     }
     for (const reminder of due) {
@@ -368,5 +364,5 @@ export const morningReminders = onSchedule({ schedule: '0 9 * * *', timeZone: 'E
         console.warn('morningReminders capsule error', pair.id, e);
       }
     }
-  }
+  });
 });

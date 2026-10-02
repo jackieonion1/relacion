@@ -1,4 +1,4 @@
-import { eventBody } from '../../../functions/pushLogic';
+import { eventBody, truncate } from '../../../functions/pushLogic';
 
 // El evento no guarda texto libre: la push dice cuándo y dónde, en hora de Madrid
 const ts = (iso) => ({ toDate: () => new Date(iso) });
@@ -58,5 +58,37 @@ describe('eventBody', () => {
   test('sin fecha ni lugar, texto vacío (nunca revienta)', () => {
     expect(eventBody({})).toBe('');
     expect(eventBody(undefined)).toBe('');
+  });
+});
+
+// El cuerpo de las pushes de notas, eventos y comentarios: 120 caracteres como mucho, sin partir un emoji
+describe('truncate', () => {
+  const sinSurrogateSuelto = (s) => !/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(s);
+
+  test('lo corto, igual; lo largo, a 119 y «…»; los espacios, de uno en uno', () => {
+    expect(truncate('  hola \n  qué tal ')).toBe('hola qué tal');
+    const t = truncate('a'.repeat(200));
+    expect(t).toBe('a'.repeat(119) + '…');
+  });
+
+  test('un emoji justo en el corte no se parte (antes salía «�…»)', () => {
+    const t = truncate('a'.repeat(118) + '🍪🍪🍪');
+    expect(t).toBe('a'.repeat(118) + '🍪…');
+    expect(sinSurrogateSuelto(t)).toBe(true);
+  });
+
+  test('ni los emoji compuestos ni las banderas', () => {
+    const t = truncate('b'.repeat(118) + '👩‍❤️‍👨🇪🇸🫒');
+    expect(t).toBe('b'.repeat(118) + '👩‍❤️‍👨…');
+    expect(sinSurrogateSuelto(truncate('🫒'.repeat(200)))).toBe(true);
+  });
+
+  test('120 emoji caben enteros, aunque en UTF-16 sean 240', () => {
+    expect(truncate('🩷'.repeat(120))).toBe('🩷'.repeat(120));
+  });
+
+  test('lo que no es texto no revienta', () => {
+    expect(truncate(undefined)).toBe('');
+    expect(truncate(42)).toBe('42');
   });
 });
