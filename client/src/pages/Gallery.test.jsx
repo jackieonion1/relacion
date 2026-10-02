@@ -4,7 +4,8 @@ import { MemoryRouter, Routes, Route, useLocation } from 'react-router';
 import Gallery from './Gallery';
 import { whenAuthed } from '../lib/firebase';
 import { listPhotosPage, listPendingPhotos, getPendingIds, retryPendingPhotos, getOriginal, getOriginalUrl, deletePhoto } from '../lib/photos';
-import { escucharFoto, setReaccion } from '../lib/fotoSocial';
+import { listPhotosBy } from '../lib/photos';
+import { escucharFoto, setReaccion, setFavorita } from '../lib/fotoSocial';
 import { escucharComentarios, addComentario, deleteComentario, marcarLeidos } from '../lib/fotoComentarios';
 import { useNoLeidos } from '../lib/fotoAvisos';
 
@@ -32,6 +33,7 @@ vi.mock('../lib/fotoSocial', async (orig) => ({
   ...(await orig()),
   escucharFoto: vi.fn(),
   setReaccion: vi.fn(),
+  setFavorita: vi.fn(),
 }));
 vi.mock('../lib/fotoComentarios', async (orig) => ({
   ...(await orig()),
@@ -45,6 +47,8 @@ const NADA_SIN_LEER = new Map();
 beforeEach(() => {
   escucharFoto.mockReturnValue(() => {});
   setReaccion.mockResolvedValue({ committed: Promise.resolve() });
+  setFavorita.mockResolvedValue({ committed: Promise.resolve() });
+  listPhotosBy.mockResolvedValue({ items: [], thumbsDone: Promise.resolve() });
   escucharComentarios.mockReturnValue(() => {});
   addComentario.mockResolvedValue({ id: 'C1', committed: Promise.resolve() });
   deleteComentario.mockResolvedValue();
@@ -413,5 +417,63 @@ describe('3.1: comentarios en el visor', () => {
     await act(flush);
     expect(screen.getByRole('heading', { name: 'Comentarios' })).toBeTruthy();
     expect(cells()[0].getAttribute('aria-label')).toMatch('con comentarios sin leer');
+  });
+});
+
+describe('3.1: favoritas', () => {
+  const at = (y, m, d) => new Date(y, m, d, 12).getTime();
+  beforeEach(() => {
+    localStorage.setItem('identity', 'yo');
+    getOriginal.mockImplementation(async (pairId, id) => ({ id, size: 1000 }));
+    getOriginalUrl.mockResolvedValue('');
+    URL.createObjectURL = vi.fn((blob) => `blob:${blob.id}`);
+  });
+  afterEach(() => localStorage.removeItem('identity'));
+  const filtro = (name) => within(screen.getByRole('group', { name: 'Qué fotos ver' })).getByRole('button', { name });
+
+  test('el filtro pide las favoritas sin limit, las agrupa por la fecha de la foto y el visor pasa entre ellas', async () => {
+    listPhotosBy.mockResolvedValue({
+      items: [
+        { id: 'F2', thumbUrl: '', createdAt: at(2026, 9, 1), takenAt: at(2025, 2, 12), favBy: ['yo', 'ella'] },
+        { id: 'F1', thumbUrl: '', createdAt: at(2026, 9, 1), takenAt: null, favBy: ['ella'] },
+      ],
+      thumbsDone: Promise.resolve(),
+    });
+    await mount();
+    await act(async () => { fireEvent.click(filtro('Favoritas')); await flush(); });
+    const build = listPhotosBy.mock.calls.at(-1)[1];
+    const fake = { query: (...a) => a, where: (...a) => ['where', ...a] };
+    expect(build(fake, 'col')).toEqual(['col', ['where', 'favBy', 'array-contains-any', ['yo', 'ella']]]);
+    expect(screen.getAllByRole('heading', { level: 2 }).map((h) => h.textContent)).toEqual(['Octubre 2026', 'Marzo 2025']);
+    expect(cells().map((c) => c.getAttribute('aria-label'))).toEqual(['Foto del 1 oct 2026', 'Foto del 12 mar 2025']);
+    await act(async () => { fireEvent.click(cells()[0]); await flush(); });
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Foto siguiente' })); await flush(); });
+    expect(document.querySelector('img[src="blob:F2"]')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Foto siguiente' }).disabled).toBe(true);
+  });
+
+  test('el corazón del visor la marca como mía, y sin favoritas lo dice', async () => {
+    await mount();
+    await act(async () => { fireEvent.click(cells()[0]); await flush(); });
+    const corazon = screen.getByRole('button', { name: 'Favorita' });
+    expect(corazon.getAttribute('aria-pressed')).toBe('false');
+    await act(async () => { fireEvent.click(corazon); await flush(); });
+    expect(setFavorita).toHaveBeenCalledWith('SEB1998', 'D0', 'yo', true);
+    expect(corazon.getAttribute('aria-pressed')).toBe('true');
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Cerrar' })); await flush(); });
+    await act(async () => { fireEvent.click(filtro('Favoritas')); await flush(); });
+    expect(screen.getByText('Aún no hay favoritas')).toBeTruthy();
+    await act(async () => { fireEvent.click(filtro('Todas')); await flush(); });
+    expect(cells()).toHaveLength(3);
+  });
+
+  test('«Hace un año» agrupa por años atrás', async () => {
+    const hoy = new Date();
+    const haceUno = new Date(hoy.getFullYear() - 1, hoy.getMonth(), hoy.getDate(), 12).getTime();
+    listPhotosBy.mockResolvedValueOnce({ items: [{ id: 'H1', thumbUrl: '', createdAt: haceUno, takenAt: null }], thumbsDone: Promise.resolve() });
+    await mount();
+    await act(async () => { fireEvent.click(filtro('Hace un año')); await flush(); });
+    expect(screen.getAllByRole('heading', { level: 2 }).map((h) => h.textContent)).toEqual(['Hace un año']);
+    expect(cells()).toHaveLength(1);
   });
 });

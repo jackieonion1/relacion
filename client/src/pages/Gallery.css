@@ -36,6 +36,12 @@
   background-color: var(--lacre); box-shadow: 0 0 0 2px var(--paper);
 }
 
+/* Favourite in «Favoritas»: lacre hearts on a paper pill, readable over any photo */
+.galeria-fav {
+  display: inline-flex; align-items: center; gap: 1px; height: 22px; padding: 0 5px; border-radius: 11px;
+  background-color: var(--paper); color: var(--lacre); box-shadow: var(--sh-1);
+}
+
 /* uploadBytes reports no progress: the ring only turns (plan A9) */
 .galeria-anillo { animation: galeria-giro 1100ms linear infinite; }
 @keyframes galeria-giro { to { transform: rotate(360deg); } }

@@ -1,5 +1,5 @@
-import { escucharFoto, setReaccion } from './fotoSocial';
-import { collection, doc, updateDoc, onSnapshot, deleteField } from 'firebase/firestore';
+import { escucharFoto, setReaccion, setFavorita } from './fotoSocial';
+import { collection, doc, updateDoc, onSnapshot, deleteField, arrayUnion, arrayRemove } from 'firebase/firestore';
 
 vi.mock('./firebase', async () => {
   const { listenAfterAuth } = await vi.importActual('./authGate');
@@ -47,6 +47,16 @@ describe('setReaccion', () => {
     await expect(setReaccion('SEB1998', 'F1', 'yo', '👎')).rejects.toThrow('bad-reaction');
     expect(updateDoc).not.toHaveBeenCalled();
   });
+});
+
+test('setFavorita: cada uno añade o quita solo su nombre', async () => {
+  updateDoc.mockResolvedValue();
+  arrayUnion.mockImplementation((x) => `+${x}`);
+  arrayRemove.mockImplementation((x) => `-${x}`);
+  await setFavorita('SEB1998', 'F1', 'yo', true);
+  expect(updateDoc).toHaveBeenLastCalledWith(expect.anything(), { favBy: '+yo' });
+  await setFavorita('SEB1998', 'F1', 'ella', false);
+  expect(updateDoc).toHaveBeenLastCalledWith(expect.anything(), { favBy: '-ella' });
 });
 
 test('escucharFoto da el ítem del doc, y null cuando la foto ya no existe', async () => {

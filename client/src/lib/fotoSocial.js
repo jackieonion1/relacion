@@ -35,6 +35,12 @@ async function update(pairId, id, data) {
   return { committed };
 }
 
+// Each one keeps their own favourites (favBy ⊂ ['yo','ella']); arrayUnion/arrayRemove, so the two never collide
+export async function setFavorita(pairId, id, identity, on) {
+  if (!WHO[identity]) throw new Error('bad-identity');
+  return update(pairId, id, (f) => ({ favBy: on ? f.arrayUnion(identity) : f.arrayRemove(identity) }));
+}
+
 // One reaction per person (REACCIONES); null takes it away. A map field: the two phones never overwrite each other
 export async function setReaccion(pairId, id, identity, emoji) {
   // identity goes into a field path: only the two known ones

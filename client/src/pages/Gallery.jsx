@@ -10,7 +10,11 @@ import Button from '../components/Button';
 import Icon from '../components/Icon';
 import VisorPie, { photoDate } from '../components/VisorPie';
 import ComentariosHoja from '../components/ComentariosHoja';
-import { escucharFoto, setReaccion } from '../lib/fotoSocial';
+import FiltroGaleria from '../components/FiltroGaleria';
+import { escucharFoto, setReaccion, setFavorita } from '../lib/fotoSocial';
+import { listFavoritas } from '../lib/fotoConsultas';
+import { fotosDelDia } from '../lib/recuerdos';
+import { fechaEfectiva } from '../lib/fotoFecha';
 import { escucharComentarios, addComentario, deleteComentario, marcarLeidos } from '../lib/fotoComentarios';
 import { useNoLeidos } from '../lib/fotoAvisos';
 import './Gallery.css';
@@ -31,15 +35,41 @@ const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 const monthKey = (ms) => { const d = new Date(ms); return `${d.getFullYear()}-${d.getMonth()}`; };
 const monthLabel = (ms) => { const d = new Date(ms); return `${cap(MONTHS[d.getMonth()])} ${d.getFullYear()}`; };
 
-// C9: grupos por mes de createdAt (hora del móvil), en el orden en que llegan las fotos
-function groupByMonth(list) {
+// C9: grupos por mes de createdAt (hora del móvil), en el orden en que llegan las fotos. The other views (3.1) group
+// by effective date, the one they are queried and sorted by
+function groupByMonth(list, fecha = (it) => it.createdAt) {
   const groups = new Map();
   list.forEach((it) => {
-    const key = monthKey(it.createdAt || 0);
-    if (!groups.has(key)) groups.set(key, { key, label: monthLabel(it.createdAt || 0), items: [] });
+    const ms = fecha(it) || 0;
+    const key = monthKey(ms);
+    if (!groups.has(key)) groups.set(key, { key, label: monthLabel(ms), items: [] });
     groups.get(key).items.push(it);
   });
   return [...groups.values()];
+}
+
+// «Hace un año»: one group per year back, nearest first (fotosDelDia already returns them in that order)
+function groupByAnos(list) {
+  const groups = new Map();
+  list.forEach((it) => {
+    if (!groups.has(it.anos)) groups.set(it.anos, { key: `anos-${it.anos}`, label: it.anos === 1 ? 'Hace un año' : `Hace ${it.anos} años`, items: [] });
+    groups.get(it.anos).items.push(it);
+  });
+  return [...groups.values()];
+}
+
+const vistaKeyOf = (v) => v.tipo;
+const VACIA = {
+  favoritas: { titulo: 'Aún no hay favoritas', texto: 'Toca el corazón al ver una foto y quedará aquí, para los dos.' },
+  haceUnAno: { titulo: 'Hoy no hay fotos de otros años', texto: 'Cuando haya alguna de un día como hoy, saldrá aquí.' },
+};
+
+// What each view other than «Todas» shows, by effective date
+async function cargarVista(pairId, v, onThumb) {
+  if (v.tipo === 'favoritas') return (await listFavoritas(pairId, { onThumb })).items;
+  // Each photo carries how many years back it is, for its group
+  const porAno = await fotosDelDia(pairId, new Date(), 3, { onThumb });
+  return porAno.flatMap((a) => a.items.map((it) => ({ ...it, anos: a.anos })));
 }
 
 export default function Gallery() {
@@ -81,6 +111,15 @@ export default function Gallery() {
   const [comentariosOpen, setComentariosOpen] = useState(false);
   const noLeidos = useNoLeidos();
   const comentariosDeUrlRef = useRef(''); // opened from a comment's push: its comments open by themselves
+  // 3.1 views other than «Todas»: their own list (by effective date) and their own swipe order. Each one is kept
+  // while the Gallery is mounted, and our own changes patch it in place
+  const [vista, setVista] = useState({ tipo: 'todas' });
+  const [vistaDatos, setVistaDatos] = useState({ key: '', items: [], loading: false, error: false });
+  const [vistaRecarga, setVistaRecarga] = useState(0);
+  const vistaCacheRef = useRef(new Map()); // key → items
+  const vistaThumbsRef = useRef(new Map()); // id → thumb of those views, revoked on leaving the Gallery
+  const montadoRef = useRef(true);
+  const [, setVistaThumbs] = useState(0);
   // Paginación: cursor = último doc de la página cargada; genRef descarta páginas de una carga anterior
   const cursorRef = useRef(null);
   const genRef = useRef(0);
@@ -212,10 +251,65 @@ export default function Gallery() {
     return () => { clearTimeout(timer); if (unsub) unsub(); };
   }, [viewer.open, viewer.id, pairId]);
 
-  // Our own change, painted at once in the grid and in the open photo (the write is queued, not awaited)
+  const vistaKey = vistaKeyOf(vista);
+  useEffect(() => {
+    montadoRef.current = true;
+    const thumbs = vistaThumbsRef.current;
+    return () => {
+      montadoRef.current = false;
+      thumbs.forEach((u) => { if (u.startsWith('blob:')) URL.revokeObjectURL(u); });
+      thumbs.clear();
+    };
+  }, []);
+
+  // A view's thumbs live until the Gallery goes (the same photo may be in several views: the first one stays)
+  function vistaOnThumb(id, url) {
+    if (!montadoRef.current || vistaThumbsRef.current.has(id)) {
+      if (url.startsWith('blob:')) URL.revokeObjectURL(url);
+      return;
+    }
+    vistaThumbsRef.current.set(id, url);
+    setVistaThumbs((n) => n + 1);
+  }
+
+  useEffect(() => {
+    if (vista.tipo === 'todas' || !pairId) return undefined;
+    const key = vistaKey;
+    const cached = vistaCacheRef.current.get(key);
+    if (cached) { setVistaDatos({ key, items: cached, loading: false, error: false }); return undefined; }
+    let cancelled = false;
+    setVistaDatos({ key, items: [], loading: true, error: false });
+    (async () => {
+      try {
+        await whenAuthed();
+        const list = await cargarVista(pairId, vista, vistaOnThumb);
+        vistaCacheRef.current.set(key, list);
+        if (!cancelled) setVistaDatos({ key, items: list, loading: false, error: false });
+      } catch (e) {
+        console.error('Gallery view failed', e);
+        if (!cancelled) setVistaDatos({ key, items: [], loading: false, error: e?.code || 'unknown' });
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [vistaKey, pairId, vistaRecarga]);
+
+  // Our own change, painted at once in the grid, in the views and in the open photo (the write is queued, not awaited)
   function patchFoto(id, change) {
-    setItems((prev) => prev.map((it) => (it.id === id ? { ...it, ...change(it) } : it)));
+    const patch = (list) => list.map((it) => (it.id === id ? { ...it, ...change(it) } : it));
+    setItems(patch);
+    setVistaDatos((d) => ({ ...d, items: patch(d.items) }));
+    vistaCacheRef.current.forEach((list, k) => vistaCacheRef.current.set(k, patch(list)));
     setVivo((v) => (v.id === id && v.foto ? { ...v, foto: { ...v.foto, ...change(v.foto) } } : v));
+  }
+
+  function onFav() {
+    const id = viewer.id;
+    if (!id) return;
+    const on = !viewerFoto?.favBy?.includes(identity);
+    patchFoto(id, (it) => ({ favBy: on ? [...new Set([...(it.favBy || []), identity])] : (it.favBy || []).filter((w) => w !== identity) }));
+    // An open «Favoritas» keeps the photo (nothing jumps under the finger); the next visit asks again
+    vistaCacheRef.current.delete('favoritas');
+    setFavorita(pairId, id, identity, on).catch((e) => console.warn('Favourite failed', e));
   }
 
   function onReact(emoji) {
@@ -477,14 +571,19 @@ export default function Gallery() {
   }
 
   const pickFiles = () => uploadInputRef.current && uploadInputRef.current.click();
-  const groups = groupByMonth(items);
+  const enVista = vista.tipo !== 'todas';
+  const vistaActual = enVista && vistaDatos.key === vistaKey ? vistaDatos : { items: [], loading: true, error: false };
+  const shown = enVista
+    ? vistaActual.items.map((it) => (it.thumbUrl ? it : { ...it, thumbUrl: vistaThumbsRef.current.get(it.id) || '' }))
+    : items;
+  const groups = !enVista ? groupByMonth(items) : vista.tipo === 'haceUnAno' ? groupByAnos(shown) : groupByMonth(shown, fechaEfectiva);
   // Las que se están subiendo van delante, en el mes de hoy
-  if (uploadingCount > 0 && groups[0]?.key !== monthKey(Date.now())) {
+  if (!enVista && uploadingCount > 0 && groups[0]?.key !== monthKey(Date.now())) {
     groups.unshift({ key: monthKey(Date.now()), label: monthLabel(Date.now()), items: [] });
   }
   const isEmpty = items.length === 0 && uploadingCount === 0;
   const subtitle = loading ? 'Cargando fotos…' : loadError ? 'No disponibles ahora' : isEmpty ? 'Ninguna todavía' : 'Las de los dos';
-  const viewerItem = viewer.id ? items.find((it) => it.id === viewer.id) : null;
+  const viewerItem = viewer.id ? shown.find((it) => it.id === viewer.id) || items.find((it) => it.id === viewer.id) : null;
   // The live doc over the grid item (C11 still holds: the footer only says who uploaded it if the photo keeps it).
   // A photo still only on this phone has no doc yet: nothing to react to
   const viewerFoto = vivo.id === viewer.id && vivo.foto ? { ...viewerItem, ...vivo.foto, thumbUrl: viewerItem?.thumbUrl || '' } : viewerItem;
@@ -536,7 +635,7 @@ export default function Gallery() {
   const at = viewer.id ? order.findIndex((it) => it.id === viewer.id) : -1;
   const prevItem = at > 0 ? order[at - 1] : null;
   const nextItem = at >= 0 ? order[at + 1] || null : null;
-  const nextOnNextPage = at >= 0 && !nextItem && hasMore;
+  const nextOnNextPage = !enVista && at >= 0 && !nextItem && hasMore;
 
   function step(dir) {
     if (!viewer.open || deleting || confirmDeleteOpen || comentariosOpen) return;
@@ -666,7 +765,13 @@ export default function Gallery() {
         </div>
       )}
 
-      {loading ? (
+      {!loading && !loadError && (!isEmpty || enVista) && (
+        <div className="px-4 pb-3.5">
+          <FiltroGaleria valor={vista.tipo} onChange={(tipo) => setVista({ tipo })} />
+        </div>
+      )}
+
+      {loading || (enVista && vistaActual.loading) ? (
         <div role="status" aria-label="Cargando fotos" className="grid grid-cols-3 gap-0.5">
           {Array.from({ length: 12 }, (_, i) => (
             <span key={i} className="relative block aspect-square"><span className="galeria-hueco" /></span>
@@ -680,6 +785,20 @@ export default function Gallery() {
           <Button variant="sec" onClick={() => setReloadKey((k) => k + 1)}>Reintentar</Button>
           {/* Small, to tell «no session» (no-auth, permission-denied) from «Firestore unreachable» (unavailable…) */}
           <p className="num text-xs text-ink-2 opacity-75">{loadError}</p>
+        </section>
+      ) : enVista && vistaActual.error ? (
+        <section role="alert" className="mx-4 mt-3 flex flex-col items-center gap-2.5 py-7 px-6 rounded-hero bg-sunk text-center">
+          <Icon name="info" size={30} className="text-ink-2" />
+          <p className="text-[17px] font-semibold">No se pudieron cargar estas fotos</p>
+          <p className="text-sm text-ink-2">Puede ser la conexión. Las fotos siguen ahí.</p>
+          <Button variant="sec" onClick={() => setVistaRecarga((k) => k + 1)}>Reintentar</Button>
+          <p className="num text-xs text-ink-2 opacity-75">{vistaActual.error}</p>
+        </section>
+      ) : enVista && shown.length === 0 ? (
+        <section className="mx-4 mt-3 flex flex-col items-center gap-2 py-9 px-6 rounded-hero border-[1.5px] border-dashed border-line text-center">
+          {vista.tipo === 'favoritas' && <Icon name="latido" size={30} className="text-accent-ink" />}
+          <p className="serif text-[24px] leading-tight">{VACIA[vista.tipo].titulo}</p>
+          <p className="text-[15px] text-ink-2 max-w-[270px] text-pretty">{VACIA[vista.tipo].texto}</p>
         </section>
       ) : isEmpty ? (
         <section className="mx-4 mt-6 flex flex-col items-center gap-3 py-9 px-6 rounded-hero border-[1.5px] border-dashed border-line text-center">
@@ -696,7 +815,7 @@ export default function Gallery() {
             <section key={g.key}>
               <h2 className={`etiqueta px-5 pb-2.5 ${gi === 0 ? 'pt-1' : 'pt-6'}`}>{g.label}</h2>
               <div className="grid grid-cols-3 gap-0.5">
-                {gi === 0 && Array.from({ length: uploadingCount }, (_, i) => (
+                {gi === 0 && !enVista && Array.from({ length: uploadingCount }, (_, i) => (
                   <div key={`subiendo-${i}`} role="status" aria-label="Subiendo foto" className="galeria-celda relative aspect-square overflow-hidden">
                     <span className="galeria-hueco" />
                     <span className="absolute inset-0 flex flex-col items-center justify-center gap-1.5" style={{ background: 'oklch(0.2 0.02 30 / 0.45)', color: VIEWER_INK }}>
@@ -713,7 +832,7 @@ export default function Gallery() {
                     key={it.id}
                     type="button"
                     onClick={() => openViewer(it.id)}
-                    aria-label={`Foto del ${photoDate(it.createdAt || 0)}${noLeidos.has(it.id) ? ', con comentarios sin leer' : ''}`}
+                    aria-label={`Foto del ${photoDate((enVista ? fechaEfectiva(it) : it.createdAt) || 0)}${noLeidos.has(it.id) ? ', con comentarios sin leer' : ''}`}
                     className="galeria-celda relative block w-full aspect-square overflow-hidden bg-sunk active:opacity-80"
                     style={{ animationDelay: `${Math.min(i, 11) * 20}ms` }}
                   >
@@ -727,6 +846,13 @@ export default function Gallery() {
                     {noLeidos.has(it.id) && (
                       <span aria-hidden="true" className="galeria-punto absolute top-1.5 right-1.5" />
                     )}
+                    {/* In «Favoritas», whose it is: one heart, or two when both keep it */}
+                    {vista.tipo === 'favoritas' && it.favBy?.length > 0 && (
+                      <span aria-hidden="true" className="galeria-fav absolute right-1.5 bottom-1.5">
+                        {it.favBy.length > 1 && <Icon name="latido" filled size={14} />}
+                        <Icon name="latido" filled size={14} />
+                      </span>
+                    )}
                     {pendingIds.includes(it.id) && (
                       <span className="absolute left-1.5 bottom-1.5 px-2 py-[3px] rounded-[10px] bg-ink text-paper text-xs font-semibold">Sin subir</span>
                     )}
@@ -736,7 +862,9 @@ export default function Gallery() {
             </section>
           ))}
           <div className="flex flex-col items-center gap-2 px-4 pt-5">
-            {hasMore ? (
+            {enVista ? (
+              <p className="etiqueta py-3.5">{shown.length === 1 ? '1 foto' : `${shown.length} fotos`}</p>
+            ) : hasMore ? (
               <>
                 <Button variant="sec" size="m" className="w-full" onClick={loadMore} busy={loadingMore} busyText="Cargando…">Cargar más</Button>
                 {loadMoreError && <p role="alert" className="text-[13px] text-danger">No se pudieron cargar más fotos. Inténtalo de nuevo.</p>}
@@ -859,6 +987,7 @@ export default function Gallery() {
               deleting={deleting}
               onDelete={() => setConfirmDeleteOpen(true)}
               onReact={social ? onReact : null}
+              onFav={onFav}
               comentarios={{ n: nComentarios, unread: sinLeer }}
               onComments={() => setComentariosOpen(true)}
             />
