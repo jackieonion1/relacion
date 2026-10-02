@@ -27,7 +27,7 @@ const PAIR_KEY = 'pairId';
 
 // Screens already in Carta: they lay out their own width, padding and serif h1, so <main> adds none.
 // The rest keep the old px-4 pt-4 until their own step (plan §5.2); the old header is gone everywhere
-const MIGRATED_ROUTES = new Set(['/calendar', '/roulette', '/coin']);
+const MIGRATED_ROUTES = new Set(['/calendar', '/roulette', '/coin', '/gallery']);
 
 function readPairFromUrl() {
   try {

@@ -1,13 +1,39 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
 import { useLocation, useNavigate } from 'react-router';
 import { listPhotosPage, listPendingPhotos, getPendingIds, retryPendingPhotos, confirmQueued, uploadPhoto, getOriginal, getOriginalUrl, deletePhoto } from '../lib/photos';
 import { mergeUnique } from '../lib/pagination';
+import { MONTHS } from '../lib/eventText';
 import Modal from '../components/Modal';
-import TrashIcon from '../components/icons/TrashIcon';
+import Sheet from '../components/Sheet';
+import Button from '../components/Button';
 import Icon from '../components/Icon';
+import './Gallery.css';
 
 const PAGE_SIZE = 60;
+const WHO = { yo: '🫒', ella: '🍪' };
+// Fondo y texto del visor: oscuros en los dos temas (Prototipo.dc.html, «VISOR»)
+const VIEWER_BG = 'oklch(0.12 0.01 30)';
+const VIEWER_INK = 'oklch(0.97 0.006 80)';
+
+const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
+// «12 mar 2025», como el pie del visor del lienzo
+function photoDate(ms) {
+  const d = new Date(ms);
+  return `${d.getDate()} ${MONTHS[d.getMonth()].slice(0, 3)} ${d.getFullYear()}`;
+}
+const monthKey = (ms) => { const d = new Date(ms); return `${d.getFullYear()}-${d.getMonth()}`; };
+const monthLabel = (ms) => { const d = new Date(ms); return `${cap(MONTHS[d.getMonth()])} ${d.getFullYear()}`; };
+
+// C9: grupos por mes de createdAt (hora del móvil), en el orden en que llegan las fotos
+function groupByMonth(list) {
+  const groups = new Map();
+  list.forEach((it) => {
+    const key = monthKey(it.createdAt || 0);
+    if (!groups.has(key)) groups.set(key, { key, label: monthLabel(it.createdAt || 0), items: [] });
+    groups.get(key).items.push(it);
+  });
+  return [...groups.values()];
+}
 
 export default function Gallery() {
   const location = useLocation();
@@ -20,13 +46,18 @@ export default function Gallery() {
   const pairId = useMemo(() => localStorage.getItem('pairId') || '', []);
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [uploading, setUploading] = useState(false);
+  const [loadError, setLoadError] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
+  // Fotos del lote que aún no han vuelto de uploadPhoto: una celda «Subiendo» por cada una
+  const [uploadingCount, setUploadingCount] = useState(0);
+  const [online, setOnline] = useState(() => typeof navigator === 'undefined' || navigator.onLine !== false);
   const urlsRef = useRef([]);
   const uploadInputRef = useRef(null);
   const imgRef = useRef(null);
   const pinchRef = useRef({ active: false, startDist: 0, originX: 0, originY: 0 });
   const [viewer, setViewer] = useState({ open: false, id: null, url: '', fallbackUrl: '', loading: false });
   const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   // Paginación: cursor = último doc de la página cargada; genRef descarta páginas de una carga anterior
   const cursorRef = useRef(null);
@@ -66,6 +97,7 @@ export default function Gallery() {
     let cancelled = false;
     async function load() {
       setLoading(true);
+      setLoadError(false);
       const gen = ++genRef.current;
       // Blobs de la carga anterior: se revocan cuando la nueva lista la sustituye (si esta falla, se quedan)
       const stale = urlsRef.current;
@@ -96,6 +128,10 @@ export default function Gallery() {
         setPendingIds(getPendingIds(pairId));
         setItems(list);
         replaced = true;
+      } catch (e) {
+        // La primera página ya cae a lo local si Firestore falla; esto es lo que quede (p. ej. la caché local)
+        console.error('Gallery load failed', e);
+        if (!cancelled) setLoadError(true);
       } finally {
         if (replaced || cancelled) stale.forEach((u) => { if (u && u.startsWith('blob:')) URL.revokeObjectURL(u); });
         else urlsRef.current.push(...stale);
@@ -110,7 +146,16 @@ export default function Gallery() {
       urlsRef.current = [];
       if (viewer.url && viewer.url.startsWith('blob:')) URL.revokeObjectURL(viewer.url);
     };
-  }, [pairId]);
+  }, [pairId, reloadKey]);
+
+  // Solo para pintar: sin conexión, los huecos sin miniatura lo dicen en vez de brillar
+  useEffect(() => {
+    const on = () => setOnline(true);
+    const off = () => setOnline(false);
+    window.addEventListener('online', on);
+    window.addEventListener('offline', off);
+    return () => { window.removeEventListener('online', on); window.removeEventListener('offline', off); };
+  }, []);
 
   // Abre ?photo=id sin exigir que esté en la lista cargada (puede estar en una página aún sin cargar)
   useEffect(() => {
@@ -178,16 +223,17 @@ export default function Gallery() {
     const input = e.target;
     const list = Array.from(input.files || []);
     if (!list.length || !pairId) return;
-    setUploading(true);
+    const identity = localStorage.getItem('identity') || 'yo';
+    setUploadingCount((n) => n + list.length);
     try {
       for (const f of list) {
         // Un fichero que falla no debe abortar el resto del lote
         try {
-          const added = await uploadPhoto(pairId, f, localStorage.getItem('identity') || 'yo');
+          const added = await uploadPhoto(pairId, f, identity);
           if (added.cancelled) continue; // borrada mientras subía
           if (added.thumbUrl) urlsRef.current.push(added.thumbUrl);
           // Una recarga durante la subida ya puede haber traído esta foto como pendiente: sin duplicar
-          setItems((prev) => [{ id: added.id, thumbUrl: added.thumbUrl, createdAt: added.createdAt }, ...prev.filter((it) => it.id !== added.id)]);
+          setItems((prev) => [{ id: added.id, thumbUrl: added.thumbUrl, createdAt: added.createdAt, identity }, ...prev.filter((it) => it.id !== added.id)]);
           if (added.done) {
             // Lenta (>45 s): sigue subiendo en segundo plano y el lote continúa; al acabar se quita la insignia
             addNotice(`"${f.name}" va lenta: sigue subiendo en segundo plano. Está guardada en este móvil.`);
@@ -199,10 +245,11 @@ export default function Gallery() {
         } catch (err) {
           console.error('Upload failed', err);
           addNotice(`No se pudo procesar "${f.name}". Prueba con otra foto.`);
+        } finally {
+          setUploadingCount((n) => Math.max(0, n - 1));
         }
       }
     } finally {
-      setUploading(false);
       setPendingIds(getPendingIds(pairId));
       input.value = ''; // permite volver a elegir el mismo fichero
     }
@@ -261,6 +308,7 @@ export default function Gallery() {
   }
 
   async function openViewer(id) {
+    setDeleteError(false);
     setViewer({ open: true, id, url: '', fallbackUrl: '', loading: true });
     const isIOSPWA = typeof navigator !== 'undefined' && 'standalone' in navigator && navigator.standalone;
     let url = '';
@@ -337,25 +385,39 @@ export default function Gallery() {
       closeViewer();
     } catch (e) {
       console.error('Delete failed', e);
-      alert('No se pudo borrar la foto.');
+      setDeleteError(true); // en el pie del visor, que sigue abierto (antes, alert)
     } finally {
       setDeleting(false);
     }
   }
 
+  const pickFiles = () => uploadInputRef.current && uploadInputRef.current.click();
+  const groups = groupByMonth(items);
+  // Las que se están subiendo van delante, en el mes de hoy
+  if (uploadingCount > 0 && groups[0]?.key !== monthKey(Date.now())) {
+    groups.unshift({ key: monthKey(Date.now()), label: monthLabel(Date.now()), items: [] });
+  }
+  const isEmpty = items.length === 0 && uploadingCount === 0;
+  const subtitle = loading ? 'Cargando fotos…' : loadError ? 'No disponibles ahora' : isEmpty ? 'Ninguna todavía' : 'Las de los dos';
+  const viewerItem = viewer.id ? items.find((it) => it.id === viewer.id) : null;
+  // C11: solo si la foto dice quién la subió; las antiguas no lo guardan y el pie no sale
+  const who = viewerItem ? WHO[viewerItem.identity] : undefined;
+  const pendingCount = pendingIds.length;
+
   return (
-    <div className="space-y-4 pb-20">
-      <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold text-rose-600">Galería</h2>
-        <button
-          onClick={() => window.location.reload()}
-          aria-label="Actualizar"
-          title="Actualizar"
-          className="p-2 rounded-lg hover:bg-rose-50 text-rose-600"
-        >
-          <Icon name="recargar" size={22} />
-        </button>
-      </div>
+    // Margen propio de 16 px, salvo la cuadrícula, que va a sangre (§5.00); el hueco de la barra es de la cáscara
+    <div className="flex flex-col pb-6">
+      <header className="flex items-end justify-between gap-3 pt-1.5 pb-3.5 pl-5 pr-4">
+        <div className="flex flex-col gap-0.5 min-w-0">
+          <h1 className="serif text-4xl leading-[1.05] font-normal tracking-[-0.01em]">Galería</h1>
+          <p className="text-sm text-ink-2">{subtitle}</p>
+        </div>
+        <div className="flex items-center gap-1">
+          {/* ↻: en la PWA de iPhone no hay otra forma de recargar (plan §0 nº 8) */}
+          <Button icon="recargar" label="Actualizar" title="Actualizar" onClick={() => window.location.reload()} />
+          <Button icon="subir" onClick={pickFiles} aria-label="Subir fotos">Subir</Button>
+        </div>
+      </header>
 
       <input
         ref={uploadInputRef}
@@ -366,90 +428,122 @@ export default function Gallery() {
         className="hidden"
       />
 
-      {createPortal(
-        <button
-          className="fab btn-primary shadow-lg rounded-full px-5 py-3 font-semibold"
-          onClick={() => uploadInputRef.current && uploadInputRef.current.click()}
-          aria-label="Subir fotos"
-          title="Subir fotos"
-        >
-          Subir fotos
-        </button>,
-        document.body
-      )}
-
-      {uploading && (
-        <div className="fixed bottom-40 right-5 z-40 text-xs text-gray-700 bg-white/80 px-2 py-1 rounded-md shadow-sm">
-          Subiendo…
-        </div>
-      )}
-
-      {notices.map((n) => (
-        <div key={n.key} role="alert" className="card flex items-start justify-between gap-3 text-sm text-rose-600">
-          <span>{n.text}</span>
-          <button
-            type="button"
-            onClick={() => setNotices((prev) => prev.filter((x) => x.key !== n.key))}
-            className="btn-link"
-            aria-label="Cerrar aviso"
-          >
-            <Icon name="cerrar" size={18} />
-          </button>
-        </div>
-      ))}
-
-      {pendingIds.length > 0 && (
-        <div className="card flex items-center justify-between gap-3 text-sm text-gray-700">
-          <span>{pendingIds.length === 1 ? '1 foto sin subir' : `${pendingIds.length} fotos sin subir`}</span>
-          <button type="button" onClick={() => retryPending(false)} disabled={retrying} className="btn-primary disabled:opacity-60">
-            {retrying ? 'Subiendo…' : 'Reintentar'}
-          </button>
+      {(notices.length > 0 || pendingCount > 0) && (
+        <div className="flex flex-col gap-3 px-4 pb-3.5">
+          {notices.map((n) => (
+            <div key={n.key} role="alert" className="card flex items-center justify-between gap-3 py-2 pr-2 text-[15px] text-ink">
+              <span>{n.text}</span>
+              <Button icon="cerrar" label="Cerrar aviso" onClick={() => setNotices((prev) => prev.filter((x) => x.key !== n.key))} />
+            </div>
+          ))}
+          {pendingCount > 0 && (
+            <section aria-label="Fotos sin subir" className="card flex items-center gap-3 py-3.5 pl-4 pr-3">
+              <span aria-hidden="true" className="w-9 h-9 rounded-full bg-lacre-soft text-accent-ink flex items-center justify-center shrink-0">
+                <Icon name="subir" size={20} />
+              </span>
+              <span className="flex-1 min-w-0 flex flex-col">
+                <span className="text-[15px] font-semibold">{pendingCount === 1 ? '1 foto sin subir' : `${pendingCount} fotos sin subir`}</span>
+                <span className="text-[13px] text-ink-2">
+                  {pendingCount === 1 ? 'Guardada en este móvil hasta que suba.' : 'Guardadas en este móvil hasta que suban.'}
+                </span>
+              </span>
+              <Button onClick={() => retryPending(false)} busy={retrying} busyText="Subiendo…" className="px-4">Reintentar</Button>
+            </section>
+          )}
         </div>
       )}
 
       {loading ? (
-        <div className="text-center text-gray-500">Cargando…</div>
-      ) : items.length === 0 ? (
-        <div className="text-center text-gray-500">No hay fotos aún.</div>
+        <div role="status" aria-label="Cargando fotos" className="grid grid-cols-3 gap-0.5">
+          {Array.from({ length: 12 }, (_, i) => (
+            <span key={i} className="relative block aspect-square"><span className="galeria-hueco" /></span>
+          ))}
+        </div>
+      ) : loadError ? (
+        <section role="alert" className="mx-4 mt-6 flex flex-col items-center gap-2.5 py-7 px-6 rounded-hero bg-sunk text-center">
+          <Icon name="info" size={30} className="text-ink-2" />
+          <h2 className="text-[17px] font-semibold">No se pudieron cargar las fotos</h2>
+          <p className="text-sm text-ink-2">Puede ser la conexión. Las fotos siguen ahí.</p>
+          <Button variant="sec" onClick={() => setReloadKey((k) => k + 1)}>Reintentar</Button>
+        </section>
+      ) : isEmpty ? (
+        <section className="mx-4 mt-6 flex flex-col items-center gap-3 py-9 px-6 rounded-hero border-[1.5px] border-dashed border-line text-center">
+          <div aria-hidden="true" className="grid grid-cols-[repeat(3,44px)] gap-[3px] opacity-80">
+            <span className="h-11 bg-sunk" /><span className="h-11 bg-lacre-soft" /><span className="h-11 bg-sunk" />
+          </div>
+          <h2 className="serif text-[26px] font-normal">Aún no hay fotos</h2>
+          <p className="text-[15px] text-ink-2 max-w-[260px] text-pretty">Sube la primera que os hicisteis juntos. La verá también la otra persona.</p>
+          <Button size="m" icon="subir" onClick={pickFiles}>Subir fotos</Button>
+        </section>
       ) : (
         <>
-          <div className="grid grid-cols-3 gap-2">
-            {items.map((it) => (
-              <button key={it.id} onClick={() => openViewer(it.id)} className="relative group transition hover:scale-[1.01]">
-                {it.thumbUrl ? (
-                  <img src={it.thumbUrl} alt="" className="w-full h-28 object-cover rounded-xl border border-rose-100" />
-                ) : (
-                  <div className="w-full h-28 rounded-xl border border-rose-100 bg-rose-50" />
-                )}
-                {pendingIds.includes(it.id) && (
-                  <span className="absolute bottom-1 left-1 text-[10px] leading-none bg-rose-600 text-white rounded-sm px-1.5 py-1">Sin subir</span>
-                )}
-              </button>
-            ))}
+          {groups.map((g, gi) => (
+            <section key={g.key}>
+              <h2 className={`etiqueta px-5 pb-2.5 ${gi === 0 ? 'pt-1' : 'pt-6'}`}>{g.label}</h2>
+              <div className="grid grid-cols-3 gap-0.5">
+                {gi === 0 && Array.from({ length: uploadingCount }, (_, i) => (
+                  <div key={`subiendo-${i}`} role="status" aria-label="Subiendo foto" className="galeria-celda relative aspect-square overflow-hidden">
+                    <span className="galeria-hueco" />
+                    <span className="absolute inset-0 flex flex-col items-center justify-center gap-1.5" style={{ background: 'oklch(0.2 0.02 30 / 0.45)', color: VIEWER_INK }}>
+                      <svg viewBox="0 0 24 24" width="30" height="30" fill="none" strokeWidth="2.5" strokeLinecap="round" aria-hidden="true" className="galeria-anillo">
+                        <circle cx="12" cy="12" r="9" stroke="oklch(1 0 0 / 0.3)" />
+                        <circle cx="12" cy="12" r="9" stroke="currentColor" pathLength="100" strokeDasharray="30 100" />
+                      </svg>
+                      <span className="text-xs font-semibold">Subiendo</span>
+                    </span>
+                  </div>
+                ))}
+                {g.items.map((it, i) => (
+                  <button
+                    key={it.id}
+                    type="button"
+                    onClick={() => openViewer(it.id)}
+                    aria-label={`Foto del ${photoDate(it.createdAt || 0)}`}
+                    className="galeria-celda relative block w-full aspect-square overflow-hidden bg-sunk active:opacity-80"
+                    style={{ animationDelay: `${Math.min(i, 11) * 20}ms` }}
+                  >
+                    {it.thumbUrl ? (
+                      <img src={it.thumbUrl} alt="" className="galeria-foto absolute inset-0 w-full h-full object-cover" />
+                    ) : online ? (
+                      <span className="galeria-hueco" />
+                    ) : (
+                      <span className="absolute inset-0 flex items-center justify-center text-ink-2"><Icon name="sinConexion" size={20} /></span>
+                    )}
+                    {pendingIds.includes(it.id) && (
+                      <span className="absolute left-1.5 bottom-1.5 px-2 py-[3px] rounded-[10px] bg-ink text-paper text-xs font-semibold">Sin subir</span>
+                    )}
+                  </button>
+                ))}
+              </div>
+            </section>
+          ))}
+          <div className="flex flex-col items-center gap-2 px-4 pt-5">
+            {hasMore ? (
+              <>
+                <Button variant="sec" size="m" className="w-full" onClick={loadMore} busy={loadingMore} busyText="Cargando…">Cargar más</Button>
+                {loadMoreError && <p role="alert" className="text-[13px] text-danger">No se pudieron cargar más fotos. Inténtalo de nuevo.</p>}
+              </>
+            ) : items.length > 0 && (
+              <p className="etiqueta py-3.5">Estas son todas</p>
+            )}
           </div>
-          {hasMore && (
-            <div className="text-center">
-              <button type="button" onClick={loadMore} disabled={loadingMore} className="btn-ghost disabled:opacity-60">
-                {loadingMore ? 'Cargando…' : 'Cargar más'}
-              </button>
-              {loadMoreError && <p className="text-xs text-rose-600 mt-1">No se pudieron cargar más fotos. Inténtalo de nuevo.</p>}
-            </div>
-          )}
         </>
       )}
 
+      {/* Visor (R6b): mismo Modal bare, mismo pellizco y misma cadena blob/URL; cambian el fondo y los controles */}
       <Modal isOpen={viewer.open} onClose={closeViewer} bare>
-        <div className="w-full h-full relative">
+        <div className="w-full h-full relative" style={{ color: VIEWER_INK }}>
+          <div className="velo absolute inset-0" style={{ background: VIEWER_BG }} aria-hidden="true" />
           {viewer.loading ? (
-            <div className="absolute inset-0 flex items-center justify-center text-gray-200">Cargando…</div>
+            <div className="absolute inset-0 flex items-center justify-center text-[15px] opacity-75">Cargando…</div>
           ) : viewer.url ? (
             <>
-              {/* Bounded container with larger side margins and centered content */}
+              {/* Bounded container with side margins and centered content, between the top and bottom bars */}
               <div
-                className="absolute inset-0 px-8 sm:px-12 md:px-16 lg:px-24"
+                className="absolute inset-0 px-4 sm:px-12 md:px-16 lg:px-24"
                 style={{
-                  paddingTop: 'calc(env(safe-area-inset-top, 0px) + 80px)',
-                  paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 80px)'
+                  paddingTop: 'calc(env(safe-area-inset-top, 0px) + 72px)',
+                  paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 100px)'
                 }}
               >
                 <div className="w-full h-full flex items-center justify-center">
@@ -485,56 +579,84 @@ export default function Gallery() {
                   }
                       }}
                     />
-                    {/* Overlay controls aligned to image bounds, placed just above (outside) */}
-                    <button
-                      onClick={() => setConfirmDeleteOpen(true)}
-                      disabled={deleting}
-                      aria-label="Borrar"
-                      title="Borrar"
-                      className="absolute -top-8 sm:-top-6 left-0 text-white disabled:opacity-50 drop-shadow-sm"
-                    >
-                      <TrashIcon className="w-7 h-7" />
-                    </button>
-                    <button
-                      onClick={closeViewer}
-                      aria-label="Cerrar"
-                      title="Cerrar"
-                      className="absolute -top-8 sm:-top-6 right-0 text-white drop-shadow-sm"
-                    >
-                      <span className="text-3xl leading-none">×</span>
-                    </button>
                   </div>
                 </div>
               </div>
             </>
           ) : (
-            <div className="absolute inset-0 flex items-center justify-center text-gray-200">No se pudo cargar la foto</div>
+            <div className="absolute inset-0 flex items-center justify-center text-[15px] opacity-75">No se pudo cargar la foto</div>
+          )}
+
+          {/* Barras del lienzo. Paran el clic: si llegara al fondo del Modal, cerraría el visor */}
+          <div
+            className="absolute left-2 right-2 h-11 flex items-center"
+            style={{ top: 'calc(env(safe-area-inset-top, 0px) + 12px)' }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              type="button"
+              onClick={closeViewer}
+              aria-label="Cerrar"
+              title="Cerrar"
+              className="w-11 h-11 rounded-full flex items-center justify-center active:scale-95 transition-transform"
+              style={{ background: 'oklch(1 0 0 / 0.12)' }}
+            >
+              <Icon name="cerrar" size={20} />
+            </button>
+          </div>
+          {!viewer.loading && viewer.url && (
+            <div
+              className="absolute left-4 right-2 flex items-center gap-3"
+              style={{ bottom: 'calc(env(safe-area-inset-bottom, 0px) + 24px)' }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              {deleteError ? (
+                <span role="alert" className="flex-1 min-w-0 text-[15px] font-semibold">No se pudo borrar la foto.</span>
+              ) : who ? (
+                <>
+                  <span aria-hidden="true" className="w-7 h-7 rounded-full inline-flex items-center justify-center text-[15px] leading-none shrink-0" style={{ background: 'oklch(1 0 0 / 0.12)' }}>{who}</span>
+                  <span className="flex-1 min-w-0 flex flex-col">
+                    <span className="text-[15px] font-semibold">La subió {who}</span>
+                    <span className="text-[13px] opacity-75">{photoDate(viewerItem.createdAt || 0)}</span>
+                  </span>
+                </>
+              ) : (
+                <span className="flex-1" />
+              )}
+              <button
+                type="button"
+                onClick={() => setConfirmDeleteOpen(true)}
+                disabled={deleting}
+                aria-label="Borrar foto"
+                title="Borrar foto"
+                className="w-11 h-11 rounded-full flex items-center justify-center disabled:opacity-50 active:scale-95 transition-transform"
+              >
+                <Icon name="borrar" />
+              </button>
+            </div>
           )}
         </div>
       </Modal>
-      {/* Confirm delete modal */}
-      <Modal isOpen={confirmDeleteOpen} onClose={() => setConfirmDeleteOpen(false)}>
-        <div className="bg-white rounded-xl p-5 max-w-sm w-[90vw] text-gray-800 shadow-xl">
-          <h3 className="text-lg font-semibold mb-2">¿Borrar esta foto?</h3>
-          <p className="text-sm text-gray-600 mb-5">Esta acción no se puede deshacer.</p>
-          <div className="flex justify-end gap-3">
-            <button
-              className="px-4 py-2 rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200"
-              onClick={() => setConfirmDeleteOpen(false)}
-              disabled={deleting}
-            >
-              Cancelar
-            </button>
-            <button
-              className="px-4 py-2 rounded-lg bg-rose-600 text-white hover:bg-rose-700 disabled:opacity-50"
-              onClick={() => { setConfirmDeleteOpen(false); onDeleteCurrent(); }}
-              disabled={deleting}
-            >
-              Borrar
-            </button>
+
+      <Sheet isOpen={confirmDeleteOpen} onClose={() => setConfirmDeleteOpen(false)}>
+        <div className="flex flex-col gap-1.5 px-5 pt-3.5 pb-[34px]">
+          <div className="flex items-center gap-3.5 pb-2.5">
+            {viewerItem?.thumbUrl ? (
+              <img src={viewerItem.thumbUrl} alt="" className="w-14 h-14 rounded-mini object-cover shrink-0" />
+            ) : (
+              <span aria-hidden="true" className="w-14 h-14 rounded-mini bg-sunk shrink-0" />
+            )}
+            <div className="flex-1 min-w-0 flex flex-col gap-0.5">
+              <h2 className="serif text-2xl leading-[1.15] font-normal">¿Borrar esta foto?</h2>
+              <p className="text-sm text-ink-2">Desaparece para los dos. No se puede deshacer.</p>
+            </div>
           </div>
+          <Button variant="dan" size="l" disabled={deleting} onClick={() => { setConfirmDeleteOpen(false); onDeleteCurrent(); }}>
+            Borrar foto
+          </Button>
+          <Button variant="txt" size="l" disabled={deleting} onClick={() => setConfirmDeleteOpen(false)}>Cancelar</Button>
         </div>
-      </Modal>
+      </Sheet>
     </div>
   );
 }

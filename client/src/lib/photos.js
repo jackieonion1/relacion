@@ -182,10 +182,12 @@ export async function listPhotosPage(pairId, { pageSize = 60, cursor = null, onT
         : query(col, orderBy('createdAt', 'desc'), limit(pageSize + 1));
       const snap = await getDocs(q);
       const { page, hasMore } = splitPage(snap.docs, pageSize);
+      // identity: who uploaded it ('yo' | 'ella'); missing on the oldest photos
       const items = page.map((docSnap) => ({
         id: docSnap.id,
         thumbUrl: '',
         createdAt: docSnap.data()?.createdAt?.toMillis?.() || Date.now(),
+        identity: docSnap.data()?.identity || '',
       }));
       const nextCursor = page.length ? page[page.length - 1] : cursor;
       const thumbs = mapLimit(page, THUMB_CONCURRENCY, async (docSnap, i) => {
@@ -207,7 +209,7 @@ export async function listPhotosPage(pairId, { pageSize = 60, cursor = null, onT
   for (const m of readLocalMeta(pairId)) {
     const b = await getThumb(m.id);
     const thumbUrl = b ? URL.createObjectURL(b) : '';
-    items.push({ id: m.id, thumbUrl, createdAt: m.createdAt });
+    items.push({ id: m.id, thumbUrl, createdAt: m.createdAt, identity: m.identity || '' });
   }
   items.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
   return { items, cursor: null, hasMore: false };
@@ -418,7 +420,7 @@ export async function listPendingPhotos(pairId) {
       const b = await getThumb(p.id);
       if (b) thumbUrl = URL.createObjectURL(b);
     } catch {}
-    items.push({ id: p.id, thumbUrl, createdAt: p.createdAt || 0 });
+    items.push({ id: p.id, thumbUrl, createdAt: p.createdAt || 0, identity: p.identity || '' });
   }
   items.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
   return items;
