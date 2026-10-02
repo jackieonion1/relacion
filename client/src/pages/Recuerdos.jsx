@@ -54,7 +54,7 @@ function HaceUnAno({ pairId }) {
     return (
       <section aria-label="Hace un año" className="mb-6 p-5 rounded-hero border-[1.5px] border-dashed border-line flex flex-col items-start gap-1.5">
         <h2 className="etiqueta">Hace un año</h2>
-        <p className="serif text-[18px] leading-[1.35] text-ink-2">Un día como hoy no hay fotos de otros años 🩷</p>
+        <p className="serif text-[18px] leading-[1.35] text-ink-2 text-balance">Un día como hoy no hay fotos de otros años 🩷</p>
       </section>
     );
   }
@@ -98,7 +98,7 @@ export default function Recuerdos() {
       <HaceUnAno pairId={pairId} />
       <nav aria-label="Recuerdos" className="grid grid-cols-2 gap-2.5">
         {entradas.map((e, i) => (
-          <Link key={e.to} to={e.to} state={{ volver: '/recuerdos' }} className="mas-item" style={{ animationDelay: `${60 + i * 30}ms` }}>
+          <Link key={e.to} to={e.to} state={{ volver: '/recuerdos' }} className={`mas-item ${entradas.length % 2 && i === entradas.length - 1 ? 'col-span-2' : ''}`} style={{ animationDelay: `${60 + i * 30}ms` }}>
             <Icon name={e.icon} className="text-accent-ink" />
             <span className="flex flex-col items-start">
               <span className="text-base font-semibold">{e.label}</span>
