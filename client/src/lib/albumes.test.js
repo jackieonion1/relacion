@@ -1,9 +1,9 @@
-import { albumDeDoc, albumDeEvento, combinarAlbumes, diasDeAlbum, guardarAlbum, idDeEvento, quitarDeAlbum, rangoDeAlbum } from './albumes';
-import { arrayUnion, doc as docRef, collection, setDoc, updateDoc, writeBatch, serverTimestamp, Timestamp } from 'firebase/firestore';
+import { albumDeDoc, albumDeEvento, combinarAlbumes, diasDeAlbum, guardarAlbum, idDeEvento, leerAlbum, quitarDeAlbum, rangoDeAlbum } from './albumes';
+import { arrayUnion, doc as docRef, collection, getDoc, setDoc, updateDoc, writeBatch, serverTimestamp, Timestamp } from 'firebase/firestore';
 
 vi.mock('./firebase', () => ({ auth: { currentUser: { uid: 'u1' } }, db: {}, storage: null, whenAuthed: () => Promise.resolve({ uid: 'u1' }) }));
 vi.mock('firebase/firestore', () => ({
-  collection: vi.fn(), doc: vi.fn(), setDoc: vi.fn(), updateDoc: vi.fn(), writeBatch: vi.fn(), arrayUnion: vi.fn(), arrayRemove: vi.fn(),
+  collection: vi.fn(), doc: vi.fn(), getDoc: vi.fn(), setDoc: vi.fn(), updateDoc: vi.fn(), writeBatch: vi.fn(), arrayUnion: vi.fn(), arrayRemove: vi.fn(),
   serverTimestamp: vi.fn(), Timestamp: { fromMillis: vi.fn() },
 }));
 
@@ -85,10 +85,46 @@ describe('combinarAlbumes', () => {
     expect(manuales.map((a) => a.id)).toEqual(['b', 'c', 'a']);
   });
 
+  test('un álbum renombrado sigue las fechas nuevas de su evento, y conserva su nombre', () => {
+    const real = doc('ev-a', { tipo: 'evento', eventId: 'a', start: dia(2025, 6, 2), end: dia(2025, 6, 5), titulo: 'Lisboa', excluidas: ['x'] });
+    const { viajes } = combinarAlbumes([real], [evento('a', dia(2025, 6, 2), dia(2025, 6, 9))], ahora);
+    expect(viajes[0]).toMatchObject({ titulo: 'Lisboa', start: dia(2025, 6, 2), end: dia(2025, 6, 9), excluidas: ['x'] });
+    expect(diasDeAlbum(viajes[0])).toBe(8);
+  });
+
   test('un álbum de evento con doc pero sin título (lo creó una foto quitada) usa el título del evento', () => {
     const real = doc('ev-a', { tipo: 'evento', eventId: 'a', start: dia(2025, 6, 2), end: dia(2025, 6, 5), titulo: 'Álbum', sinTitulo: true });
     const { viajes } = combinarAlbumes([real], [evento('a', dia(2025, 6, 2), dia(2025, 6, 5))], ahora);
     expect(viajes[0].titulo).toBe('Evento a');
+  });
+});
+
+describe('leerAlbum', () => {
+  const ts = (ms) => ({ toMillis: () => ms });
+  const snapDe = (id, data) => ({ id, exists: () => !!data, data: () => data });
+
+  beforeEach(() => {
+    docRef.mockImplementation((c, ...p) => ({ path: p.join('/') }));
+  });
+
+  test('un álbum renombrado con evento vivo toma las fechas del evento y conserva su nombre', async () => {
+    getDoc.mockImplementation(async (ref) => (ref.path === 'pairs/P/albums/ev-a'
+      ? snapDe('ev-a', { kind: 'evento', eventId: 'a', title: 'Lisboa', start: ts(dia(2025, 6, 2)), end: ts(dia(2025, 6, 5)) })
+      : snapDe('a', { title: 'Viaje', start: ts(dia(2025, 6, 2)), end: ts(dia(2025, 6, 9)) })));
+    expect(await leerAlbum('P', 'ev-a')).toMatchObject({ titulo: 'Lisboa', start: dia(2025, 6, 2), end: dia(2025, 6, 9), virtual: false });
+  });
+
+  test('si su evento se borró, se queda con las fechas del doc', async () => {
+    getDoc.mockImplementation(async (ref) => (ref.path === 'pairs/P/albums/ev-a'
+      ? snapDe('ev-a', { kind: 'evento', eventId: 'a', title: 'Lisboa', start: ts(dia(2025, 6, 2)), end: ts(dia(2025, 6, 5)) })
+      : snapDe('a', null)));
+    expect(await leerAlbum('P', 'ev-a')).toMatchObject({ titulo: 'Lisboa', end: dia(2025, 6, 5) });
+  });
+
+  test('un álbum a mano no lee ningún evento', async () => {
+    getDoc.mockResolvedValue(snapDe('m1', { kind: 'manual', title: 'Finde' }));
+    expect(await leerAlbum('P', 'm1')).toMatchObject({ titulo: 'Finde', tipo: 'manual' });
+    expect(getDoc).toHaveBeenCalledTimes(1);
   });
 });
 

@@ -75,16 +75,23 @@ export function albumDeDoc(docSnap) {
   };
 }
 
+// The album of a doc whose event is still there: it keeps its name, its icon and its exclusions, but the days are the
+// ones of the event now (the doc keeps the ones it was made with, for when the event is deleted), and the title is
+// the event's when the doc has none
+function siguiendoEvento(real, deEvento) {
+  return { ...real, start: deEvento.start, end: deEvento.end, ...(real.sinTitulo ? { titulo: deEvento.titulo } : {}) };
+}
+
 // Joins the docs with the events: { manuales, viajes, cortos }. A doc wins over the album of its event; the events
 // still to come are left out (nothing to show yet) and the ones of one day go to `cortos`, under «Más encuentros»
 export function combinarAlbumes(docs, eventos, ahora = Date.now()) {
   const porId = new Map(docs.map((a) => [a.id, a]));
   for (const ev of eventos) {
-    if (ev.start == null || ev.start > ahora) continue;
+    if (ev.start == null) continue;
     const a = albumDeEvento(ev);
     const real = porId.get(a.id);
-    if (!real) porId.set(a.id, a);
-    else if (real.sinTitulo) porId.set(a.id, { ...real, titulo: a.titulo });
+    if (real) porId.set(a.id, siguiendoEvento(real, a));
+    else if (ev.start <= ahora) porId.set(a.id, a);
   }
   const todos = [...porId.values()];
   const conDias = todos.filter((a) => a.tipo === 'evento' && a.start != null);
@@ -126,13 +133,14 @@ export async function leerAlbum(pairId, id) {
   const f = await fb();
   const doc = await f.getDoc(f.doc(db, 'pairs', pairId, 'albums', id));
   const real = doc.exists() ? albumDeDoc(doc) : null;
-  if (real && !(real.sinTitulo && real.eventId)) return real;
+  if (real && !real.eventId) return real;
   if (!real && !id.startsWith('ev-')) return null;
   const ev = await f.getDoc(f.doc(db, 'pairs', pairId, 'events', real?.eventId || id.slice(3)));
   if (!ev.exists()) return real;
   const x = ev.data();
   const deEvento = albumDeEvento({ id: ev.id, title: String(x.title || '').trim(), start: x.start?.toMillis?.() ?? null, end: finDeEvento(x.end?.toMillis?.() ?? null) });
-  return real ? { ...real, titulo: deEvento.titulo } : deEvento;
+  if (deEvento.start == null) return real || deEvento;
+  return real ? siguiendoEvento(real, deEvento) : deEvento;
 }
 
 // The photos of an album, oldest first: { items } (+ thumbsDone with onThumb). Only the first `max` of each query
