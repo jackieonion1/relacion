@@ -1,5 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import Modal from './Modal';
+import Sheet from './Sheet';
+import Button from './Button';
+import Icon from './Icon';
 import { repairApp } from '../lib/appUpdate';
 
 // Palanca que ella puede pulsar sola si la app se ve rara: borra la copia de la app que guarda el SW y
@@ -33,33 +35,31 @@ export default function RepairApp() {
     }
   }
 
+  // A row of the «La app» card in Ajustes (Ajustes-final, Ajustes-reparar); the confirmation is a bottom sheet
   return (
-    <div className="card">
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <div className="text-sm text-gray-600">Reparar app</div>
-          <p className="text-xs text-gray-500 mt-1">Si algo no carga o se ve raro. No borra tus datos ni las notificaciones.</p>
-          {!online && <p className="text-xs text-rose-600 mt-1">Necesita conexión.</p>}
-          {failed && <p className="text-xs text-rose-600 mt-1">Sin conexión: no se ha tocado nada. Prueba cuando tengas red.</p>}
-        </div>
-        <button onClick={() => setConfirm(true)} disabled={!online} className="btn-ghost disabled:opacity-60">Reparar</button>
-      </div>
-      <Modal isOpen={confirm} onClose={() => { if (!working) setConfirm(false); }}>
-        <div className="p-6 text-center">
-          <h3 className="text-lg font-semibold mb-2">Reparar la app</h3>
-          <p className="text-gray-600 mb-6">
+    <>
+      <button
+        type="button" onClick={() => setConfirm(true)} disabled={!online}
+        className="w-full min-h-14 px-4 flex items-center gap-3 text-left active:bg-sunk disabled:opacity-60 focus-visible:outline-2 focus-visible:outline-lacre focus-visible:-outline-offset-2"
+      >
+        <span className="flex-1 min-w-0 flex flex-col py-2">
+          <span className="text-base">Reparar app</span>
+          <span className="text-[13px] text-ink-2">Si algo no carga o se ve raro. No borra tus datos ni las notificaciones.</span>
+        </span>
+        <Icon name="reparar" size={20} className="text-ink-2" />
+      </button>
+      {!online && <p className="px-4 pb-3 text-[13px] text-danger">Necesita conexión.</p>}
+      {failed && <p role="alert" className="px-4 pb-3 text-[13px] text-danger">Sin conexión: no se ha tocado nada. Prueba cuando tengas red.</p>}
+      <Sheet isOpen={confirm} onClose={() => { if (!working) setConfirm(false); }}>
+        <div className="flex flex-col gap-1.5 px-5 pt-2 pb-[34px]">
+          <h2 className="serif text-[26px] leading-[1.15] font-normal">¿Reparar la app?</h2>
+          <p className="pb-3.5 text-[15px] text-ink-2">
             Se borrará la copia guardada de la app y se volverá a cargar. El código de pareja, tu identidad, las fotos pendientes y las notificaciones se quedan como están.
           </p>
-          <div className="flex gap-3 justify-center">
-            <button onClick={() => setConfirm(false)} disabled={working} className="px-4 py-2 text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors">
-              Cancelar
-            </button>
-            <button onClick={onRepair} disabled={working} className="px-4 py-2 bg-rose-600 text-white rounded-lg hover:bg-rose-500 transition-colors disabled:opacity-60">
-              {working ? 'Reparando…' : 'Reparar'}
-            </button>
-          </div>
+          <Button size="l" onClick={onRepair} busy={working} busyText="Reparando…">Reparar</Button>
+          <Button variant="txt" size="l" onClick={() => setConfirm(false)} disabled={working}>Cancelar</Button>
         </div>
-      </Modal>
-    </div>
+      </Sheet>
+    </>
   );
 }
