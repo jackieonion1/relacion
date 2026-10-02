@@ -83,7 +83,9 @@ walk(clientSrc);
 const COLLECTIONS = ['locations', 'notes', 'photos', 'meta', 'pushSubs', 'mapState', 'music', 'events', 'photoComments', 'albums'];
 // members: el cliente la lee (Ajustes) pero no la escribe nunca
 const READ_ONLY = ['members'];
-check(used.size > 0 && [...used].every((c) => COLLECTIONS.includes(c) || READ_ONLY.includes(c)), `el cliente solo usa colecciones cubiertas aquí (${[...used].sort().join(', ')})`);
+// Con reglas propias (fuera de la genérica): sus checks van aparte, más abajo
+const OWN_RULES = ['capsules', 'capsuleSecrets'];
+check(used.size > 0 && [...used].every((c) => COLLECTIONS.includes(c) || READ_ONLY.includes(c) || OWN_RULES.includes(c)), `el cliente solo usa colecciones cubiertas aquí (${[...used].sort().join(', ')})`);
 
 initializeApp({ projectId: 'demo-relacion' });
 const db = getFirestore();
@@ -184,6 +186,62 @@ await expectStorage('deny', 'no miembro sube una foto', 'POST', `pairs/${PAIR}/p
 await expectStorage('deny', 'no miembro lee música', 'GET', `pairs/${PAIR}/music/m1/orig`, STRANGER);
 await expectStorage('deny', 'miembro de otra pareja sube una foto', 'POST', `pairs/${OTHER}/photos/p1/thumb.jpg`, ME);
 await expectStorage('deny', 'sin auth lee una foto', 'GET', `pairs/${PAIR}/photos/p1/thumb.jpg`);
+
+// --- Cápsulas (3.1): el sobre (capsules) lo leen todos; el contenido (capsuleSecrets), solo con get y cuando la
+// hora del servidor llega a openAt. Se crean juntos en un commit, como hace el cliente (writeBatch) ---
+const docName = (p) => `projects/demo-relacion/databases/(default)/documents${p}`;
+const commit = async (uid, writes) => (await fetch(`${base}:commit`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...auth(uid) }, body: JSON.stringify({ writes }) })).status;
+const ts = (ms) => ({ timestampValue: new Date(ms).toISOString() });
+const FUTURO = Date.now() + 3 * 86400e3;
+const PASADO = Date.now() - 86400e3;
+const sobre = (openAt, extra = {}) => ({ openAt: ts(openAt), fromIdentity: { stringValue: 'yo' }, forIdentity: { stringValue: 'ella' }, kind: { stringValue: 'texto' }, createdBy: { stringValue: ME }, openedFor: { arrayValue: {} }, ...extra });
+const secreto = (openAt) => ({ openAt: ts(openAt), text: { stringValue: 'secreto' } });
+const crear = (p, id, openSobre, openSecreto = openSobre) => [
+  { update: { name: docName(`/pairs/${p}/capsules/${id}`), fields: sobre(openSobre) }, currentDocument: { exists: false } },
+  { update: { name: docName(`/pairs/${p}/capsuleSecrets/${id}`), fields: secreto(openSecreto) }, currentDocument: { exists: false } },
+];
+const expectCommit = async (want, label, uid, writes) => { const s = await commit(uid, writes); check(want === 'allow' ? s === 200 : s === 403, `${want === 'allow' ? 'ALLOW' : 'DENY '} ${label} (status ${s})`); };
+// Pareja cerrada (PAIR): el miembro crea, lee el sobre y marca que la ha abierto; el contenido sigue cerrado
+await expectCommit('allow', 'miembro crea sobre y contenido juntos (openAt futuro)', ME, crear(PAIR, 'c1', FUTURO));
+await expectAllow('miembro get capsules/c1', 'GET', `/pairs/${PAIR}/capsules/c1`, { uid: ME });
+await expectAllow('miembro list capsules', 'GET', `/pairs/${PAIR}/capsules`, { uid: ME });
+await expectDeny('miembro get capsuleSecrets/c1 antes de openAt', 'GET', `/pairs/${PAIR}/capsuleSecrets/c1`, { uid: ME });
+await expectDeny('miembro list capsuleSecrets', 'GET', `/pairs/${PAIR}/capsuleSecrets`, { uid: ME });
+await expectAllow('miembro marca openedFor', 'PATCH', `/pairs/${PAIR}/capsules/c1?updateMask.fieldPaths=openedFor`, { uid: ME, body: { fields: { openedFor: { arrayValue: { values: [{ stringValue: 'ella' }] } } } } });
+await expectDeny('miembro mueve openAt del sobre', 'PATCH', `/pairs/${PAIR}/capsules/c1?updateMask.fieldPaths=openAt`, { uid: ME, body: { fields: { openAt: ts(PASADO) } } });
+await expectDeny('miembro reescribe el contenido sellado', 'PATCH', `/pairs/${PAIR}/capsuleSecrets/c1`, { uid: ME, body: { fields: secreto(PASADO) } });
+await expectCommit('deny', 'sobre con openAt pasado', ME, crear(PAIR, 'c2', PASADO));
+await expectCommit('deny', 'contenido con otro openAt que su sobre', ME, crear(PAIR, 'c3', FUTURO, FUTURO + 86400e3));
+await expectDeny('contenido sin sobre', 'PATCH', `/pairs/${PAIR}/capsuleSecrets/c4`, { uid: ME, body: { fields: secreto(FUTURO) } });
+await expectDeny('sobre con campos de más (el texto en el sobre)', 'PATCH', `/pairs/${PAIR}/capsules/c5`, { uid: ME, body: { fields: sobre(FUTURO, { text: { stringValue: 'x' } }) } });
+// Llegado openAt (sembrada por Admin con fecha pasada): se lee con get, pero sigue sin list
+await db.doc(`pairs/${PAIR}/capsules/c9`).set({ openAt: Timestamp.fromMillis(PASADO), fromIdentity: 'yo', forIdentity: 'ambos', kind: 'foto', openedFor: [] });
+await db.doc(`pairs/${PAIR}/capsuleSecrets/c9`).set({ openAt: Timestamp.fromMillis(PASADO), text: 'ya', mediaPath: `pairs/${PAIR}/capsules/c9/img.jpg` });
+await expectAllow('miembro get capsuleSecrets/c9 pasado openAt', 'GET', `/pairs/${PAIR}/capsuleSecrets/c9`, { uid: ME });
+await expectDeny('miembro list capsuleSecrets aunque haya abiertas', 'GET', `/pairs/${PAIR}/capsuleSecrets`, { uid: ME });
+await expectAllow('miembro borra una cápsula', 'DELETE', `/pairs/${PAIR}/capsules/c1`, { uid: ME });
+await expectAllow('miembro borra su contenido', 'DELETE', `/pairs/${PAIR}/capsuleSecrets/c1`, { uid: ME });
+// La membresía manda igual: con la pareja cerrada, el no miembro no ve ni el sobre
+await expectDeny('cerrada, no miembro list capsules', 'GET', `/pairs/${PAIR}/capsules`, { uid: STRANGER });
+await expectDeny('cerrada, no miembro get capsuleSecrets abierta', 'GET', `/pairs/${PAIR}/capsuleSecrets/c9`, { uid: STRANGER });
+await expectCommit('deny', 'cerrada, no miembro crea una cápsula', STRANGER, crear(PAIR, 'c6', FUTURO));
+// Abierta: como el resto de colecciones, basta el código (pero el contenido sigue sellado hasta openAt)
+await expectCommit('allow', 'abierta, no miembro crea una cápsula', STRANGER, crear('ABIERTA1', 'c1', FUTURO));
+await expectAllow('abierta, no miembro list capsules', 'GET', '/pairs/ABIERTA1/capsules', { uid: STRANGER });
+await expectDeny('abierta, no miembro get capsuleSecrets antes de openAt', 'GET', '/pairs/ABIERTA1/capsuleSecrets/c1', { uid: STRANGER });
+// Storage: la foto se sube una vez y se lee solo pasado el openAt de su contenido
+await expectStorage('allow', 'miembro sube la foto de una cápsula', 'POST', `pairs/${PAIR}/capsules/c7/img.jpg`, ME);
+await db.doc(`pairs/${PAIR}/capsuleSecrets/c7`).set({ openAt: Timestamp.fromMillis(FUTURO), mediaPath: `pairs/${PAIR}/capsules/c7/img.jpg` });
+await expectStorage('deny', 'miembro lee la foto antes de openAt', 'GET', `pairs/${PAIR}/capsules/c7/img.jpg`, ME);
+await expectStorage('deny', 'nadie reemplaza la foto de una cápsula', 'POST', `pairs/${PAIR}/capsules/c7/img.jpg`, ME);
+await expectStorage('allow', 'miembro sube la foto de una cápsula abierta (siembra)', 'POST', `pairs/${PAIR}/capsules/c9/img.jpg`, ME);
+await expectStorage('allow', 'miembro lee la foto pasado openAt', 'GET', `pairs/${PAIR}/capsules/c9/img.jpg`, ME);
+await expectStorage('deny', 'cerrada, no miembro lee la foto pasado openAt', 'GET', `pairs/${PAIR}/capsules/c9/img.jpg`, STRANGER);
+await expectStorage('deny', 'foto de una cápsula sin contenido', 'GET', `pairs/${PAIR}/capsules/c8/img.jpg`, ME);
+// Abierta y sin unirse (cliente 3.1 recién abierto): la regla mira tres documentos (contenido, members y pairs/p)
+await db.doc('pairs/ABIERTA1/capsuleSecrets/c9').set({ openAt: Timestamp.fromMillis(PASADO), mediaPath: 'pairs/ABIERTA1/capsules/c9/img.jpg' });
+await expectStorage('allow', 'abierta, no miembro sube la foto de una cápsula', 'POST', 'pairs/ABIERTA1/capsules/c9/img.jpg', STRANGER);
+await expectStorage('allow', 'abierta, no miembro lee la foto pasado openAt', 'GET', 'pairs/ABIERTA1/capsules/c9/img.jpg', STRANGER);
 
 // --- Callables de membresía (pareja de prueba propia, para no mezclar con lo de arriba) ---
 const J = 'JOIN2024';

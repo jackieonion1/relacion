@@ -119,6 +119,17 @@ check(hits['/EVENT'] >= 1, `onNewEvent intentó enviar (peticiones: ${hits['/EVE
 check(hits['/TEST'] === 1, `sendTestPush con auth envió (peticiones: ${hits['/TEST'] || 0})`);
 for (const id of Object.keys(subs)) check(gone[id] === true, `suscripción ${id} borrada tras 410`);
 
+// 4) onNewPhotoComment: avisa al otro (ella) y no a quien comenta (yo), ni por identidad ni por uid
+await seedDoc('COMMENT', 'ella', 'comment-ella', 'ella-uid');
+await seedDoc('COMMENT', 'yo', 'comment-yo', 'yo-uid');
+await seedDoc('COMMENT', 'yo-otro', 'comment-mismo-uid', 'yo-uid');
+await pair('COMMENT').collection('photoComments').add({ photoId: 'F1', text: 'Qué foto más bonita', identity: 'yo', createdBy: 'yo-uid', unreadFor: ['ella'], createdAt: FieldValue.serverTimestamp() });
+const commentDeadline = Date.now() + TIMEOUT_MS;
+while (Date.now() < commentDeadline && !hits['/comment-ella']) await sleep(250);
+await sleep(500); // por si llegara también a quien comenta
+check(hits['/comment-ella'] === 1, `onNewPhotoComment avisa al otro (peticiones: ${hits['/comment-ella'] || 0})`);
+check(!hits['/comment-yo'] && !hits['/comment-mismo-uid'], 'onNewPhotoComment no avisa a quien comenta');
+
 server.close();
 fs.rmSync(dir, { recursive: true, force: true });
 if (failures.length) { console.error(`smoke FALLÓ: ${failures.length} check(s) en rojo (timeout ${TIMEOUT_MS} ms)`); process.exit(1); }

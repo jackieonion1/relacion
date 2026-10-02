@@ -148,6 +148,60 @@ await getAuth().importUsers([
   await expectCall('H lockPair de un extraño en una pareja nueva', 'lockPair', { pairId: 'NEWPAIR' }, 'stranger', 'PERMISSION_DENIED');
 }
 
+// I. Cápsula del tiempo: nadie (tampoco un miembro) lee el contenido antes de openAt, ni lo adelanta
+{
+  const P = 'ATKI';
+  const docName = (p) => `projects/demo-relacion/databases/(default)/documents${p}`;
+  const ts = (ms) => ({ timestampValue: new Date(ms).toISOString() });
+  const FUTURO = Date.now() + 30 * 86400e3;
+  const PASADO = Date.now() - 86400e3;
+  await call('joinPair', { pairId: P }, 'yo-D');
+  await call('lockPair', { pairId: P }, 'yo-D');
+  // El sobre y el contenido, en un commit como el writeBatch del cliente; la foto, en Storage
+  const sobre = (openAt) => ({ openAt: ts(openAt), fromIdentity: { stringValue: 'ella' }, forIdentity: { stringValue: 'yo' }, kind: { stringValue: 'foto' }, openedFor: { arrayValue: {} } });
+  const secreto = (openAt) => ({ openAt: ts(openAt), text: { stringValue: 'sorpresa' }, mediaPath: { stringValue: `pairs/${P}/capsules/k1/img.jpg` } });
+  const commit = async (uid, writes) => (await fetch(`${base}:commit`, { method: 'POST', headers: H(uid), body: JSON.stringify({ writes }) })).status;
+  const crear = (id, a, b = a) => [
+    { update: { name: docName(`/pairs/${P}/capsules/${id}`), fields: sobre(a) }, currentDocument: { exists: false } },
+    { update: { name: docName(`/pairs/${P}/capsuleSecrets/${id}`), fields: secreto(b) }, currentDocument: { exists: false } },
+  ];
+  check(await commit('yo-D', crear('k1', FUTURO)) === 200, 'I se crea una cápsula sellada');
+  check(await sstatus('POST', `pairs/${P}/capsules/k1/img.jpg`, 'yo-D') === 200, 'I se sube su foto');
+
+  // Leer antes de tiempo: get, list, consultas (también filtrando por openAt), batchGet y collection group
+  check(await req('GET', `/pairs/${P}/capsuleSecrets/k1`, 'yo-D') === 403, 'I get del contenido antes de openAt');
+  check(await req('GET', `/pairs/${P}/capsuleSecrets`, 'yo-D') === 403, 'I list del contenido');
+  const query = async (uid, structuredQuery, parent = `/pairs/${P}`) => (await fetch(`${base}${parent}:runQuery`, { method: 'POST', headers: H(uid), body: JSON.stringify({ structuredQuery }) })).status;
+  check(await query('yo-D', { from: [{ collectionId: 'capsuleSecrets' }] }) === 403, 'I consulta sobre capsuleSecrets');
+  check(await query('yo-D', { from: [{ collectionId: 'capsuleSecrets' }], where: { fieldFilter: { field: { fieldPath: 'openAt' }, op: 'LESS_THAN_OR_EQUAL', value: ts(Date.now()) } } }) === 403, 'I consulta con openAt <= ahora (las reglas no son filtros: se deniega entera)');
+  check(await query('yo-D', { from: [{ collectionId: 'capsuleSecrets', allDescendants: true }] }, '') === 403, 'I collection group de capsuleSecrets');
+  const batchGet = await fetch(`${base}:batchGet`, { method: 'POST', headers: H('yo-D'), body: JSON.stringify({ documents: [docName(`/pairs/${P}/capsuleSecrets/k1`)] }) });
+  check(batchGet.status === 403, `I batchGet del contenido, sin caché que valga (status ${batchGet.status})`);
+  // Storage: ni los metadatos (donde iría el token de descarga), ni los bytes, ni listar la carpeta
+  check(await sstatus('GET', `pairs/${P}/capsules/k1/img.jpg`, 'yo-D') === 403, 'I Storage: metadatos de la foto antes de openAt');
+  const media = await fetch(`http://${storageHost}/v0/b/demo-relacion.appspot.com/o/${encodeURIComponent(`pairs/${P}/capsules/k1/img.jpg`)}?alt=media`, { headers: { Authorization: `Bearer ${jwt('yo-D')}` } });
+  check(media.status === 403, `I Storage: bytes de la foto antes de openAt (status ${media.status})`);
+  const list = await fetch(`http://${storageHost}/v0/b/demo-relacion.appspot.com/o?prefix=${encodeURIComponent(`pairs/${P}/capsules/`)}`, { headers: { Authorization: `Bearer ${jwt('yo-D')}` } });
+  check(list.status === 403, `I Storage: listar las fotos de las cápsulas (status ${list.status})`);
+  check(await sstatus('POST', `pairs/${P}/capsules/k1/img.jpg`, 'yo-D') === 403, 'I Storage: reemplazar la foto sellada');
+
+  // Adelantar la fecha: crear con openAt pasado, editar openAt (sobre o contenido), o borrar y recrear
+  check(await commit('yo-D', crear('k2', PASADO)) === 403, 'I crear con openAt pasado');
+  check(await commit('yo-D', crear('k3', FUTURO, PASADO)) === 403, 'I contenido con openAt pasado bajo un sobre futuro');
+  check(await req('PATCH', `/pairs/${P}/capsules/k1?updateMask.fieldPaths=openAt`, 'yo-D', { fields: { openAt: ts(PASADO) } }) === 403, 'I editar openAt del sobre');
+  check(await req('PATCH', `/pairs/${P}/capsuleSecrets/k1?updateMask.fieldPaths=openAt`, 'yo-D', { fields: { openAt: ts(PASADO) } }) === 403, 'I editar openAt del contenido');
+  check(await req('PATCH', `/pairs/${P}/capsules/k1?updateMask.fieldPaths=openedFor&updateMask.fieldPaths=openAt`, 'yo-D', { fields: { openedFor: { arrayValue: {} }, openAt: ts(PASADO) } }) === 403, 'I colar openAt junto a openedFor');
+  check(await commit('yo-D', [
+    { delete: docName(`/pairs/${P}/capsuleSecrets/k1`) },
+    { update: { name: docName(`/pairs/${P}/capsuleSecrets/k1`), fields: secreto(PASADO) } },
+  ]) === 403, 'I borrar y recrear el contenido con openAt pasado');
+  check(await req('GET', `/pairs/${P}/capsuleSecrets/k1`, 'yo-D') === 403, 'I tras todo lo anterior, el contenido sigue sellado');
+
+  // De fuera de la pareja (cerrada): ni el sobre
+  check(await req('GET', `/pairs/${P}/capsules/k1`, 'stranger') === 403, 'I extraño lee el sobre');
+  check(await commit('stranger', crear('k4', FUTURO)) === 403, 'I extraño crea una cápsula');
+}
+
 if (failures.length) { console.error(`ataques FALLÓ: ${failures.length} check(s) en rojo`); process.exit(1); }
 console.log('ataques OK');
 process.exit(0);
