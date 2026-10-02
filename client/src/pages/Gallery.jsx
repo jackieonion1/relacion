@@ -413,8 +413,10 @@ export default function Gallery() {
     advanceFromRef.current = null;
     revokeViewerUrls();
     setViewer({ open: false, id: null, url: '', fallbackUrl: '', loading: false });
-    // Navigate to clear the URL parameter, preventing the viewer from re-opening
-    navigate('/gallery', { replace: true });
+    // Navigate to clear the URL parameter, preventing the viewer from re-opening. Opened from an album, a stamp or
+    // «hace un año» (Recuerdos), it goes back there instead of staying on the Gallery
+    const volver = location.state?.volver;
+    navigate(typeof volver === 'string' && volver.startsWith('/') ? volver : '/gallery', { replace: true });
   }
 
   async function onDeleteCurrent() {

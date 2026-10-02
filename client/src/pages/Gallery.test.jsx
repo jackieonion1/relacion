@@ -1,6 +1,6 @@
 import React from 'react';
 import { render, act, screen, within, fireEvent } from '@testing-library/react';
-import { MemoryRouter } from 'react-router';
+import { MemoryRouter, Routes, Route, useLocation } from 'react-router';
 import Gallery from './Gallery';
 import { whenAuthed } from '../lib/firebase';
 import { listPhotosPage, listPendingPhotos, getPendingIds, retryPendingPhotos, getOriginal, getOriginalUrl, deletePhoto } from '../lib/photos';
@@ -126,6 +126,37 @@ test('O4: «Cerrar» mientras carga la foto no deja que el visor se abra solo al
   await act(async () => { llega({ size: 1000 }); await flush(); });
   expect(screen.queryByRole('button', { name: 'Cerrar' })).toBeNull();
   expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:tarde');
+});
+
+// 3.1: Recuerdos abre la foto con state.volver; al cerrar se vuelve allí, y sin él se queda en la Galería
+describe('cerrar el visor abierto con ?photo=', () => {
+  function Ruta() {
+    const loc = useLocation();
+    return <span data-testid="ruta">{loc.pathname + loc.search}</span>;
+  }
+  async function abrir(entry) {
+    getOriginal.mockResolvedValue(null);
+    getOriginalUrl.mockResolvedValue('https://example.test/orig.jpg');
+    render(
+      <MemoryRouter initialEntries={[entry]}>
+        <Routes>
+          <Route path="/gallery" element={<><Gallery /><Ruta /></>} />
+          <Route path="*" element={<Ruta />} />
+        </Routes>
+      </MemoryRouter>
+    );
+    await act(flush);
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Cerrar' })); await flush(); });
+    return screen.getByTestId('ruta').textContent;
+  }
+
+  test('vuelve a state.volver si lo trae', async () => {
+    expect(await abrir({ pathname: '/gallery', search: '?photo=D1', state: { volver: '/recuerdos/albumes/a1' } })).toBe('/recuerdos/albumes/a1');
+  });
+
+  test('sin state.volver se queda en la Galería, sin el ?photo=', async () => {
+    expect(await abrir('/gallery?photo=D1')).toBe('/gallery');
+  });
 });
 
 // C3: deslizar en el visor. Cada original es un blob distinto (blob:A, blob:B…) para ver cuál se revoca
