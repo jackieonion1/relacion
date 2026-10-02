@@ -139,7 +139,6 @@ export default function Gallery() {
   const [seleccion, setSeleccion] = useState(null);
   const [fechaOpen, setFechaOpen] = useState(false);
   const [albumOpen, setAlbumOpen] = useState(false);
-  const [guardando, setGuardando] = useState(false);
   const [resultado, setResultado] = useState(null); // { titulo, texto, error }
   // Upload days whose «¿les pones su fecha?» was dismissed, per device
   const golpeKey = `galeria:golpe-visto:${pairId}`;
@@ -370,12 +369,12 @@ export default function Gallery() {
   }
 
   // What a change to many photos ended in: said on screen (F2), and what failed stays selected to try again
-  function contarResultado(r, hecho) {
+  function contarResultado(r, hecho, reintentar) {
     const n = r.hechas;
     const borradas = r.borradas.length ? ` ${r.borradas.length === 1 ? 'Una ya no estaba' : `${r.borradas.length} ya no estaban`}.` : '';
     if (r.fallidas.length) {
       setSeleccion(new Set(r.fallidas));
-      setResultado({ error: true, titulo: `No se pudo en ${r.fallidas.length === 1 ? '1 foto' : `${r.fallidas.length} fotos`}`, texto: `Siguen elegidas para volver a intentarlo.${borradas}` });
+      setResultado({ error: true, titulo: `No se pudo en ${r.fallidas.length === 1 ? '1 foto' : `${r.fallidas.length} fotos`}`, texto: `Siguen elegidas para volver a intentarlo.${borradas}`, reintentar });
     } else {
       setResultado({ titulo: hecho(n), texto: borradas.trim() });
     }
@@ -387,13 +386,14 @@ export default function Gallery() {
     if (enVista) setVistaRecarga((k) => k + 1);
   }
 
-  async function guardarFecha(dia) {
-    const ids = [...(seleccion || [])];
+  // `soloIds`: the retry of an aviso, with the photos that failed
+  async function guardarFecha(dia, soloIds) {
+    const ids = soloIds || [...(seleccion || [])];
     if (!ids.length) return;
     const ms = dia ? madridMediodia(dia) : null;
     const hecho = (n) => `${ms == null ? 'Fecha quitada' : `Del ${photoDate(ms)}`}: ${n === 1 ? '1 foto' : `${n} fotos`}`;
     // Painted at once; what does not get saved goes back to the date it had, and the deleted ones leave the grid
-    const previo = new Map([...items, ...vistaDatos.items].filter((it) => seleccion.has(it.id)).map((it) => [it.id, it.takenAt ?? null]));
+    const previo = new Map([...items, ...vistaDatos.items].filter((it) => ids.includes(it.id)).map((it) => [it.id, it.takenAt ?? null]));
     const deshacer = (fallidas) => { if (fallidas.length) patchFotos(new Set(fallidas), (it) => ({ takenAt: previo.get(it.id) ?? null })); };
     const quitarBorradas = (borradas) => {
       if (!borradas.length) return;
@@ -404,32 +404,21 @@ export default function Gallery() {
     if (ms != null && primera?.ms != null && ms < primera.ms) setPrimera({ ms });
     const done = ponerFecha(pairId, ids, ms);
     recargarVistas();
-    // Offline the batch waits for the connection: the change is already on this phone and goes when it is back
-    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
-      terminarSeleccion();
-      setResultado({ titulo: hecho(ids.length), texto: 'Sin conexión: se guarda para los dos cuando vuelva.' });
-      done.then((r) => {
-        deshacer(r.fallidas);
-        quitarBorradas(r.borradas);
-        if (r.fallidas.length) contarResultado(r, hecho);
-      }).catch(() => deshacer(ids));
-      return;
-    }
-    setGuardando(true);
-    try {
-      const r = await done;
-      terminarSeleccion();
+    // The sheet closes as soon as the writes are queued, online or not: a connection that is up but does not answer
+    // would keep it waiting, and the change is already on this phone. What the server says comes after, in the aviso
+    const sinRed = typeof navigator !== 'undefined' && navigator.onLine === false;
+    terminarSeleccion();
+    if (sinRed) setResultado({ titulo: hecho(ids.length), texto: 'Sin conexión: se guarda para los dos cuando vuelva.' });
+    done.then((r) => {
       deshacer(r.fallidas);
       quitarBorradas(r.borradas);
-      contarResultado(r, hecho);
-    } catch (e) {
+      if (!sinRed || r.fallidas.length) contarResultado(r, hecho, () => guardarFecha(dia, r.fallidas));
+    }).catch((e) => {
       console.warn('Bulk date failed', e);
       deshacer(ids);
-      setFechaOpen(false);
-      setResultado({ error: true, titulo: 'No se pudo poner la fecha', texto: 'Siguen elegidas para volver a intentarlo.' });
-    } finally {
-      setGuardando(false);
-    }
+      setSeleccion(new Set(ids));
+      setResultado({ error: true, titulo: 'No se pudo poner la fecha', texto: 'Siguen elegidas para volver a intentarlo.', reintentar: () => guardarFecha(dia, ids) });
+    });
   }
 
   async function favoritasEnBloque(on) {
@@ -892,7 +881,7 @@ export default function Gallery() {
           <p className="text-sm text-ink-2" aria-live={seleccionando ? 'polite' : undefined}>{subtitle}</p>
         </div>
         {seleccionando ? (
-          <Button variant="sec" onClick={terminarSeleccion} disabled={guardando}>Listo</Button>
+          <Button variant="sec" onClick={terminarSeleccion}>Listo</Button>
         ) : (
           <div className="flex items-center gap-1">
             {/* ↻: en la PWA de iPhone no hay otra forma de recargar (plan §0 nº 8) */}
@@ -1220,6 +1209,9 @@ export default function Gallery() {
             <span className="text-[15px] font-semibold leading-snug">{resultado.titulo}</span>
             {resultado.texto && <span className="text-[13px] leading-snug opacity-80">{resultado.texto}</span>}
           </span>
+          {resultado.reintentar && (
+            <button type="button" className="seleccion-accion" onClick={() => { const r = resultado.reintentar; setResultado(null); r(); }}>Reintentar</button>
+          )}
           <button type="button" className="seleccion-accion seleccion-icono" aria-label="Cerrar aviso" onClick={() => setResultado(null)}>
             <Icon name="cerrar" />
           </button>
@@ -1228,7 +1220,6 @@ export default function Gallery() {
         <SeleccionBarra
           n={nSel}
           favOn={elegidasFav}
-          ocupado={guardando}
           onFecha={() => setFechaOpen(true)}
           onAlbum={() => setAlbumOpen(true)}
           onFav={() => favoritasEnBloque(!elegidasFav)}
@@ -1241,7 +1232,6 @@ export default function Gallery() {
         n={nSel}
         inicial={fechaComun(elegidas)}
         puedeQuitar={elegidas.some((it) => it.takenAt != null)}
-        guardando={guardando}
         onGuardar={guardarFecha}
       />
 

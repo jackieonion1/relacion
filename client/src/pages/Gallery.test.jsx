@@ -543,6 +543,29 @@ describe('3.1: selección y fecha en bloque', () => {
     expect(cells()[0].getAttribute('aria-pressed')).toBeNull();
   });
 
+  test('con red que no responde la hoja se cierra al encolar, y el resultado llega después como aviso', async () => {
+    let responde;
+    ponerFecha.mockReturnValueOnce(new Promise((res) => { responde = res; }));
+    await mount();
+    await elegir(0, 2);
+    await ponerDia('2025-03-12');
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(screen.queryByRole('toolbar')).toBeNull();
+    await act(async () => { responde({ hechas: 2, borradas: [], fallidas: [] }); await flush(); });
+    expect(screen.getByRole('status').textContent).toMatch('Del 12 mar 2025: 2 fotos');
+  });
+
+  test('si el servidor falla tras cerrar la hoja, el aviso ofrece Reintentar con las que fallaron', async () => {
+    ponerFecha.mockResolvedValueOnce({ hechas: 1, borradas: [], fallidas: ['D2'] });
+    await mount();
+    await elegir(0, 2);
+    await ponerDia('2025-03-12');
+    const aviso = screen.getByRole('alert');
+    await act(async () => { fireEvent.click(within(aviso).getByRole('button', { name: 'Reintentar' })); await flush(); });
+    expect(ponerFecha).toHaveBeenLastCalledWith('SEB1998', ['D2'], madridMediodia('2025-03-12'));
+    expect(screen.getByRole('status').textContent).toMatch('Del 12 mar 2025: 1 foto');
+  });
+
   test('F2: lo que no se guarda lo dice y sigue elegido para reintentar; lo borrado no cuenta como fallo', async () => {
     ponerFecha.mockResolvedValueOnce({ hechas: 1, borradas: ['D1'], fallidas: ['D2'] });
     await mount();
