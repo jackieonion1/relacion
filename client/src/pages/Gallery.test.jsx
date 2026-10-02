@@ -46,6 +46,19 @@ vi.mock('../lib/fotoComentarios', async (orig) => ({
 }));
 vi.mock('../lib/fotoAvisos', () => ({ useNoLeidos: vi.fn(), useNoLeidosConfirmados: vi.fn(), useGaleriaBadge: vi.fn() }));
 vi.mock('../lib/fotoSeleccion', async (orig) => ({ ...(await orig()), ponerFecha: vi.fn(), ponerFavorita: vi.fn() }));
+// The picker has its own tests: here it only answers Gallery with what its onDone gets
+const { selectorAlbum } = vi.hoisted(() => ({ selectorAlbum: vi.fn() }));
+vi.mock('../components/AlbumPicker', () => ({
+  default: (props) => {
+    selectorAlbum(props);
+    return (
+      <div role="dialog" aria-label="Selector de álbum">
+        <button type="button" onClick={() => props.onDone({ album: { id: 'a1', titulo: 'Roma', emoji: '✈️' }, n: props.ids.length })}>Elegir Roma</button>
+        <button type="button" onClick={() => props.onDone(null)}>Cerrar el selector</button>
+      </div>
+    );
+  },
+}));
 const NADA_SIN_LEER = new Map();
 beforeEach(() => {
   escucharFoto.mockReturnValue(() => {});
@@ -592,6 +605,23 @@ describe('3.1: selección y fecha en bloque', () => {
     expect(ponerFecha).toHaveBeenCalledWith('SEB1998', ['D0', 'D2'], madridMediodia('2025-03-12'));
     expect(screen.getByRole('status').textContent).toMatch('Del 12 mar 2025: 2 fotos');
     expect(screen.queryByRole('toolbar')).toBeNull();
+    expect(cells()[0].getAttribute('aria-pressed')).toBeNull();
+  });
+
+  test('al añadir a un álbum se dice a cuál y se sale de la selección; cerrar la hoja sin elegir no cambia nada', async () => {
+    await mount();
+    await elegir(0, 2);
+    await act(async () => { fireEvent.click(within(barra()).getByRole('button', { name: 'Álbum' })); await flush(); });
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Cerrar el selector' })); await flush(); });
+    expect(screen.queryByRole('dialog', { name: 'Selector de álbum' })).toBeNull();
+    expect(within(barra()).getByText('2 fotos')).toBeTruthy();
+
+    await act(async () => { fireEvent.click(within(barra()).getByRole('button', { name: 'Álbum' })); await flush(); });
+    expect(selectorAlbum).toHaveBeenLastCalledWith(expect.objectContaining({ pairId: 'SEB1998', ids: ['D0', 'D2'] }));
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Elegir Roma' })); await flush(); });
+    expect(screen.getByRole('status').textContent).toMatch('Añadidas a «Roma»');
+    expect(screen.queryByRole('toolbar')).toBeNull();
+    expect(screen.queryByRole('dialog', { name: 'Selector de álbum' })).toBeNull();
     expect(cells()[0].getAttribute('aria-pressed')).toBeNull();
   });
 

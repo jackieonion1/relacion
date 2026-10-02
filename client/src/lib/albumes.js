@@ -26,6 +26,15 @@ const MAX_TITULO = 60;
 
 export const idDeEvento = (eventId) => `ev-${eventId}`;
 
+// The calendar stores the end of an event as 23:59:59.999 of its last day in the phone that made it, which for a
+// phone west of Madrid is already the next day here. Only the day counts, so such an end becomes noon in Madrid of
+// the day it was meant (an hour no phone stores, so reading it again leaves it as it is). Any other end is kept
+export function finDeEvento(end) {
+  if (end == null || end % 60000 !== 59999) return end;
+  const [y, m, d] = madridDayKey(new Date(end - 12 * 3600000)).split('-').map(Number);
+  return rangoDiaMadrid(y, m - 1, d).desde + 12 * 3600000;
+}
+
 // Natural days (Madrid) from start to end, both included
 export function diasDeAlbum({ start, end }) {
   if (start == null) return 0;
@@ -55,14 +64,22 @@ export function albumDeDoc(docSnap) {
   return {
     id: docSnap.id,
     titulo: String(d.title || '').trim() || 'Álbum',
+    sinTitulo: !String(d.title || '').trim(), // the doc of an event album made by taking a photo out: it is named by its event
     emoji: d.emoji || EMOJI_VIAJE,
     tipo: d.kind === 'evento' ? 'evento' : 'manual',
     eventId: d.eventId || null,
-    start: ms(d.start), end: ms(d.end) ?? ms(d.start),
+    start: ms(d.start), end: finDeEvento(ms(d.end)) ?? ms(d.start),
     excluidas: Array.isArray(d.excludedIds) ? d.excludedIds : [],
     virtual: false,
     creadoEn: ms(d.createdAt) ?? 0,
   };
+}
+
+// The album of a doc whose event is still there: it keeps its name, its icon and its exclusions, but the days are the
+// ones of the event now (the doc keeps the ones it was made with, for when the event is deleted), and the title is
+// the event's when the doc has none
+function siguiendoEvento(real, deEvento) {
+  return { ...real, start: deEvento.start, end: deEvento.end, ...(real.sinTitulo ? { titulo: deEvento.titulo } : {}) };
 }
 
 // Joins the docs with the events: { manuales, viajes, cortos }. A doc wins over the album of its event; the events
@@ -70,9 +87,11 @@ export function albumDeDoc(docSnap) {
 export function combinarAlbumes(docs, eventos, ahora = Date.now()) {
   const porId = new Map(docs.map((a) => [a.id, a]));
   for (const ev of eventos) {
-    if (ev.start == null || ev.start > ahora) continue;
+    if (ev.start == null) continue;
     const a = albumDeEvento(ev);
-    if (!porId.has(a.id)) porId.set(a.id, a);
+    const real = porId.get(a.id);
+    if (real) porId.set(a.id, siguiendoEvento(real, a));
+    else if (ev.start <= ahora) porId.set(a.id, a);
   }
   const todos = [...porId.values()];
   const conDias = todos.filter((a) => a.tipo === 'evento' && a.start != null);
@@ -103,7 +122,7 @@ export async function listarEncuentros(pairId) {
   const snap = await f.getDocs(f.query(f.collection(db, 'pairs', pairId, 'events'), f.where('seeEachOther', '==', true)));
   return snap.docs.map((d) => {
     const x = d.data();
-    return { id: d.id, title: String(x.title || '').trim(), start: x.start?.toMillis?.() ?? null, end: x.end?.toMillis?.() ?? null };
+    return { id: d.id, title: String(x.title || '').trim(), start: x.start?.toMillis?.() ?? null, end: finDeEvento(x.end?.toMillis?.() ?? null) };
   });
 }
 
@@ -113,12 +132,15 @@ export async function leerAlbum(pairId, id) {
   await whenAuthed();
   const f = await fb();
   const doc = await f.getDoc(f.doc(db, 'pairs', pairId, 'albums', id));
-  if (doc.exists()) return albumDeDoc(doc);
-  if (!id.startsWith('ev-')) return null;
-  const ev = await f.getDoc(f.doc(db, 'pairs', pairId, 'events', id.slice(3)));
-  if (!ev.exists()) return null;
+  const real = doc.exists() ? albumDeDoc(doc) : null;
+  if (real && !real.eventId) return real;
+  if (!real && !id.startsWith('ev-')) return null;
+  const ev = await f.getDoc(f.doc(db, 'pairs', pairId, 'events', real?.eventId || id.slice(3)));
+  if (!ev.exists()) return real;
   const x = ev.data();
-  return albumDeEvento({ id: ev.id, title: String(x.title || '').trim(), start: x.start?.toMillis?.() ?? null, end: x.end?.toMillis?.() ?? null });
+  const deEvento = albumDeEvento({ id: ev.id, title: String(x.title || '').trim(), start: x.start?.toMillis?.() ?? null, end: finDeEvento(x.end?.toMillis?.() ?? null) });
+  if (deEvento.start == null) return real || deEvento;
+  return real ? siguiendoEvento(real, deEvento) : deEvento;
 }
 
 // The photos of an album, oldest first: { items } (+ thumbsDone with onThumb). Only the first `max` of each query
@@ -183,13 +205,18 @@ export async function crearAlbum(pairId, { titulo, emoji = '🩷' }, identity = 
   return { album, committed };
 }
 
-// Gives the album of an event its doc (idempotent: the id is the same on both phones, and merge keeps what the
-// other one wrote in between)
+// The fields that give the album of an event its doc. Never its title or emoji: a phone with old data would undo the
+// rename of the other one (the title of a doc without one is the event's, see albumDeDoc), so those are only written
+// by a rename. The id is the same on both phones and merge keeps what the other one wrote in between
+function datosDeEvento(f, album, identity) {
+  const { title, emoji, ...resto } = campos(f, album);
+  return { ...resto, createdBy: auth.currentUser.uid, identity, createdAt: f.serverTimestamp() };
+}
+
+// Gives the album of an event its doc (nothing to do if it has one)
 async function materializar(f, pairId, album, identity) {
   if (!album.virtual) return;
-  await f.setDoc(f.doc(db, 'pairs', pairId, 'albums', album.id), {
-    ...campos(f, album), createdBy: auth.currentUser.uid, identity, createdAt: f.serverTimestamp(),
-  }, { merge: true });
+  await f.setDoc(f.doc(db, 'pairs', pairId, 'albums', album.id), datosDeEvento(f, album, identity), { merge: true });
 }
 
 // Renames an album and changes its emoji
@@ -250,24 +277,30 @@ export async function quitarDeAlbum(pairId, album, ids, identity = 'yo') {
   const f = await contexto(pairId);
   olvidarPortadas();
   const committed = (async () => {
-    if (album.start != null) {
-      await materializar(f, pairId, album, identity);
-      await f.updateDoc(f.doc(db, 'pairs', pairId, 'albums', album.id), { excludedIds: f.arrayUnion(...ids) });
-    }
-    return actualizarFotos(f, pairId, ids, ({ arrayRemove }) => ({ albumIds: arrayRemove(album.id) }));
+    // One write for the doc (the first time it also creates it) and the photos', all queued at once: offline the
+    // first one would otherwise keep the others from being written
+    const ref = f.doc(db, 'pairs', pairId, 'albums', album.id);
+    const excluidas = album.start == null ? null
+      : album.virtual ? f.setDoc(ref, { ...datosDeEvento(f, album, identity), excludedIds: f.arrayUnion(...ids) }, { merge: true })
+        : f.updateDoc(ref, { excludedIds: f.arrayUnion(...ids) });
+    const fotos = actualizarFotos(f, pairId, ids, ({ arrayRemove }) => ({ albumIds: arrayRemove(album.id) }));
+    const [, r] = await Promise.all([excluidas, fotos]);
+    return r;
   })();
   committed.catch(() => {});
   return { committed };
 }
 
-// Deletes a manual album and the mark in its photos (the photos stay in the gallery)
+// Deletes a manual album and the mark in its photos (the photos stay in the gallery). Resolves once the delete is
+// queued, not waiting for the server (offline it would never come) nor for the photos: their mark is cleaned up
+// afterwards, and one that is left (no connection to find them) is only an id no album lists
 export async function borrarAlbum(pairId, album) {
   const f = await contexto(pairId);
   olvidarPortadas();
-  const { items } = await listarConTope(pairId, ({ query, where }, col) => query(col, where('albumIds', 'array-contains', album.id)), { max: 0 });
-  await f.deleteDoc(f.doc(db, 'pairs', pairId, 'albums', album.id));
-  if (items.length) {
-    const committed = actualizarFotos(f, pairId, items.map((it) => it.id), ({ arrayRemove }) => ({ albumIds: arrayRemove(album.id) }));
-    committed.catch(() => {});
-  }
+  const borrado = f.deleteDoc(f.doc(db, 'pairs', pairId, 'albums', album.id));
+  borrado.catch(() => {});
+  (async () => {
+    const { items } = await listarConTope(pairId, ({ query, where }, col) => query(col, where('albumIds', 'array-contains', album.id)), { max: 0 });
+    if (items.length) await actualizarFotos(f, pairId, items.map((it) => it.id), ({ arrayRemove }) => ({ albumIds: arrayRemove(album.id) }));
+  })().catch(() => {});
 }

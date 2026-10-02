@@ -358,6 +358,14 @@ export default function Gallery() {
     setFechaOpen(false);
     setAlbumOpen(false);
   }
+  // What the album sheet ended in: { album, n } when the photos went into one (said, and the selection is over), or
+  // null when it was closed without choosing
+  function alAnadirAAlbum(r) {
+    setAlbumOpen(false);
+    if (!r) return;
+    terminarSeleccion();
+    setResultado({ titulo: `${r.n === 1 ? 'Añadida' : 'Añadidas'} a «${r.album.titulo}»` });
+  }
   // A photo still only on this phone has no doc to change yet
   function alternar(ids) {
     const libres = ids.filter((id) => !pendingIds.includes(id));
@@ -1250,7 +1258,7 @@ export default function Gallery() {
 
       {/* The Recuerdos lot's sheet: it lists the albums, writes through lib/albumes and calls onDone when it closes */}
       {albumOpen && seleccionando && (
-        <AlbumPicker pairId={pairId} ids={[...seleccion]} onDone={() => setAlbumOpen(false)} />
+        <AlbumPicker pairId={pairId} ids={[...seleccion]} onDone={alAnadirAAlbum} />
       )}
 
       <SaltarMes

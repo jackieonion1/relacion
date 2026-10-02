@@ -7,11 +7,12 @@ const PAIR = 'SEB1998';
 const foto = (id, createdAt, takenAt = null) => ({ id, thumbUrl: '', createdAt, takenAt });
 
 // Cada consulta sale con el campo por el que filtra, para que el test sepa a cuál contesta
-function consultas({ porCreatedAt = [], porTakenAt = [] }) {
-  listPhotosBy.mockImplementation(async (pairId, build, { keep } = {}) => {
+function consultas({ porCreatedAt = [], porTakenAt = [], desdeCache = false }) {
+  listPhotosBy.mockImplementation(async (pairId, build, { keep, alResponder } = {}) => {
     const where = vi.fn((campo) => campo);
     const query = vi.fn((col, ...campos) => campos[0]);
     const campo = build({ query, where }, 'col');
+    alResponder?.(desdeCache);
     const lista = campo === 'createdAt' ? porCreatedAt : porTakenAt;
     return { items: keep ? lista.filter(keep) : lista };
   });
@@ -68,6 +69,25 @@ describe('fotosDelDia', () => {
     expect(listPhotosBy).not.toHaveBeenCalled();
   });
 
+  test('si las consultas salen de la caché (sin red) el día vacío no se recuerda', async () => {
+    consultas({ desdeCache: true });
+    expect(await fotosDelDia(PAIR, hoy)).toEqual([]);
+    expect(localStorage.length).toBe(0);
+    listPhotosBy.mockClear();
+    consultas({});
+    await fotosDelDia(PAIR, hoy);
+    expect(listPhotosBy).toHaveBeenCalledTimes(6); // the next look does ask, and now it is remembered
+    expect(localStorage.length).toBe(1);
+  });
+
+  test('con el móvil sin conexión el día vacío tampoco se recuerda', async () => {
+    const enLinea = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
+    consultas({});
+    expect(await fotosDelDia(PAIR, hoy)).toEqual([]);
+    enLinea.mockRestore();
+    expect(localStorage.length).toBe(0);
+  });
+
   test('el 29 de febrero se salta los años que no son bisiestos', async () => {
     consultas({});
     await fotosDelDia(PAIR, new Date('2028-02-29T12:00:00Z'), 4);
@@ -90,7 +110,9 @@ function consultasTope({ porCreatedAt = [], porTakenAt = [] }) {
     const lib = { query: (col, ...c) => c, where: (campo) => campo, orderBy: (campo, dir) => ['orderBy', campo, dir], limit: (n) => ['limit', n] };
     const clausulas = build(lib, 'col');
     vistas.push(clausulas);
-    const lista = clausulas[0] === 'createdAt' ? porCreatedAt : porTakenAt;
+    const todas = clausulas[0] === 'createdAt' ? porCreatedAt : porTakenAt;
+    const tope = clausulas.find((c) => c[0] === 'limit')?.[1];
+    const lista = tope ? todas.slice(0, tope) : todas; // as the server cuts it
     return { items: keep ? lista.filter(keep) : lista };
   });
   return vistas;
@@ -142,6 +164,21 @@ describe('fotosEnRangoTope', () => {
     const vistas = consultasTope({});
     await fotosEnRangoTope(PAIR, 100, 200, { limite: 4 });
     expect(vistas.map((v) => v[3])).toEqual([['limit', 4], ['limit', 4]]);
+  });
+
+  test('si el límite corta una consulta y todas sus fotos se descartan, la repite con más margen', async () => {
+    // The first 4 uploads of the range were dated by hand to another day: they are in the takenAt query of that day
+    const fechadas = [1, 2, 3, 4].map((i) => foto(`f${i}`, 100 + i, 9999));
+    const vistas = consultasTope({ porCreatedAt: [...fechadas, foto('buena', 150)] });
+    const { items } = await fotosEnRangoTope(PAIR, 100, 200, { limite: 4 });
+    expect(items.map((f) => f.id)).toEqual(['buena']);
+    expect(vistas.filter((v) => v[0] === 'createdAt').map((v) => v[3])).toEqual([['limit', 4], ['limit', 40]]);
+  });
+
+  test('si el límite no se alcanza, o algo pasó el filtro, no hay segunda consulta', async () => {
+    const vistas = consultasTope({ porCreatedAt: [foto('a', 150), foto('b', 151, 9999), foto('c', 152), foto('d', 153)] });
+    await fotosEnRangoTope(PAIR, 100, 200, { limite: 4 });
+    expect(vistas.filter((v) => v[0] === 'createdAt')).toHaveLength(1);
   });
 
   test('`excluir` deja fuera esas fotos, vengan de la consulta que vengan', async () => {
