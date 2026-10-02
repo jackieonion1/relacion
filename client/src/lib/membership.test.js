@@ -1,5 +1,4 @@
 import { createMembership, deviceLabel } from './membership';
-import { createWhenAuthed } from './authGate';
 
 const flush = async () => { for (let i = 0; i < 10; i++) await Promise.resolve(); };
 const deferred = () => {
@@ -12,8 +11,6 @@ const memoryStore = (init = {}) => {
   const m = new Map(Object.entries(init));
   return { getItem: (k) => (m.has(k) ? m.get(k) : null), setItem: (k, v) => m.set(k, String(v)), removeItem: (k) => m.delete(k) };
 };
-// Settled or not, without waiting for it
-const settled = (p) => { let done = false; p.then(() => { done = true; }, () => { done = true; }); return () => done; };
 
 function make(opts = {}) {
   const store = opts.store || memoryStore();
@@ -29,39 +26,28 @@ describe('createMembership', () => {
     const m = createMembership();
     expect(m.get().status).toBe('member');
     await m.start('SEB1998');
-    expect(m.get().pairId).toBe('SEB1998');
-    const ready = settled(m.ready());
-    await flush();
-    expect(ready()).toBe(true);
+    expect(m.get()).toMatchObject({ pairId: 'SEB1998', status: 'member' });
   });
 
-  test('un uid nuevo: las lecturas esperan a que joinPair conteste, y luego queda la marca', async () => {
+  test('un uid nuevo se une en segundo plano y queda la marca', async () => {
     const answer = deferred();
     const join = vi.fn(() => answer.promise);
     const { m, store } = make({ join });
-    // El mismo cableado que firebase.js: whenAuthed espera a la sesión y a la membresía
-    const whenAuthed = createWhenAuthed(Promise.resolve().then(() => m.ready()), () => ({ uid: 'uid-1' }));
     m.start('SEB1998');
-    const read = settled(whenAuthed(Infinity));
     await flush();
     expect(join).toHaveBeenCalledWith({ pairId: 'SEB1998' });
     expect(m.get().status).toBe('joining');
-    expect(read()).toBe(false);
     answer.resolve({ ok: true });
     await flush();
-    expect(read()).toBe(true);
-    expect(m.get()).toMatchObject({ status: 'member', epoch: 0 });
+    expect(m.get().status).toBe('member');
     expect(store.getItem('member')).toBe('SEB1998:uid-1');
   });
 
-  test('ya es miembro (marca de este uid): no llama a joinPair y lee sin red', async () => {
+  test('ya es miembro (marca de este uid): no vuelve a llamar a joinPair, tampoco sin red', async () => {
     const join = vi.fn();
     const check = vi.fn(async () => null); // offline: no se pudo preguntar
     const { m } = make({ join, check, store: memoryStore({ member: 'SEB1998:uid-1' }), isOnline: () => false });
-    m.start('SEB1998');
-    const ready = settled(m.ready());
-    await flush();
-    expect(ready()).toBe(true);
+    await m.start('SEB1998');
     expect(m.get().status).toBe('member');
     expect(join).not.toHaveBeenCalled();
   });
@@ -76,23 +62,19 @@ describe('createMembership', () => {
     expect(join).toHaveBeenCalledTimes(2);
   });
 
-  test('pareja cerrada: pide invitación; una mala avisa, una buena entra y remonta las pantallas', async () => {
+  test('pareja cerrada: pide invitación; una mala avisa y una buena entra', async () => {
     const join = vi.fn(async ({ invite }) => {
       if (!invite) throw fail('failed-precondition');
       if (invite !== 'ABCDEFGH') throw fail('permission-denied');
       return { ok: true };
     });
     const { m, store } = make({ join });
-    const ready = settled(m.ready());
     await m.start('SEB1998');
     expect(m.get()).toMatchObject({ status: 'invite', error: '' });
-    expect(ready()).toBe(false);
     expect(await m.redeem('ZZZZZZZZ')).toBe(false);
     expect(m.get()).toMatchObject({ status: 'invite', error: 'invite' });
     expect(await m.redeem('ABCDEFGH')).toBe(true);
-    await flush();
-    expect(m.get()).toMatchObject({ status: 'member', epoch: 1 });
-    expect(ready()).toBe(true);
+    expect(m.get().status).toBe('member');
     expect(store.getItem('member')).toBe('SEB1998:uid-1');
   });
 
@@ -104,29 +86,25 @@ describe('createMembership', () => {
     expect(m.get()).toMatchObject({ status: 'invite', error: 'network' });
   });
 
-  test('primer arranque sin red y sin marca: lee de la caché ya, y al volver la red se une y remonta', async () => {
+  test('sin red: no hay temporizador, y al volver la red se une', async () => {
     let online = false;
     const join = vi.fn(async () => { if (!online) throw fail('unavailable'); return { ok: true }; });
     const { m } = make({ join, isOnline: () => online });
-    const ready = settled(m.ready());
     await m.start('SEB1998');
     expect(m.get().status).toBe('retrying');
-    expect(ready()).toBe(true); // offline las lecturas solo pueden venir de la caché
     vi.advanceTimersByTime(60000);
-    expect(join).toHaveBeenCalledTimes(1); // sin red no hay temporizador: espera al evento online
+    expect(join).toHaveBeenCalledTimes(1);
     online = true;
     m.retry();
     await flush();
     expect(join).toHaveBeenCalledTimes(2);
-    expect(m.get()).toMatchObject({ status: 'member', epoch: 1 });
+    expect(m.get().status).toBe('member');
   });
 
-  test('con red pero sin respuesta: no deja leer y reintenta con espera, de uno en uno', async () => {
+  test('con red pero sin respuesta: reintenta con espera creciente, de uno en uno', async () => {
     const join = vi.fn(async () => { throw fail('internal'); });
     const { m } = make({ join, delays: [2000, 5000] });
-    const ready = settled(m.ready());
     await m.start('SEB1998');
-    expect(ready()).toBe(false);
     m.retry(); // el evento online con uno ya pendiente adelanta el reintento, no lo duplica
     await flush();
     expect(join).toHaveBeenCalledTimes(2);

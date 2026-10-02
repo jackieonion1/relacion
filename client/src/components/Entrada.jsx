@@ -41,9 +41,8 @@ function Puerta({ label, children, footer }) {
 
 export function PairGate({ children }) {
   const [pairId, setPairId] = useState(() => localStorage.getItem(PAIR_KEY) || readPairFromUrl() || '');
-  // A code typed now or brought by ?pair= waits for joinPair here; a stored one goes straight in (membership.js)
-  const [fresh, setFresh] = useState(() => !localStorage.getItem(PAIR_KEY));
   const [code, setCode] = useState('');
+  // joinPair runs in the background (membership.js): this gate only changes once someone has locked the pair
   const [redeeming, setRedeeming] = useState(false);
   const member = useSyncExternalStore(membership.subscribe, membership.get);
 
@@ -74,7 +73,6 @@ export function PairGate({ children }) {
 
   function otherPair() {
     try { localStorage.removeItem(PAIR_KEY); } catch {}
-    setFresh(true);
     setPairId('');
   }
 
@@ -83,15 +81,12 @@ export function PairGate({ children }) {
     try { await membership.redeem(invite); } finally { setRedeeming(false); }
   }
 
-  const current = !!pairId && member.pairId === pairId; // until start() runs, the state may be another code's
-  if (current && (member.status === 'invite' || redeeming)) {
+  // Until start() runs, the state may still be another code's
+  if (pairId && member.pairId === pairId && (member.status === 'invite' || redeeming)) {
     return <InviteDoor error={redeeming ? '' : member.error} busy={redeeming} onRedeem={redeem} onOtherPair={otherPair} />;
   }
 
-  // Until joinPair answers, a new code stays on this page with «Entrando…» (a locked pair goes on to the invite)
-  const entering = !!pairId && fresh && (!current || member.status === 'idle' || member.status === 'joining');
-  if (fresh && pairId && !entering) setFresh(false); // answered: from now on it behaves as a stored code
-  if (!pairId || entering) {
+  if (!pairId) {
     return (
       <Puerta label="Código de pareja" footer="Se guarda solo en este móvil.">
         <form onSubmit={onSubmit} className="flex-1 flex flex-col">
@@ -106,7 +101,7 @@ export function PairGate({ children }) {
               <input
                 id="codigo-pareja" name="pair" placeholder="AB12CD" maxLength={12}
                 autoComplete="off" autoCapitalize="characters" autoCorrect="off" spellCheck={false}
-                value={entering ? pairId : code} readOnly={entering} onChange={(e) => setCode(e.target.value.toUpperCase())}
+                value={code} onChange={(e) => setCode(e.target.value.toUpperCase())}
                 aria-invalid={bad || undefined} aria-describedby="codigo-pareja-ayuda"
                 className="input w-full h-16 rounded-[18px] px-5 text-[26px] font-semibold tracking-[0.22em] placeholder:text-ink-2/50"
               />
@@ -115,14 +110,13 @@ export function PairGate({ children }) {
               </p>
             </div>
           </div>
-          <Button type="submit" size="xl" disabled={!valid} busy={entering} busyText="Entrando…" className="w-full">Continuar</Button>
+          <Button type="submit" size="xl" disabled={!valid} className="w-full">Continuar</Button>
         </form>
       </Puerta>
     );
   }
 
-  // A membership that arrives late (after an offline start or an invite) remounts the screens, so they read again
-  return <React.Fragment key={member.epoch}>{children}</React.Fragment>;
+  return <>{children}</>;
 }
 
 // The pair is locked and this device is not in it: a one-time code from Ajustes › Añadir un dispositivo

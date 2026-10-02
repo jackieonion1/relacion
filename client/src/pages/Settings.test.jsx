@@ -236,8 +236,10 @@ test('Dispositivos: lista, invitación de un solo uso, quitar otro y cerrar la p
   await act(async () => { fireEvent.click(within(quitar).getByRole('button', { name: 'Quitar' })); await flush(); });
   expect(removeMember).toHaveBeenCalledWith('SEB1998', 'u2');
 
+  expect(screen.queryByText(/Ciérrala solo cuando estén en la lista todos vuestros dispositivos/)).not.toBeNull();
   fireEvent.click(screen.getByRole('button', { name: 'Cerrar la pareja' }));
   expect(lockPair).not.toHaveBeenCalled();
+  expect(screen.queryByText(/ahora hay 2 en la lista/)).not.toBeNull();
   getPairInfo.mockResolvedValue({ locked: true, members });
   const cerrar = screen.getByRole('heading', { name: '¿Cerrar la pareja?' }).parentElement;
   await act(async () => { fireEvent.click(within(cerrar).getByRole('button', { name: 'Cerrar la pareja' })); await flush(); });

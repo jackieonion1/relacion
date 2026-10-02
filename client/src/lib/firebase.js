@@ -42,8 +42,7 @@ if (required.every(Boolean)) {
   signIn();
   db = getFirestore(app);
   const isOnline = () => typeof navigator === 'undefined' || navigator.onLine !== false;
-  // joinPair before the first read on a new uid (see membership.js). The SDK loads on demand, as in Ajustes
-  const whenSignedIn = createWhenAuthed(authReady, () => auth.currentUser);
+  // joinPair in the background on a new uid (see membership.js). The SDK loads on demand, as in Ajustes
   membership = createMembership({
     join: async (data) => {
       const { getFunctions, httpsCallable } = await import('firebase/functions');
@@ -59,7 +58,7 @@ if (required.every(Boolean)) {
         return e?.code === 'permission-denied' ? false : null;
       }
     },
-    getUid: async () => (await whenSignedIn(Infinity))?.uid || null,
+    getUid: async () => (await whenAuthed(Infinity))?.uid || null,
     store: typeof localStorage === 'undefined' ? null : localStorage,
     isOnline,
     onError: (e) => console.warn('joinPair failed', e?.code || e),
@@ -79,9 +78,8 @@ if (required.every(Boolean)) {
   membership = createMembership();
 }
 
-// The session, or null after `ms` (Infinity = no cap). Shared by every module instead of its own waitAuth.
-// It also waits for pair membership; after `ms` it goes on without it, as it does without a session
-const whenAuthed = createWhenAuthed(authReady.then(() => membership.ready()), () => auth?.currentUser);
+// The session, or null after `ms` (Infinity = no cap). Shared by every module instead of its own waitAuth
+const whenAuthed = createWhenAuthed(authReady, () => auth?.currentUser);
 // listenWhenAuthed(start, onError): sync unsubscribe for a listener that needs the session (see authGate)
 const listenWhenAuthed = (start, onError) => listenAfterAuth(whenAuthed, start, onError);
 

@@ -54,7 +54,19 @@ test('elegir identidad es un toque y guarda yo / ella', () => {
   expect(localStorage.getItem('identity')).toBe('yo');
 });
 
-test('pareja cerrada: un código nuevo espera a joinPair y pide la invitación; con una buena, entra', async () => {
+test('pareja abierta: un código nuevo entra al momento, como antes, y joinPair va por detrás', async () => {
+  const join = vi.fn(() => new Promise(() => {}));
+  fire.membership = createMembership({ join, getUid: async () => 'uid-1', store: localStorage });
+  render(<PairGate><p>dentro</p></PairGate>);
+  fireEvent.change(screen.getByRole('textbox', { name: 'Código de pareja' }), { target: { value: 'seb1998' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Continuar' }));
+  expect(screen.queryByText('dentro')).not.toBeNull();
+  await act(flush);
+  expect(join).toHaveBeenCalledWith({ pairId: 'SEB1998' });
+  expect(screen.queryByText('dentro')).not.toBeNull();
+});
+
+test('pareja cerrada: pide la invitación; con una mala avisa y con una buena entra', async () => {
   const join = vi.fn(async ({ invite }) => {
     if (!invite) throw fail('failed-precondition');
     if (invite !== 'ABCDEFGH') throw fail('permission-denied');
@@ -64,9 +76,8 @@ test('pareja cerrada: un código nuevo espera a joinPair y pide la invitación; 
   render(<PairGate><p>dentro</p></PairGate>);
   fireEvent.change(screen.getByRole('textbox', { name: 'Código de pareja' }), { target: { value: 'seb1998' } });
   fireEvent.click(screen.getByRole('button', { name: 'Continuar' }));
-  expect(screen.queryByText('Entrando…')).not.toBeNull(); // sin pasar por las pantallas mientras pregunta
-  expect(screen.queryByText('dentro')).toBeNull();
   await act(flush);
+  expect(screen.queryByText('dentro')).toBeNull();
   const input = screen.getByRole('textbox', { name: 'Código de invitación' });
   const entrar = screen.getByRole('button', { name: 'Entrar' });
   expect(entrar.disabled).toBe(true);
@@ -90,7 +101,7 @@ test('desde la invitación se puede volver a escribir otro código de pareja', a
   expect(localStorage.getItem('pairId')).toBe(null);
 });
 
-test('un móvil con el código guardado entra sin esperar a joinPair (las lecturas ya esperan solas)', async () => {
+test('un móvil con el código guardado entra sin esperar a joinPair', async () => {
   localStorage.setItem('pairId', 'SEB1998');
   fire.membership = createMembership({ join: () => new Promise(() => {}), getUid: async () => 'uid-1', store: localStorage });
   render(<PairGate><p>dentro</p></PairGate>);

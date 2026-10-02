@@ -1,36 +1,31 @@
 // Pair membership without Firebase imports, so it can be tested with fakes (wired in firebase.js)
 
-// The rules only let in uids listed in pairs/{pairId}/members, and only the joinPair callable writes there. A device
-// that has joined keeps a mark (pairId:uid) and never waits for the network again: offline it reads its cache as
-// before. Without the mark (a new uid, or the first run after 3.1) every read waits until joinPair answers.
+// The rules let anyone with the code in while the pair is open, and only uids listed in pairs/{pairId}/members
+// once someone locks it from Ajustes; only the joinPair callable writes there. So 3.1 joins in the background and
+// nothing waits for it: an open pair reads as before, online or not. A device that has joined keeps a mark
+// (pairId:uid) and doesn't call joinPair again.
 //
-// state.status: 'member' | 'joining' | 'invite' (the pair is locked: PairGate asks for an invite) | 'retrying'
-// (no answer from joinPair). state.epoch grows when membership arrives after the screens may already have read
-// without it, so PairGate remounts them and their listeners start again.
+// state.status: 'member' | 'joining' | 'invite' (the pair is locked and this uid is not in it: PairGate asks for an
+// invite) | 'retrying' (no answer from joinPair: tried again later, and when the network comes back)
 const MARK_KEY = 'member';
 
 export function createMembership({ join, check, getUid, store, isOnline = () => true, delays = [2000, 5000, 15000], onError = () => {} } = {}) {
   // No join (no Firebase config, or tests): everyone is a member, as before
   const enabled = typeof join === 'function';
-  let state = { status: enabled ? 'idle' : 'member', pairId: '', epoch: 0, error: '' };
+  let state = { status: enabled ? 'idle' : 'member', pairId: '', error: '' };
   const listeners = new Set();
-  let release;
-  const ready = new Promise((resolve) => { release = resolve; });
-  if (!enabled) release();
   let uid = null;
   let timer = null;
   let failures = 0;
 
   function set(patch) {
     state = { ...state, ...patch };
-    if (state.status === 'member') release();
     listeners.forEach((fn) => fn());
   }
   const readMark = () => { try { return store?.getItem(MARK_KEY) || ''; } catch { return ''; } };
   const writeMark = (v) => { try { if (v) store?.setItem(MARK_KEY, v); else store?.removeItem(MARK_KEY); } catch {} };
 
-  // One joinPair at a time. `late`: the screens may have read without membership, so a success remounts them
-  async function attempt({ invite = '', late = false } = {}) {
+  async function attempt(invite = '') {
     const { pairId } = state;
     clearTimeout(timer); timer = null;
     set({ status: 'joining', error: '' });
@@ -39,7 +34,7 @@ export function createMembership({ join, check, getUid, store, isOnline = () => 
       if (pairId !== state.pairId) return false;
       failures = 0;
       writeMark(`${pairId}:${uid}`);
-      set({ status: 'member', epoch: late ? state.epoch + 1 : state.epoch });
+      set({ status: 'member' });
       return true;
     } catch (e) {
       if (pairId !== state.pairId) return false;
@@ -50,12 +45,11 @@ export function createMembership({ join, check, getUid, store, isOnline = () => 
         return false;
       }
       onError(e);
-      // Someone typing an invite stays on that screen; anyone else goes on with the cache meanwhile
+      // Someone typing an invite stays on that screen; anyone else carries on and joins later
       if (invite) { set({ status: 'invite', error: 'network' }); return false; }
       set({ status: 'retrying' });
-      // Offline the reads can only come from the cache: no point in holding them until the network is back
-      if (!isOnline()) release();
-      else timer = setTimeout(() => attempt({ late: true }), delays[Math.min(failures, delays.length - 1)]);
+      // Offline the 'online' event calls retry(); no point in spinning a timer meanwhile
+      if (isOnline()) timer = setTimeout(() => attempt(), delays[Math.min(failures, delays.length - 1)]);
       failures += 1;
       return false;
     }
@@ -78,20 +72,18 @@ export function createMembership({ join, check, getUid, store, isOnline = () => 
     try { ok = check ? await check(pairId, uid) : null; } catch {}
     if (ok === false && pairId === state.pairId) {
       writeMark('');
-      await attempt({ late: true });
+      await attempt();
     }
   }
 
   return {
     get: () => state,
     subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); },
-    // Resolves once this device may read (a member, or offline with nothing better than the cache)
-    ready: () => ready,
     start,
     // From the invite screen; resolves true when it got in
-    redeem: (invite) => (enabled && state.pairId ? attempt({ invite, late: true }) : Promise.resolve(false)),
+    redeem: (invite) => (enabled && state.pairId ? attempt(invite) : Promise.resolve(false)),
     // The 'online' event: a pending join goes now instead of waiting for its timer
-    retry() { if (enabled && state.status === 'retrying') attempt({ late: true }); },
+    retry() { if (enabled && state.status === 'retrying') attempt(); },
   };
 }
 

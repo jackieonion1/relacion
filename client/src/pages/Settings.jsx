@@ -502,8 +502,9 @@ export function Dispositivos({ pair }) {
             <p className="text-[13px] text-ink-2">Cerrada: un dispositivo nuevo solo entra con una invitación.</p>
           ) : (
             <>
+              <p className="text-[13px] text-ink-2">Ahora basta con el código de pareja. Cerrada, solo entran los dispositivos de la lista y los que invitéis.</p>
+              <p className="text-[13px] text-danger">Ciérrala solo cuando estén en la lista todos vuestros dispositivos: cada uno aparece al abrir esta versión. Los que falten no podrán entrar sin una invitación.</p>
               <Button variant="sec" onClick={() => setConfirm('lock')} disabled={!online || !!busy || !info || !!info.failed} busy={busy === 'lock'} busyText="Cerrando…" className="self-start">Cerrar la pareja</Button>
-              <p className="text-[13px] text-ink-2">Ahora basta con el código de pareja. Cerrada, solo entran estos dispositivos y los que invitéis.</p>
             </>
           )}
         </div>
@@ -518,8 +519,10 @@ export function Dispositivos({ pair }) {
           </h2>
           <p className="pb-3.5 text-[15px] text-ink-2">
             {confirm === 'lock'
-              ? 'Los dispositivos de la lista siguen igual. Uno nuevo necesitará un código de «Añadir un dispositivo». No se puede deshacer desde la app.'
-              : `${confirm?.label || 'Ese dispositivo'} dejará de ver la pareja.${locked ? '' : ' Mientras la pareja no esté cerrada, podrá volver a entrar con el código.'}`}
+              ? `Mira antes que estén todos vuestros dispositivos (ahora hay ${members.length} en la lista). Los de la lista siguen igual; cualquier otro, también uno con la app sin actualizar, necesitará un código de «Añadir un dispositivo». No se puede deshacer desde la app.`
+              : locked
+                ? `${confirm?.label || 'Ese dispositivo'} dejará de ver la pareja.`
+                : `${confirm?.label || 'Ese dispositivo'} sale de la lista, pero mientras la pareja no esté cerrada podrá seguir entrando con el código.`}
           </p>
           <Button variant="dan" size="l" onClick={() => (confirm === 'lock' ? onLock() : onRemove(confirm))}>
             {confirm === 'lock' ? 'Cerrar la pareja' : 'Quitar'}
