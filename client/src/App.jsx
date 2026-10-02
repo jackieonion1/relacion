@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Routes, Route, Link, useLocation, Navigate } from 'react-router';
+import { Routes, Route, useLocation, Navigate } from 'react-router';
 import Dashboard from './pages/Dashboard';
 import Gallery from './pages/Gallery';
 import CalendarPage from './pages/Calendar';
@@ -13,7 +13,8 @@ import InstallPrompt from './components/InstallPrompt';
 import UpdateBanner from './components/UpdateBanner';
 import RepairApp from './components/RepairApp';
 import PushNotice from './components/PushNotice';
-import CogIcon from './components/icons/CogIcon';
+import MarcaSuperior from './components/MarcaSuperior';
+import { AvisoSlot } from './components/Aviso';
 import Modal from './components/Modal';
 import { subscribeToPush, getPushSubscription, unsubscribeFromPush, getPushDiag } from './lib/push';
 import { getResyncInfo } from './lib/pushResync';
@@ -23,6 +24,10 @@ import { ROLE_LABELS } from './lib/eventTypes';
 
 const IDENTITY_KEY = 'identity'; // 'yo' | 'ella'
 const PAIR_KEY = 'pairId';
+
+// Screens already in Carta: they lay out their own width, padding and serif h1, so <main> adds none.
+// The rest keep the old px-4 pt-4 until their own step (plan §5.2); the old header is gone everywhere
+const MIGRATED_ROUTES = new Set(['/calendar', '/roulette', '/coin']);
 
 function readPairFromUrl() {
   try {
@@ -141,37 +146,19 @@ export default function App() {
   }, [location.pathname]);
 
   const isRoulette = location.pathname === '/roulette';
+  const migrated = MIGRATED_ROUTES.has(location.pathname);
 
   return (
     <PairGate>
       <IdentityGate>
-        <div className="app-shell">
+        <AvisoSlot>
+        <div className={`app-shell ${location.pathname === '/music' ? 'con-mini' : ''}`}>
           <div className={`app-scroll ${isRoulette ? 'no-scroll' : ''}`}>
-            <div className="min-h-dvh bg-rose-50/50 text-gray-900 flex flex-col">
-              <header
-                className="fixed top-0 inset-x-0 z-20 backdrop-blur-sm border-b border-rose-100 transition-all duration-300"
-                style={{
-                  background: 'linear-gradient(to bottom, var(--card) 0%, color-mix(in oklab, var(--card) 70%, transparent) 100%)',
-                  paddingTop: 'env(safe-area-inset-top, 0px)'
-                }}
-              >
-                <div className="max-w-(--breakpoint-md) mx-auto px-4 h-14 grid grid-cols-3 items-center">
-                  <span className="font-semibold text-rose-600 transition-all duration-200">🍪🫒</span>
-                  <span className="text-sm text-gray-500 transition-all duration-200 text-center">{title}</span>
-                  <Link to="/settings" className="justify-self-end text-gray-500 hover:text-rose-600 transition-colors duration-200 transform hover:scale-110">
-                    <CogIcon className="w-6 h-6 transition-all duration-200" />
-                  </Link>
-                </div>
-              </header>
-              {/* Spacer to offset fixed header height (safe-area top + 56px) */}
-              <div style={{ height: 'calc(env(safe-area-inset-top, 0px) + 56px)' }} />
+            <div className="min-h-dvh bg-paper text-ink flex flex-col">
+              <MarcaSuperior />
 
-              <InstallPrompt />
-              <UpdateBanner />
-              <PushNotice />
-
-              <main className={`flex-1 max-w-(--breakpoint-md) mx-auto w-full px-4 ${isRoulette ? 'pb-2' : 'pb-safe-content'} pt-4 transition-all duration-300 ease-out ${
-                isTransitioning 
+              <main className={`flex-1 w-full ${migrated ? '' : 'max-w-(--breakpoint-md) mx-auto px-4 pt-4'} ${isRoulette ? 'pb-2' : 'pb-safe-content'} transition-all duration-300 ease-out ${
+                isTransitioning
                   ? 'opacity-0 transform translate-y-1 scale-[0.98]'
                   : 'opacity-100'
               }`}>
@@ -193,8 +180,15 @@ export default function App() {
               </main>
             </div>
           </div>
+          {/* One slot above the tab bar: Actualizar > Instalar > Notificaciones, one at a time (Aviso.jsx) */}
+          <div className="avisos">
+            <UpdateBanner />
+            <InstallPrompt />
+            <PushNotice />
+          </div>
           <NavBar />
         </div>
+        </AvisoSlot>
       </IdentityGate>
     </PairGate>
   );
