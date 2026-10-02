@@ -682,6 +682,17 @@ export async function confirmQueued(pairId, ids) {
   }
 }
 
+// The comments of a deleted photo (pairs/{p}/photoComments, 3.1) go with it, or their unread mark would keep the dot
+// on «Galería» for good. Best effort and never throws: the photo is deleted whatever happens here
+async function deleteComments({ collection, query, where, getDocs, deleteDoc }, pairId, id) {
+  try {
+    const snap = await getDocs(query(collection(db, 'pairs', pairId, 'photoComments'), where('photoId', '==', id)));
+    await Promise.allSettled((snap?.docs || []).map((d) => deleteDoc(d.ref)));
+  } catch (e) {
+    console.warn('Comments delete failed (orphan comments left):', e);
+  }
+}
+
 // Delete photo from Firestore, Storage and local cache/meta.
 // Local state goes first, before any network await: offline the server calls don't resolve, and a
 // pending mark left behind would make the retry upload the deleted photo again. The tombstone makes an
@@ -705,6 +716,7 @@ export async function deletePhoto(pairId, id) {
 
   if (db && storage && fblib) {
     const { ref, deleteObject, collection, doc, deleteDoc } = fblib;
+    deleteComments(fblib, pairId, id); // not awaited: offline the query would hold the photo's own delete
     await deleteDoc(doc(collection(db, 'pairs', pairId, 'photos'), id));
     const base = `pairs/${pairId}/photos/${id}`;
     const results = await Promise.allSettled([

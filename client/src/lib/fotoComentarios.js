@@ -73,7 +73,7 @@ export async function addComentario(pairId, photoId, text, identity) {
     commentCount: f.increment(1),
     lastCommentAt: f.serverTimestamp(),
     lastCommentBy: identity,
-  }).catch(() => {}); // the photo may be gone: the comment stays, and is deleted with it by the server
+  }).catch(() => {}); // the photo may be gone: the comment stays (deletePhoto deletes the ones that exist when the photo goes)
   return { id: ref.id, committed };
 }
 

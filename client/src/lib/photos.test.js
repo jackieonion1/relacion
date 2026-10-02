@@ -118,6 +118,50 @@ describe('deletePhoto: orden de pasos', () => {
   });
 });
 
+describe('deletePhoto: comentarios de la foto', () => {
+  const comentario = (id) => ({ ref: { path: `pairs/${PAIR}/photoComments/${id}` } });
+
+  test('borra también sus comentarios, para que no quede un no leído huérfano', async () => {
+    getDocs.mockResolvedValue({ docs: [comentario('c1'), comentario('c2')] });
+
+    await deletePhoto(PAIR, P1);
+    await flush();
+
+    expect(where).toHaveBeenCalledWith('photoId', '==', P1);
+    const borrados = deleteDoc.mock.calls.map(([r]) => r.path);
+    expect(borrados).toEqual(expect.arrayContaining([`pairs/${PAIR}/photoComments/c1`, `pairs/${PAIR}/photoComments/c2`, `pairs/${PAIR}/photos/${P1}`]));
+  });
+
+  test('si la consulta falla, la foto se borra igual', async () => {
+    getDocs.mockRejectedValue(new Error('unavailable'));
+
+    await deletePhoto(PAIR, P1);
+    await flush();
+
+    expect(deleteDoc).toHaveBeenCalledWith({ path: `pairs/${PAIR}/photos/${P1}` });
+    expect(deleteObject).toHaveBeenCalledTimes(2);
+  });
+
+  test('si falla el borrado de un comentario, la foto se borra igual', async () => {
+    getDocs.mockResolvedValue({ docs: [comentario('c1')] });
+    deleteDoc.mockImplementation(async (r) => { if (r.path.includes('photoComments')) throw new Error('denied'); });
+
+    await deletePhoto(PAIR, P1);
+    await flush();
+
+    expect(deleteDoc).toHaveBeenCalledWith({ path: `pairs/${PAIR}/photos/${P1}` });
+    expect(deleteObject).toHaveBeenCalledTimes(2);
+  });
+
+  test('offline (la consulta no resuelve) no retiene el borrado de la foto', async () => {
+    getDocs.mockImplementation(() => new Promise(() => {}));
+
+    await deletePhoto(PAIR, P1);
+
+    expect(deleteDoc).toHaveBeenCalledWith({ path: `pairs/${PAIR}/photos/${P1}` });
+  });
+});
+
 describe('deletePhoto con una subida en curso', () => {
   test('la subida se para antes de crear el doc y limpia lo que subió', async () => {
     getDoc.mockResolvedValue({ exists: () => false });
