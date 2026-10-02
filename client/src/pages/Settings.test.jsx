@@ -1,5 +1,6 @@
 import React from 'react';
 import { render, screen, fireEvent, act, within } from '@testing-library/react';
+import { MemoryRouter, Routes, Route } from 'react-router';
 import Settings from './Settings';
 import { getPushSubscription, getPushDiag, subscribeToPush, unsubscribeFromPush } from '../lib/push';
 import { checkForUpdate, getRegistration, applyUpdate } from '../lib/appUpdate';
@@ -19,7 +20,7 @@ async function mount({ perm, sub = null, diag = '' } = {}) {
   else delete window.Notification;
   getPushSubscription.mockResolvedValue(sub);
   getPushDiag.mockReturnValue(diag);
-  render(<Settings />);
+  render(<MemoryRouter><Settings /></MemoryRouter>);
   await act(flush);
 }
 const botones = () => screen.getAllByRole('button').map((b) => b.textContent);
@@ -58,7 +59,7 @@ test('mientras no se sabe si hay suscripción: Comprobando…, sin Suscribirme',
   let resolve;
   getPushSubscription.mockReturnValue(new Promise((r) => { resolve = r; }));
   getPushDiag.mockReturnValue('');
-  render(<Settings />);
+  render(<MemoryRouter><Settings /></MemoryRouter>);
   await act(flush);
   expect(screen.queryByText('Comprobando…')).not.toBeNull();
   expect(screen.queryByText('Permiso concedido, sin suscripción')).toBeNull();
@@ -76,7 +77,7 @@ test('si el SW no responde en 4 s: «No se pudo comprobar», sin botones; si res
     let resolve;
     getPushSubscription.mockReturnValue(new Promise((r) => { resolve = r; }));
     getPushDiag.mockReturnValue('');
-    render(<Settings />);
+    render(<MemoryRouter><Settings /></MemoryRouter>);
     await act(flush);
     await act(async () => { vi.advanceTimersByTime(3900); });
     expect(screen.queryByText('Comprobando…')).not.toBeNull();
@@ -188,4 +189,20 @@ test('Buscar actualizaciones: «ya tienes la última» o «Actualizar»', async 
   applyUpdate.mockResolvedValue();
   await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Actualizar' })); await flush(); });
   expect(applyUpdate).toHaveBeenCalledTimes(1);
+});
+
+test('«Así era» en La app lleva a /asi-era', async () => {
+  getPushSubscription.mockResolvedValue(null);
+  getPushDiag.mockReturnValue('');
+  render(
+    <MemoryRouter initialEntries={['/settings']}>
+      <Routes>
+        <Route path="/settings" element={<Settings />} />
+        <Route path="/asi-era" element={<p>pantalla así era</p>} />
+      </Routes>
+    </MemoryRouter>
+  );
+  await act(flush);
+  fireEvent.click(screen.getByRole('link', { name: /Así era/ }));
+  expect(screen.queryByText('pantalla así era')).not.toBeNull();
 });
