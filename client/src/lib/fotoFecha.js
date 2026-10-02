@@ -23,7 +23,7 @@ function offsetMadrid(ms) {
 }
 
 // The instant at which Madrid's clock reads y-m-d h:00 (d and m may overflow: day 32 is the 1st of next month)
-function madridMs(y, m, d, h = 0) {
+export function madridMs(y, m, d, h = 0) {
   const wall = Date.UTC(y, m, d, h);
   // Second pass: the offset is read at the first guess, which can sit on the other side of a clock change
   return wall - offsetMadrid(wall - offsetMadrid(wall));
