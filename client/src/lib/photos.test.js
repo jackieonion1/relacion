@@ -1,6 +1,6 @@
 import { deletePhoto, retryPendingPhotos, uploadPhoto, listPhotosPage, madridDayKey, getOriginal, getOriginalUrl, getPhotoThumbUrl, getDailyPhotoId } from './photos';
 import { deleteThumb, deleteOrig, getThumb, getOrig } from './photoCache';
-import { collection, doc, deleteDoc, setDoc, updateDoc, getDoc, getDocs } from 'firebase/firestore';
+import { collection, doc, deleteDoc, setDoc, updateDoc, getDoc, getDocs, query, where, orderBy, limit } from 'firebase/firestore';
 import { ref, getDownloadURL, deleteObject, uploadBytes } from 'firebase/storage';
 
 vi.mock('./firebase', () => ({
@@ -33,6 +33,7 @@ vi.mock('firebase/firestore', () => ({
   getDoc: vi.fn(),
   getDocs: vi.fn(),
   query: vi.fn(),
+  where: vi.fn(),
   orderBy: vi.fn(),
   limit: vi.fn(),
   startAfter: vi.fn(),
@@ -414,6 +415,27 @@ describe('escrituras de reparación de URL', () => {
     expect(await getDailyPhotoId(PAIR)).toBe('A1');
     expect(setDoc).toHaveBeenCalledTimes(1);
     expect(setDoc.mock.calls[0][2]).toEqual({ merge: true });
+  });
+
+  test('getDailyPhotoId puede elegir fotos más allá de las 200 últimas, con tres lecturas', async () => {
+    const at = (ms) => ({ id: `F${ms}`, data: () => ({ createdAt: { toMillis: () => ms } }) });
+    getDoc.mockResolvedValue({ exists: () => false });
+    query.mockImplementation((c, ...parts) => parts);
+    where.mockImplementation((f, op, v) => ({ where: v }));
+    orderBy.mockImplementation((f, dir) => ({ orderBy: dir }));
+    limit.mockImplementation((n) => ({ limit: n }));
+    getDocs.mockImplementation(async (parts) => {
+      const w = parts.find((p) => p.where);
+      if (w) return { docs: [at(w.where.getTime())] };
+      return { docs: [parts.some((p) => p.orderBy === 'asc') ? at(1000) : at(5000)] };
+    });
+    setDoc.mockResolvedValue();
+    const id = await getDailyPhotoId(PAIR);
+    expect(getDocs).toHaveBeenCalledTimes(3);
+    const ms = Number(id.slice(1));
+    expect(ms).toBeGreaterThanOrEqual(1000);
+    expect(ms).toBeLessThanOrEqual(5000);
+    expect(setDoc.mock.calls[0][1].photoId).toBe(id);
   });
 
   test('si la escritura de dailyPhoto falla, sigue devolviendo la foto', async () => {

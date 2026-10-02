@@ -82,8 +82,8 @@ async function fb() {
   if (!_fb) {
     try {
       const { ref, uploadBytes, getDownloadURL, deleteObject } = await import('firebase/storage');
-      const { collection, doc, setDoc, updateDoc, getDoc, getDocs, query, orderBy, limit, startAfter, serverTimestamp, deleteDoc, waitForPendingWrites } = await import('firebase/firestore');
-      _fb = { ref, uploadBytes, getDownloadURL, deleteObject, collection, doc, setDoc, updateDoc, getDoc, getDocs, query, orderBy, limit, startAfter, serverTimestamp, deleteDoc, waitForPendingWrites };
+      const { collection, doc, setDoc, updateDoc, getDoc, getDocs, query, where, orderBy, limit, startAfter, serverTimestamp, deleteDoc, waitForPendingWrites } = await import('firebase/firestore');
+      _fb = { ref, uploadBytes, getDownloadURL, deleteObject, collection, doc, setDoc, updateDoc, getDoc, getDocs, query, where, orderBy, limit, startAfter, serverTimestamp, deleteDoc, waitForPendingWrites };
     } catch (e) {
       _fb = null;
     }
@@ -247,7 +247,7 @@ export async function getDailyPhotoId(pairId) {
     await whenAuthed();
   } catch {}
   try {
-    const { collection, doc, getDoc, setDoc, getDocs, query, orderBy, limit } = fblib;
+    const { collection, doc, getDoc, setDoc, getDocs, query, where, orderBy, limit } = fblib;
     const metaCol = collection(db, 'pairs', pairId, 'meta');
     const metaRef = doc(metaCol, 'dailyPhoto');
     // If already set for today and photo exists, return it
@@ -263,12 +263,22 @@ export async function getDailyPhotoId(pairId) {
 
     // Compute deterministically
     const col = collection(db, 'pairs', pairId, 'photos');
-    const q = query(col, orderBy('createdAt', 'desc'), limit(200));
-    const snap = await getDocs(q);
-    const ids = snap.docs.map((d) => d.id);
-    if (ids.length === 0) return '';
-    const idx = hash32(`${pairId}|${dayKey}`) % ids.length;
-    const chosen = ids[idx];
+    // Any photo can come up, at 3 reads: pick a moment between the oldest and the newest photo, then take
+    // the first photo from that moment on (no new field or index, so existing photos need no migration)
+    const [oldSnap, newSnap] = await Promise.all([
+      getDocs(query(col, orderBy('createdAt', 'asc'), limit(1))),
+      getDocs(query(col, orderBy('createdAt', 'desc'), limit(1))),
+    ]);
+    const newest = newSnap.docs[0];
+    if (!newest) return '';
+    let chosen = newest.id;
+    const t0 = oldSnap.docs[0]?.data?.()?.createdAt?.toMillis?.();
+    const t1 = newest.data?.()?.createdAt?.toMillis?.();
+    if (t0 != null && t1 != null && t1 > t0) {
+      const at = t0 + Math.floor((hash32(`${pairId}|${dayKey}`) / 4294967296) * (t1 - t0));
+      const hit = await getDocs(query(col, where('createdAt', '>=', new Date(at)), orderBy('createdAt', 'asc'), limit(1)));
+      if (hit.docs[0]) chosen = hit.docs[0].id;
+    }
     // Persist so all devices use the same
     // Not awaited: offline the write only resolves once the server confirms, and Inicio must paint meanwhile
     Promise.resolve(setDoc(metaRef, { dayKey, photoId: chosen, updatedAt: fblib.serverTimestamp ? fblib.serverTimestamp() : new Date() }, { merge: true })).catch(() => {});
