@@ -14,6 +14,19 @@ import './Music.css';
 const WHO = { yo: '🫒', ella: '🍪' };
 const VIZ_NAMES = ['Latido', 'Espiral', 'Onda'];
 
+// Visual reads levels through Web Audio. The first time it opens, the <audio> is handed to the context for good, so
+// from then on the song depends on the context staying awake (it is resumed when the page comes back). If on the
+// iPhone that cuts the music with the screen locked, set this to false: Visual keeps moving at rest without the
+// analyser and the element never leaves its native output
+const VIZ_ANALYSER = true;
+
+// Upload day of a row: «12 mar», with the year only when it is not this one
+function fmtFecha(ms) {
+  const d = new Date(ms);
+  const otherYear = d.getFullYear() !== new Date().getFullYear();
+  return d.toLocaleDateString('es-ES', { day: 'numeric', month: 'short', ...(otherYear ? { year: 'numeric' } : {}) });
+}
+
 // Cover pairs of the prototype (Prototipo.dc.html, PH): the song id always picks the same one
 const COVERS = [
   ['oklch(0.74 0.06 20)', 'oklch(0.58 0.05 300)'], ['oklch(0.62 0.05 240)', 'oklch(0.47 0.06 235)'],
@@ -97,7 +110,6 @@ export default function Music() {
   const analyserRef = useRef(null);
   const mediaSourceRef = useRef(null);
   const vizRAFRef = useRef(0);
-  const vizGainRef = useRef(null);
   const lastPosSyncRef = useRef(0);
   const [vizStyle, setVizStyle] = useState(0); // 0..2
   const [pageVisible, setPageVisible] = useState(() => {
@@ -107,7 +119,13 @@ export default function Music() {
 
   useEffect(() => {
     const onVis = () => {
-      try { setPageVisible(document.visibilityState === 'visible'); } catch {}
+      try {
+        const visible = document.visibilityState === 'visible';
+        setPageVisible(visible);
+        // Once Visual created the source, the song sounds through the context: wake it if the system suspended it
+        const ctx = audioCtxRef.current;
+        if (visible && ctx && ctx.state !== 'running' && ctx.state !== 'closed') { try { ctx.resume(); } catch {} }
+      } catch {}
     };
     try { document.addEventListener('visibilitychange', onVis); } catch {}
     return () => { try { document.removeEventListener('visibilitychange', onVis); } catch {} };
@@ -292,7 +310,7 @@ export default function Music() {
   useEffect(() => {
     const el = audioRef.current;
     if (!el) return;
-    const wantViz = expanded && viewMode === 'viz' && pageVisible;
+    const wantViz = VIZ_ANALYSER && expanded && viewMode === 'viz' && pageVisible;
     if (wantViz) {
       const Ctx = window.AudioContext || window.webkitAudioContext;
       if (!Ctx) return;
@@ -302,46 +320,27 @@ export default function Music() {
       const ctx = audioCtxRef.current;
       if (ctx.state === 'suspended') { try { ctx.resume(); } catch {} }
       try {
-        // Determine if WebAudio can actually output
         const running = ctx && ctx.state === 'running';
         // Only create MediaElementSource when context is running to avoid iOS suppressing native audio
         if (running && !mediaSourceRef.current) {
           mediaSourceRef.current = ctx.createMediaElementSource(el);
+          // From here on the source is the element's only output (it never plays directly again): wire it to
+          // destination once and never unplug it
+          mediaSourceRef.current.connect(ctx.destination);
         }
         if (!analyserRef.current) {
           analyserRef.current = ctx.createAnalyser();
           analyserRef.current.fftSize = 1024;
           analyserRef.current.smoothingTimeConstant = 0.85;
         }
-        if (!vizGainRef.current) {
-          vizGainRef.current = ctx.createGain();
-        }
-        // Decide routing based on whether AudioContext is running
-        // If running, route audio through WebAudio (audible via destination).
-        // If not running (iOS background or not yet resumed), keep branch silent and rely on native element audio.
-        vizGainRef.current.gain.value = running ? 1.0 : 0.0;
-        // Avoid duplicate connections
-        try { mediaSourceRef.current && mediaSourceRef.current.disconnect(); } catch {}
-        try { analyserRef.current.disconnect(); } catch {}
-        try { vizGainRef.current.disconnect(); } catch {}
+        // The analyser is a branch that only reads levels; it does not go to destination
         if (mediaSourceRef.current) {
           try { mediaSourceRef.current.connect(analyserRef.current); } catch {}
         }
-        try { analyserRef.current.connect(vizGainRef.current); } catch {}
-        // Only connect to destination if the context is running (so we actually want WebAudio output)
-        if (running) {
-          try { vizGainRef.current.connect(ctx.destination); } catch {}
-        }
-        // Only mute element when WebAudio is actually producing audio
-        try { el.muted = running; } catch {}
       } catch {}
-    } else {
-      // Tear down graph so HTMLMediaElement regains direct system playback (iOS background OK)
-      try { el.muted = false; } catch {}
-      try { if (mediaSourceRef.current) mediaSourceRef.current.disconnect(); } catch {}
-      try { if (analyserRef.current) analyserRef.current.disconnect(); } catch {}
-      try { if (vizGainRef.current) vizGainRef.current.disconnect(); } catch {}
-      // Keep nodes/context instantiated to avoid the one-per-element MediaElementSource restriction
+    } else if (mediaSourceRef.current && analyserRef.current) {
+      // Unplug only the branch: the song keeps sounding through destination
+      try { mediaSourceRef.current.disconnect(analyserRef.current); } catch {}
     }
   }, [expanded, viewMode, player.id, pageVisible]);
 
@@ -775,7 +774,7 @@ export default function Music() {
           <div className="flex items-center gap-1">
             {/* ↻: en la PWA de iPhone no hay otra forma de recargar (plan §0 nº 8, F1) */}
             <Button icon="recargar" label="Actualizar" title="Actualizar" onClick={() => window.location.reload()} />
-            <Button icon="nuevo" onClick={pickFiles} aria-label="Nueva canción">Añadir</Button>
+            <Button icon="nuevo" onClick={pickFiles}>Añadir</Button>
           </div>
         </header>
       )}
@@ -845,10 +844,10 @@ export default function Music() {
                       <span aria-hidden="true" className="musica-portada w-11 h-11 rounded-mini" style={{ background: coverOf(it.id) }} />
                       <span className="flex-1 min-w-0 flex flex-col gap-px">
                         <span className={`text-base font-semibold truncate ${isCurrent ? 'text-accent-ink' : 'text-ink'}`}>{it.name || it.id}</span>
-                        {/* A9: no «Artista» (no existe); quién la subió, si se sabe, y cuánto dura */}
+                        {/* A9: no «Artista» (no existe); quién la subió, si se sabe, cuándo y cuánto dura */}
                         <span className="num text-[13px] text-ink-2 flex items-center gap-1.5">
                           {isCurrent && <Eq on={isPlaying} />}
-                          {who ? `Subida por ${who} · ${fmtDuration(it.duration)}` : fmtDuration(it.duration)}
+                          {[who && `Subida por ${who}`, it.createdAt && fmtFecha(it.createdAt), fmtDuration(it.duration)].filter(Boolean).join(' · ')}
                         </span>
                       </span>
                     </button>
@@ -954,12 +953,13 @@ export default function Music() {
         </div>
       )}
 
-      {/* Pill next to the ⚙ of MarcaSuperior on the other screens, while a song is loaded (Q6, F5) */}
+      {/* Pill next to the ⚙ of MarcaSuperior on the other screens, while a song is loaded (Q6, F5). It looks 32 px
+          tall; the ::before stretches the touch to 44 */}
       {!isMusicRoute && player.id && createPortal(
         <button
           type="button"
           onClick={() => navigate('/music')}
-          className="fixed z-30 top-[calc(env(safe-area-inset-top)+6px)] right-16 h-8 max-w-[48vw] px-3 rounded-full border border-line bg-card/90 backdrop-blur-sm text-[13px] font-medium text-ink shadow-carta flex items-center gap-1.5"
+          className="fixed z-30 top-[calc(env(safe-area-inset-top)+6px)] right-16 h-8 max-w-[48vw] px-3 rounded-full border border-line bg-card/90 backdrop-blur-sm text-[13px] font-medium text-ink shadow-carta flex items-center gap-1.5 before:absolute before:-inset-y-1.5 before:inset-x-0 before:content-['']"
           aria-label="Ir a Música"
           title="Ir a Música"
         >

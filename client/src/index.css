@@ -38,6 +38,8 @@
   --w3: oklch(0.90 0.05 80);
   --w4: oklch(0.90 0.04 300);
   --w5: oklch(0.92 0.03 150);
+  /* How much of each option's stored colour (hsl … / 0.45, Roulette.jsx) shows, on chips and wedges */
+  --rueda-op: 1;
   --cielo-dia: linear-gradient(160deg, oklch(0.93 0.045 230), oklch(0.95 0.05 85));
   --cielo-noche: linear-gradient(160deg, oklch(0.34 0.07 280), oklch(0.28 0.06 305));
 }
@@ -72,6 +74,9 @@ html[data-tema='oscuro'] {
   --w3: oklch(0.34 0.04 80);
   --w4: oklch(0.32 0.04 300);
   --w5: oklch(0.33 0.03 150);
+  /* At full strength lime gives ink 4.09:1 and the ✕ in ink-2 2.19:1 on the dark card; at 0.4 the worst of the 15
+     colours gives 9.10:1 and 4.86:1 (sRGB blend, measured with a script) */
+  --rueda-op: 0.4;
   --cielo-dia: linear-gradient(160deg, oklch(0.36 0.05 235), oklch(0.33 0.04 85));
   --cielo-noche: linear-gradient(160deg, oklch(0.25 0.05 280), oklch(0.21 0.04 305));
 }

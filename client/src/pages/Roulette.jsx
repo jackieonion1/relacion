@@ -136,7 +136,9 @@ export default function Roulette() {
 
   const canSpin = options.length >= 2 && !spinning;
 
+  // The spin and its result read the options it started with: they stay as they are until it stops
   function addOption() {
+    if (spinning) return;
     const v = (input || '').trim();
     if (!v) return;
     if (options.length >= MAX_OPTIONS) return; // cap at 15
@@ -156,6 +158,7 @@ export default function Roulette() {
   }
 
   function removeOption(i) {
+    if (spinning) return;
     setOptions((prev) => prev.filter((_, idx) => idx !== i));
     setWinnerIndex(null);
   }
@@ -180,7 +183,8 @@ export default function Roulette() {
     ctx.save();
     ctx.translate(cx, cy);
     ctx.rotate(angleRef.current);
-    // draw segments
+    // draw segments, as strong as the theme lets the stored colours be (--rueda-op), and the labels at full
+    ctx.globalAlpha = parseFloat(getComputedStyle(canvas).getPropertyValue('--rueda-op')) || 1;
     for (let i = 0; i < options.length; i++) {
       const start = i * segRad;
       const end = start + segRad;
@@ -191,6 +195,7 @@ export default function Roulette() {
       ctx.fillStyle = options[i].color;
       ctx.fill();
     }
+    ctx.globalAlpha = 1;
     // labels run along the radius from the rim inwards, clear of the centre button (C14)
     if (options.length > 0 && options.length <= LABELS_MAX) {
       ctx.fillStyle = getComputedStyle(canvas).color;
@@ -356,15 +361,17 @@ export default function Roulette() {
           {options.map((opt, i) => (
             <div
               key={i}
-              className="inline-flex items-center h-11 pl-3.5 rounded-full border border-line bg-card text-[15px] font-medium text-ink"
-              style={{ backgroundImage: `linear-gradient(${opt.color}, ${opt.color})` }}
+              className="relative inline-flex items-center h-11 pl-3.5 rounded-full border border-line bg-card text-[15px] font-medium text-ink"
             >
-              <span className="truncate max-w-[40vw]">{opt.label}</span>
+              {/* The stored colour, toned down by the theme (--rueda-op) so ink and ✕ keep their contrast in dark */}
+              <span aria-hidden="true" className="absolute inset-0 rounded-full" style={{ background: opt.color, opacity: 'var(--rueda-op)' }} />
+              <span className="relative truncate max-w-[40vw]">{opt.label}</span>
               <button
                 type="button"
                 onClick={() => removeOption(i)}
+                disabled={spinning}
                 aria-label={`Eliminar ${opt.label}`}
-                className="w-11 h-11 inline-flex items-center justify-center rounded-full text-ink-2"
+                className="relative w-11 h-11 inline-flex items-center justify-center rounded-full text-ink-2 disabled:opacity-50"
                 title="Eliminar"
               >
                 <Icon name="cerrar" size={16} />
@@ -382,7 +389,7 @@ export default function Roulette() {
             className="input flex-1 min-w-0 min-h-12 rounded-full px-[18px]"
             onKeyDown={(e) => { if (e.key === 'Enter') addOption(); }}
           />
-          <Button variant="sec" size="m" onClick={addOption} disabled={options.length >= MAX_OPTIONS}>Añadir</Button>
+          <Button variant="sec" size="m" onClick={addOption} disabled={spinning || options.length >= MAX_OPTIONS}>Añadir</Button>
         </div>
         {options.length >= MAX_OPTIONS && (
           <div className="text-[13px] text-ink-2">Máximo {MAX_OPTIONS} opciones</div>

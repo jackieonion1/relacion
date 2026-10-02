@@ -64,6 +64,30 @@ test('no repite una opción aunque cambien las mayúsculas', () => {
   expect(chips()).toHaveLength(1);
 });
 
+test('mientras gira no se pueden quitar ni añadir opciones', () => {
+  vi.spyOn(window, 'requestAnimationFrame').mockImplementation(() => 1); // the spin never gets its next frame
+  vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => {});
+  render(<Roulette />);
+  add('Pizza'); add('Sushi');
+  fireEvent.click(screen.getByRole('button', { name: /Girar/ }));
+  expect(screen.getByRole('button', { name: 'Eliminar Pizza' }).disabled).toBe(true);
+  expect(screen.getByRole('button', { name: 'Añadir' }).disabled).toBe(true);
+  fireEvent.click(screen.getByRole('button', { name: 'Eliminar Pizza' }));
+  const input = screen.getByPlaceholderText('Añadir opción');
+  fireEvent.change(input, { target: { value: 'Tacos' } });
+  fireEvent.keyDown(input, { key: 'Enter' });
+  expect(saved().map((o) => o.label)).toEqual(['Pizza', 'Sushi']);
+});
+
+test('el color guardado de cada opción se pinta con la fuerza que da el tema (--rueda-op)', () => {
+  render(<Roulette />);
+  add('Pizza');
+  const tint = chips()[0].parentElement.querySelector('span[aria-hidden="true"]');
+  expect(tint.style.opacity).toBe('var(--rueda-op)');
+  expect(saved()[0].color).toBe('hsl(0 85% 60% / 0.45)'); // the stored colour does not change
+  expect(tint.style.background).toBe('rgba(240, 66, 66, 0.45)'); // jsdom writes it back as rgba
+});
+
 const rain = () => Array.from(document.querySelectorAll('[data-testid="heart-rain"] > div'));
 
 // Each frame jumps 10 s, so the spin (5-8 s) ends on its second frame

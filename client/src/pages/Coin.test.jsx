@@ -44,3 +44,21 @@ test('con «Reducir movimiento» no hay giro y el resultado sale al momento', ()
   expect(anims).toHaveLength(0);
   expect(screen.getByRole('status').textContent).toBe('Sale 🍪');
 });
+
+test('con «Reducir movimiento», si repite cara lo dice', () => {
+  window.matchMedia = vi.fn(() => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() }));
+  fakeAnimate();
+  const random = vi.spyOn(Math, 'random').mockReturnValue(0.1); // 🍪
+  render(<Coin />);
+  const lanzar = () => fireEvent.click(screen.getByRole('button', { name: 'Lanzar' }));
+  const status = () => screen.getByRole('status').textContent;
+  lanzar();
+  expect(status()).toBe('Sale 🍪');
+  lanzar();
+  expect(status()).toBe('Sale 🍪 otra vez');
+  lanzar();
+  expect(status()).toBe('Sale 🍪 3 veces seguidas');
+  random.mockReturnValue(0.9); // 🫒
+  lanzar();
+  expect(status()).toBe('Sale 🫒');
+});

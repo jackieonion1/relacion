@@ -159,3 +159,19 @@ test('las animaciones con retraso usan fill-mode both', () => {
     expect(rule && rule[0]).toMatch(/\bboth\b/);
   }
 });
+
+// The fireworks wait at their centre: there they must be invisible, or a heap of emoji shows before each explosion
+test('los fuegos esperan su explosión invisibles', () => {
+  const css = readFileSync(path.resolve(__dirname, 'HeartRain.css'), 'utf8');
+  const start = css.match(/@keyframes heartFireworks\s*\{\s*0%\s*\{([^}]*)\}/);
+  expect(start && start[1]).toMatch(/opacity:\s*0;/);
+});
+
+test('«Parar la fiesta» pinta con los tokens de Carta, sin colores fijos', () => {
+  const css = readFileSync(path.resolve(__dirname, 'HeartRain.css'), 'utf8');
+  for (const sel of ['.heart-rain-stop', '.heart-rain-stop:focus-visible']) {
+    const body = css.match(new RegExp(`\\n${sel.replace(/[.:-]/g, '\\$&')}\\s*\\{([^}]*)\\}`))[1];
+    expect(body).not.toMatch(/#[0-9a-f]{3,8}\b|rgba?\(/i);
+    expect(body).toMatch(/var\(--/);
+  }
+});

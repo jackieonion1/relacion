@@ -122,6 +122,82 @@ test('el menú ⋯ cambia el nombre y borra con confirmación', async () => {
   expect(screen.queryByText('Canción B')).toBeNull();
 });
 
+test('la fila dice quién la subió, cuándo y cuánto dura', async () => {
+  const year = new Date().getFullYear();
+  listMusic.mockResolvedValue([
+    { id: 'A', name: 'Canción A', duration: 220, createdAt: new Date(year, 2, 12, 12).getTime(), identity: 'ella' },
+    { id: 'B', name: 'Canción B', duration: 90, createdAt: new Date(2024, 0, 5, 12).getTime() },
+  ]);
+  render(<MemoryRouter initialEntries={['/music']}><Music /></MemoryRouter>);
+  await act(flush);
+  expect(screen.getByText('Subida por 🍪 · 12 mar · 3:40')).toBeTruthy();
+  expect(screen.getByText('5 ene 2024 · 1:30')).toBeTruthy();
+});
+
+// Web Audio double: it only keeps which node is wired to which
+function fakeAudioContext() {
+  const links = new Set();
+  const node = (name, extra = {}) => ({
+    name,
+    ...extra,
+    connect: (to) => { links.add(`${name}>${to.name}`); },
+    disconnect: (to) => {
+      for (const l of [...links]) if (l.startsWith(`${name}>`) && (!to || l === `${name}>${to.name}`)) links.delete(l);
+    },
+  });
+  window.AudioContext = class {
+    state = 'running';
+    destination = { name: 'destination' };
+    resume() { return Promise.resolve(); }
+    createMediaElementSource() { return node('source'); }
+    createAnalyser() { return node('analyser', { fftSize: 0, getByteTimeDomainData() {} }); }
+  };
+  return links;
+}
+
+test('al salir de Visual la canción sigue conectada a destination: al cerrar, al pasar a Letra y al bloquear', async () => {
+  const links = fakeAudioContext();
+  vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
+  const setVisibility = (state) => {
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => state });
+    document.dispatchEvent(new Event('visibilitychange'));
+  };
+  try {
+    await playFirst();
+    const openVisual = async () => {
+      if (!screen.queryByRole('dialog', { name: 'Reproductor' })) {
+        fireEvent.click(screen.getByRole('button', { name: 'Abrir el reproductor: Canción A' }));
+      }
+      await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Visual' })); await flush(); });
+      expect([...links].sort()).toEqual(['source>analyser', 'source>destination']);
+    };
+    const onlyDestination = () => {
+      expect([...links]).toEqual(['source>destination']);
+      expect(audio().muted).toBe(false);
+    };
+
+    await openVisual();
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Letra' })); await flush(); });
+    onlyDestination();
+
+    await openVisual();
+    await act(async () => { setVisibility('hidden'); await flush(); });
+    onlyDestination();
+    await act(async () => { setVisibility('visible'); await flush(); });
+
+    await openVisual();
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Cerrar reproductor' }));
+      await new Promise((r) => setTimeout(r, 300));
+    });
+    expect(screen.queryByRole('dialog', { name: 'Reproductor' })).toBeNull();
+    onlyDestination();
+  } finally {
+    delete window.AudioContext;
+    delete document.visibilityState;
+  }
+});
+
 test('tras la última vuelve a la primera', async () => {
   await playFirst();
   await act(async () => { audio().dispatchEvent(new Event('ended')); await flush(); await frame(); });

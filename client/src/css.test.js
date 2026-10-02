@@ -8,12 +8,20 @@ const css = hasBuild
   ? fs.readFileSync(path.join(BUILD, JSON.parse(fs.readFileSync(path.join(BUILD, 'asset-manifest.json'), 'utf8')).files['main.css']), 'utf8')
   : '';
 // The minifier merges rules with the same body (".text-gray-900,.text-ink{…}"): find the selector inside a list
-const rule = (selector) => {
+const ruleRe = (selector, flags) => {
   const esc = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  return css.match(new RegExp(`(?:^|[},])${esc}(?:,[^{}]*)?\\{[^}]*\\}`))?.[0] || '';
+  return new RegExp(`(?:^|[},])${esc}(?:,[^{}]*)?\\{[^}]*\\}`, flags);
 };
+const rule = (selector) => css.match(ruleRe(selector))?.[0] || '';
+// The minifier may split one source rule in several (".marca{position:…}" … ".marca{-webkit-backdrop-filter:…}")
+const rules = (selector) => [...css.matchAll(ruleRe(selector, 'g'))].map((m) => m[0]).join('');
 
-describe.skipIf(!hasBuild)('el CSS de la build', () => {
+// Locally it is skipped without a build; in CI the build step goes first, so a missing build is a failure
+describe.skipIf(!hasBuild && !process.env.CI)('el CSS de la build', () => {
+  test('hay build', () => {
+    expect(hasBuild, 'falta client/build: npm run build antes de npm test').toBe(true);
+  });
+
   test('drop-shadow-sm y -lg pintan sus dos capas (una drop-shadow() con coma no es válida)', () => {
     for (const s of ['.drop-shadow-sm', '.drop-shadow-lg']) {
       const value = rule(s).match(/--tw-drop-shadow:([^;}]*)/)[1];
@@ -23,7 +31,10 @@ describe.skipIf(!hasBuild)('el CSS de la build', () => {
   });
 
   test('conserva los prefijos y los bloques de iOS', () => {
-    expect(css.match(/-webkit-backdrop-filter/g).length).toBeGreaterThanOrEqual(4);
+    // Selector by selector: Safari on the iPhone blurs only with the prefix
+    for (const s of ['.marca', '.barra', '.heart-rain-stop', '.backdrop-blur-sm', '.backdrop-blur-xs', '.backdrop-blur-\\[18px\\]']) {
+      expect(rules(s), s).toMatch(/-webkit-backdrop-filter:/);
+    }
     expect(css).toContain('@supports (-webkit-touch-callout:none)');
     expect(css).toMatch(/@media\s*\(hover:none\)\s*and \(pointer:coarse\)\{html,body\{overflow:hidden\}\.app-shell\{[^}]*position:fixed/);
   });

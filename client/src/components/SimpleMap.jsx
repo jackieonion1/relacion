@@ -84,6 +84,8 @@ export default function SimpleMap({ children }) {
       const f = await fb();
       const col = f.collection(db, 'pairs', pairId, 'locations');
       return f.onSnapshot(col, (snap) => {
+        // An empty first answer from Firestore's own cache says nothing yet: it must not wipe the local copy
+        if (snap.metadata?.fromCache && snap.empty) return;
         let n = {}, v = {};
         snap.forEach((doc) => {
           if (doc.id === 'novio') n = doc.data();
