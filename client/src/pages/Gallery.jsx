@@ -56,6 +56,8 @@ export default function Gallery() {
   const imgRef = useRef(null);
   const pinchRef = useRef({ active: false, startDist: 0, originX: 0, originY: 0 });
   const [viewer, setViewer] = useState({ open: false, id: null, url: '', fallbackUrl: '', loading: false });
+  const viewerRef = useRef(viewer);
+  viewerRef.current = viewer;
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
@@ -361,6 +363,12 @@ export default function Gallery() {
           })
           .catch(() => {});
       }
+    }
+    // «Cerrar» while it loads: the photo arrives to nobody, and the viewer must not open again by itself
+    const now = viewerRef.current;
+    if (!(now.open && now.id === id)) {
+      if (url && url.startsWith('blob:')) URL.revokeObjectURL(url);
+      return;
     }
     setViewer({ open: true, id, url, fallbackUrl, loading: false });
   }

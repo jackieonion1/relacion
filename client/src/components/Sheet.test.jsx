@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { render, screen, fireEvent, act } from '@testing-library/react';
 import Sheet from './Sheet';
 import Modal from './Modal';
+import HeartRainAnimation from './HeartRainAnimation';
 
 function Opener({ label }) {
   const [open, setOpen] = useState(false);
@@ -78,6 +79,105 @@ test('con dos hojas abiertas, Escape cierra solo la de arriba', () => {
   fireEvent.keyDown(document, { key: 'Escape' });
   expect(arriba).toHaveBeenCalledTimes(1);
   expect(abajo).not.toHaveBeenCalled();
+});
+
+test('O1/O5: con la lluvia en marcha la hoja deja sitio a «Parar la fiesta» y no esconde el botón', () => {
+  const lluvia = render(<HeartRainAnimation isActive />);
+  render(<Sheet isOpen onClose={() => {}}><h3>Hoja</h3></Sheet>);
+  const dialog = screen.getByRole('dialog', { name: 'Hoja' });
+  expect(dialog.getAttribute('aria-modal')).toBe('false');
+  expect(dialog.style.paddingBottom).toContain('88px');
+  expect(screen.getByRole('button', { name: 'Parar la fiesta' })).toBeTruthy();
+  lluvia.unmount();
+  expect(dialog.getAttribute('aria-modal')).toBe('true');
+});
+
+describe('O2: teclado', () => {
+  let vv;
+  const dialog = () => screen.getByRole('dialog');
+  const wrap = () => screen.getByTestId('sheet-scrim').parentElement;
+  const rect = (top, bottom) => ({ top, bottom, left: 0, right: 100, width: 100, height: bottom - top });
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vv = Object.assign(new EventTarget(), { height: 400, offsetTop: 0, scale: 1 });
+    Object.defineProperty(window, 'visualViewport', { value: vv, configurable: true });
+    window.innerHeight = 800;
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    delete window.visualViewport;
+  });
+
+  test('la hoja sigue la altura del visual viewport; al desplazarse solo se mueve, sin cambiar de alto', () => {
+    render(<Sheet isOpen onClose={() => {}}><h3>Hoja</h3></Sheet>);
+    expect(wrap().style.height).toBe('400px');
+    expect(wrap().style.top).toBe('0px');
+    expect(dialog().style.maxHeight).toBe('368px');
+    vv.offsetTop = 30;
+    act(() => { vv.dispatchEvent(new Event('scroll')); });
+    expect(wrap().style.top).toBe('30px');
+    expect(wrap().style.height).toBe('400px');
+    expect(dialog().style.maxHeight).toBe('368px');
+    vv.height = 300;
+    act(() => { vv.dispatchEvent(new Event('resize')); });
+    expect(wrap().style.height).toBe('300px');
+    expect(dialog().style.maxHeight).toBe('276px');
+  });
+
+  test('sin teclado no toca nada, y al cerrar lo deja como estaba', () => {
+    vv.height = 800;
+    const { unmount } = render(<Sheet isOpen onClose={() => {}}><h3>Hoja</h3></Sheet>);
+    expect(wrap().style.height).toBe('');
+    expect(dialog().style.maxHeight).toBe('');
+    vv.height = 400;
+    act(() => { vv.dispatchEvent(new Event('resize')); });
+    expect(wrap().style.height).toBe('400px');
+    const w = wrap();
+    unmount();
+    expect(w.isConnected).toBe(false);
+  });
+
+  test('al enfocar un campo tapado por el teclado, la hoja se desplaza lo justo para verlo', () => {
+    render(<Sheet isOpen onClose={() => {}}><input aria-label="Lugar" /></Sheet>);
+    Object.defineProperty(dialog(), 'scrollTop', { value: 0, writable: true });
+    dialog().getBoundingClientRect = () => rect(0, 400);
+    const campo = screen.getByLabelText('Lugar');
+    campo.getBoundingClientRect = () => rect(430, 480);
+    campo.focus();
+    expect(dialog().scrollTop).toBe(0);
+    act(() => { vi.advanceTimersByTime(320); });
+    expect(dialog().scrollTop).toBe(480 - (400 - 12));
+  });
+
+  test('en un editor lleva a la vista la línea del cursor, no el editor entero', () => {
+    render(<Sheet isOpen onClose={() => {}}><div aria-label="Texto" tabIndex={0} /></Sheet>);
+    Object.defineProperty(dialog(), 'scrollTop', { value: 0, writable: true });
+    dialog().getBoundingClientRect = () => rect(0, 400);
+    const editor = screen.getByLabelText('Texto');
+    Object.defineProperty(editor, 'isContentEditable', { value: true });
+    editor.getBoundingClientRect = () => rect(100, 1500);
+    const linea = rect(500, 520);
+    const rango = { startContainer: editor, cloneRange() { return this; }, collapse() {}, getClientRects: () => [linea] };
+    vi.spyOn(window, 'getSelection').mockReturnValue({ rangeCount: 1, getRangeAt: () => rango });
+    editor.focus();
+    act(() => { vv.dispatchEvent(new Event('resize')); });
+    expect(dialog().scrollTop).toBe(520 - (400 - 12));
+  });
+
+  test('al desplazarse la pantalla no vuelve a buscar el campo', () => {
+    render(<Sheet isOpen onClose={() => {}}><input aria-label="Lugar" /></Sheet>);
+    Object.defineProperty(dialog(), 'scrollTop', { value: 0, writable: true });
+    dialog().getBoundingClientRect = () => rect(0, 400);
+    const campo = screen.getByLabelText('Lugar');
+    campo.getBoundingClientRect = () => rect(430, 480);
+    campo.focus();
+    act(() => { vi.advanceTimersByTime(320); });
+    dialog().scrollTop = 0;
+    vv.offsetTop = 20;
+    act(() => { vv.dispatchEvent(new Event('scroll')); });
+    expect(dialog().scrollTop).toBe(0);
+  });
 });
 
 test('Modal sin `bare` es una hoja; con `bare` sigue siendo el lienzo a pantalla completa de antes', () => {

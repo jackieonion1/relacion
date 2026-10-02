@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, act, fireEvent } from '@testing-library/react';
+import { render, screen, act, fireEvent, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 import CalendarPage from './Calendar';
 import { listEvents } from '../lib/calendar';
@@ -160,4 +160,38 @@ test('borrar pide confirmación y llama a deleteEvent', async () => {
   await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Borrar evento' })); await flush(); });
   expect(deleteEvent).toHaveBeenCalledWith('SEB1998', 'ev1');
   expect(screen.queryByRole('dialog')).toBeNull();
+});
+
+test('O3: «Borrar evento» y «Cancelar» dentro del formulario deja todos los campos como estaban', async () => {
+  const { updateEvent, eventToFormValues } = await import('../lib/calendar');
+  listEvents.mockResolvedValue([cena]);
+  eventToFormValues.mockReturnValue({ title: 'Cena en casa', location: 'Casa', date: '2099-05-10', time: '21:00', endDate: '', eventType: 'novia', seeEachOther: false });
+  updateEvent.mockResolvedValue({ committed: Promise.resolve() });
+  await mount();
+  await openFromList('Cena en casa');
+  fireEvent.click(screen.getByRole('button', { name: /Editar/ }));
+  fireEvent.change(screen.getByLabelText('Título'), { target: { value: 'Comida' } });
+  fireEvent.change(screen.getByLabelText(/^Lugar/), { target: { value: 'Parque' } });
+  fireEvent.click(screen.getByLabelText(/^¿Nos vemos\?/));
+  fireEvent.click(screen.getAllByRole('button', { name: 'Borrar evento' })[0]);
+  const confirm = screen.getByRole('dialog', { name: '¿Borrar «Cena en casa»?' });
+  fireEvent.click(within(confirm).getByRole('button', { name: 'Cancelar' }));
+  expect(screen.queryByRole('dialog', { name: '¿Borrar «Cena en casa»?' })).toBeNull();
+  expect(screen.getByLabelText('Título').value).toBe('Comida');
+  expect(screen.getByLabelText(/^Lugar/).value).toBe('Parque');
+  expect(screen.getByLabelText(/^¿Nos vemos\?/).checked).toBe(true);
+  await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Guardar' })); await flush(); });
+  expect(updateEvent).toHaveBeenCalledWith('SEB1998', 'ev1', expect.objectContaining({ title: 'Comida', location: 'Parque', seeEachOther: true }));
+});
+
+test('O1: la hoja del evento abierta desde un día con lluvia deja sitio a «Parar la fiesta»', async () => {
+  const { eventToFormValues } = await import('../lib/calendar');
+  eventToFormValues.mockReturnValue({ title: 'Cena en casa', location: 'Casa', date: '2026-11-24', time: '21:00', endDate: '', eventType: 'novia', seeEachOther: false });
+  listEvents.mockResolvedValue([{ ...cena, start: ts(new Date(2026, 10, 24, 21, 0)) }]);
+  await mount('/calendar?y=2026&m=10&d=24');
+  fireEvent.click(screen.getByRole('button', { name: /Cena en casa/ }));
+  expect(screen.getByRole('button', { name: 'Parar la fiesta' })).toBeTruthy();
+  expect(screen.getByRole('dialog', { name: 'Cena en casa' }).style.paddingBottom).toContain('88px');
+  fireEvent.click(screen.getByRole('button', { name: /Editar/ }));
+  expect(screen.getByRole('dialog', { name: 'Editar evento' }).style.paddingBottom).toContain('88px');
 });

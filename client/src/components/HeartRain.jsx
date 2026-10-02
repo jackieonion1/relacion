@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { RAIN, addBurst, burst, rainKind } from '../lib/rain';
 import { usePrefersReducedMotion } from '../lib/motion';
+import { holdStopBar } from '../lib/stopBar';
 import './HeartRain.css';
 
 // The stop button sits above every layer the rain falls over, the roulette result card (10070) included
@@ -21,6 +22,9 @@ export default function HeartRain({ isActive, type = 'rain', intensity = 1, effe
 
   const running = isActive && !stopped;
   const falling = running && !reduce;
+
+  // Sheets leave room under their content and let a screen reader reach the button while it is up
+  useEffect(() => (running ? holdStopBar() : undefined), [running]);
 
   useEffect(() => {
     if (!falling) {

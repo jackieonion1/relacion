@@ -104,3 +104,17 @@ test('C11: el visor dice quién la subió solo si la foto lo guarda', async () =
   expect(screen.queryByText(/La subió/)).toBeNull();
   expect(screen.getByRole('button', { name: 'Borrar foto' })).toBeTruthy();
 });
+
+test('O4: «Cerrar» mientras carga la foto no deja que el visor se abra solo al llegar', async () => {
+  let llega;
+  getOriginal.mockReturnValue(new Promise((res) => { llega = res; }));
+  getOriginalUrl.mockResolvedValue('');
+  URL.createObjectURL = vi.fn(() => 'blob:tarde');
+  await mount();
+  await act(async () => { fireEvent.click(cells()[0]); await flush(); });
+  await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Cerrar' })); await flush(); });
+  expect(screen.queryByRole('button', { name: 'Cerrar' })).toBeNull();
+  await act(async () => { llega({ size: 1000 }); await flush(); });
+  expect(screen.queryByRole('button', { name: 'Cerrar' })).toBeNull();
+  expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:tarde');
+});

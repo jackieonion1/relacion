@@ -90,7 +90,7 @@ test('salir de Notas con una nota abierta (atrás) la marca leída al desmontar'
 
 test('una nota nueva cerrada tocando fuera no marca nada', async () => {
   render(<Notes />);
-  fireEvent.click(screen.getAllByRole('button', { name: 'Nueva nota' })[0]);
+  fireEvent.click(screen.getAllByRole('button', { name: 'Escribir' })[0]);
   fireEvent.click(backdrop());
   expect(markThreadRead).not.toHaveBeenCalled();
 });
