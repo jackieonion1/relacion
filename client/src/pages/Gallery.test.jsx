@@ -223,6 +223,23 @@ test('con Firestore inalcanzable el aviso lleva su código', async () => {
   expect(screen.getByRole('alert').textContent).toMatch('unavailable');
 });
 
+test('si Firestore se cuelga sin fallar, a los 20 s lo dice con Reintentar y su código', async () => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+  try {
+    listPhotosPage.mockImplementationOnce(() => new Promise(() => {}));
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    await mount();
+    expect(screen.getByRole('status', { name: 'Cargando fotos' })).toBeTruthy();
+    await act(async () => { vi.advanceTimersByTime(20000); await flush(); });
+    expect(screen.getByRole('alert').textContent).toMatch('No se pudieron cargar las fotos');
+    expect(screen.getByText('timeout')).toBeTruthy();
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Reintentar' })); await flush(); });
+    expect(cells()).toHaveLength(3);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 test('vacía de verdad sí dice «Aún no hay fotos»', async () => {
   listPhotosPage.mockResolvedValue({ items: [], cursor: null, hasMore: false, thumbsDone: Promise.resolve() });
   await mount();
