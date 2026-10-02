@@ -2,7 +2,7 @@ import React from 'react';
 
 // Carta icons (Sistema.dc.html): 24 grid, 1.75 stroke, round ends, no fill except states (heart, play).
 // The paths are the canvas ones; siguiente, abajo, recargar, play, pausa, info and sinConexion come from
-// Componentes.dc.html or are drawn on the same grid
+// Componentes.dc.html or are drawn on the same grid, and so is campana (3.1)
 export const ICONS = {
   inicio: 'M4 10.5 12 4l8 6.5V19a1 1 0 0 1-1 1h-4.5v-5.5h-5V20H5a1 1 0 0 1-1-1z',
   galeria: 'M6 4.5h12a2.5 2.5 0 0 1 2.5 2.5v10a2.5 2.5 0 0 1-2.5 2.5H6A2.5 2.5 0 0 1 3.5 17V7A2.5 2.5 0 0 1 6 4.5zM3.8 16.5l4.7-4.7 4.3 4.3 2.4-2.4 5 4.3M16.5 8a1.5 1.5 0 1 1 0 3 1.5 1.5 0 1 1 0-3z',
@@ -15,6 +15,7 @@ export const ICONS = {
   moneda: 'M12 3.5a8.5 8.5 0 1 1 0 17 8.5 8.5 0 1 1 0-17zM12 7a5 5 0 1 1 0 10 5 5 0 1 1 0-10z',
   recuerdos: 'M6.5 3.5h11A1.5 1.5 0 0 1 19 5v14a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 5 19V5a1.5 1.5 0 0 1 1.5-1.5zM8.5 6.5h7v7h-7zM8.5 17h4',
   ajustes:'M4 7h9M17 7h3M4 17h3M11 17h9M15 5v4M9 15v4',
+  campana: 'M12 4a6 6 0 0 1 6 6v4.2l1.6 3.3H4.4L6 14.2V10a6 6 0 0 1 6-6zM10 20.5a2 2 0 0 0 4 0',
   latido: 'M12 20s-7.5-4.6-7.5-10.2A4.3 4.3 0 0 1 12 7.1a4.3 4.3 0 0 1 7.5 2.7C19.5 15.4 12 20 12 20z',
   nosVemos: 'M9 7a5 5 0 1 1 0 10 5 5 0 1 1 0-10zM15 7a5 5 0 1 1 0 10 5 5 0 1 1 0-10z',
   subir: 'M12 15.5V4.5M7.5 9 12 4.5 16.5 9M5 19.5h14',

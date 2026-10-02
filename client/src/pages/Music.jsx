@@ -969,13 +969,13 @@ export default function Music() {
         </div>
       )}
 
-      {/* Pill next to the ⚙ of MarcaSuperior on the other screens, while a song is loaded (Q6, F5). It looks 32 px
-          tall; the ::before stretches the touch to 44 */}
+      {/* Pill next to the ⚙ of MarcaSuperior on the other screens, while a song is loaded (Q6, F5), and next to the
+          bell on Inicio. It looks 32 px tall; the ::before stretches the touch to 44 */}
       {!isMusicRoute && player.id && createPortal(
         <button
           type="button"
           onClick={() => navigate('/music')}
-          className="fixed z-30 top-[calc(env(safe-area-inset-top)+6px)] right-16 h-8 max-w-[48vw] px-3 rounded-full border border-line bg-card/90 backdrop-blur-sm text-[13px] font-medium text-ink shadow-carta flex items-center gap-1.5 before:absolute before:-inset-y-1.5 before:inset-x-0 before:content-['']"
+          className={`fixed z-30 top-[calc(env(safe-area-inset-top)+6px)] ${location.pathname === '/' ? 'right-[108px]' : 'right-16'} h-8 max-w-[48vw] px-3 rounded-full border border-line bg-card/90 backdrop-blur-sm text-[13px] font-medium text-ink shadow-carta flex items-center gap-1.5 before:absolute before:-inset-y-1.5 before:inset-x-0 before:content-['']`}
           aria-label="Ir a Música"
           title="Ir a Música"
         >

@@ -22,6 +22,7 @@ import { fotosDelDia, fotosEnRango, olvidarVacioHoy } from '../lib/recuerdos';
 import { fechaEfectiva, rangoMesMadrid, madridMediodia } from '../lib/fotoFecha';
 import { escucharComentarios, addComentario, deleteComentario, marcarLeidos } from '../lib/fotoComentarios';
 import { useNoLeidos, useNoLeidosConfirmados } from '../lib/fotoAvisos';
+import { registrarActividad } from '../lib/actividad';
 import './Gallery.css';
 
 const PAGE_SIZE = 60;
@@ -338,6 +339,8 @@ export default function Gallery() {
     // An open «Favoritas» keeps the photo (nothing jumps under the finger); the next visit asks again
     vistaCacheRef.current.delete('favoritas');
     setFavorita(pairId, id, identity, on).catch((e) => console.warn('Favourite failed', e));
+    // Avisos of the other one: only a favourite put on, and only on their photo
+    if (on) registrarActividad(pairId, identity, 'favorita', { ref: { photoId: id }, autor: viewerFoto?.identity });
   }
 
   async function abrirSaltar() {
@@ -498,6 +501,7 @@ export default function Gallery() {
       return { reactions };
     });
     setReaccion(pairId, id, identity, emoji).catch((e) => console.warn('Reaction failed', e));
+    if (emoji) registrarActividad(pairId, identity, 'reaccion', { ref: { photoId: id }, texto: emoji, autor: viewerFoto?.identity });
   }
 
   async function loadMore() {
@@ -560,12 +564,14 @@ export default function Gallery() {
     if (!list.length || !pairId) return;
     const identity = localStorage.getItem('identity') || 'yo';
     setUploadingCount((n) => n + list.length);
+    const subidas = []; // las que ya están en la nube (o terminarán solas): un solo aviso para el otro por tanda
     try {
       for (const f of list) {
         // Un fichero que falla no debe abortar el resto del lote
         try {
           const added = await uploadPhoto(pairId, f, identity);
           if (added.cancelled) continue; // borrada mientras subía
+          if (!added.pending) subidas.push(added.id);
           if (added.thumbUrl) urlsRef.current.push(added.thumbUrl);
           // Una recarga durante la subida ya puede haber traído esta foto como pendiente: sin duplicar
           setItems((prev) => [{ id: added.id, thumbUrl: added.thumbUrl, createdAt: added.createdAt, identity }, ...prev.filter((it) => it.id !== added.id)]);
@@ -587,6 +593,7 @@ export default function Gallery() {
     } finally {
       setPendingIds(getPendingIds(pairId));
       input.value = ''; // permite volver a elegir el mismo fichero
+      if (subidas.length) registrarActividad(pairId, identity, 'fotos', { n: subidas.length, ref: { photoId: subidas[0] } });
     }
   }
 
@@ -841,6 +848,7 @@ export default function Gallery() {
     const id = viewer.id;
     await addComentario(pairId, id, text, identity);
     patchFoto(id, (it) => ({ commentCount: (it.commentCount || 0) + 1 }));
+    registrarActividad(pairId, identity, 'comentario', { ref: { photoId: id }, texto: text, autor: viewerFoto?.identity });
   }
 
   function onDeleteComentario(c) {

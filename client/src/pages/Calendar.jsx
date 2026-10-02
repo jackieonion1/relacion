@@ -12,6 +12,7 @@ import CollapsibleSection from '../components/CollapsibleSection';
 import { DayList, PastList, UpcomingList } from '../components/EventList';
 import HeartRainAnimation from '../components/HeartRainAnimation';
 import { eventTypeOf } from '../lib/eventTypes';
+import { registrarActividad } from '../lib/actividad';
 import { dayTitle, specialInfo, whenText } from '../lib/eventText';
 import { birthdayOn, celebration, isMonthiversaryDay, nextSpecialEvents, partyAnimation } from '../lib/specialDays';
 
@@ -205,6 +206,9 @@ export default function CalendarPage() {
       const { committed } = editingId
         ? await updateEvent(pairId, editingId, fields)
         : await addEvent(pairId, fields, identity);
+      // A new one has no id yet (addDoc): its Aviso opens the day
+      const tipo = editingId ? 'eventoEditado' : seeEachOther ? 'nosVemos' : 'evento';
+      registrarActividad(pairId, identity, tipo, { ref: { eventId: editingId || '', dia: date }, texto: title });
       formEl.reset();
       setSelectedEventType('conjunto'); // Reset to default
       setEditingEvent(null);
