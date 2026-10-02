@@ -718,12 +718,38 @@ export default function Gallery() {
     openViewer(id);
   }
 
-  function closeViewer() {
+  function soltarVisor() {
     advanceFromRef.current = null;
     comentariosDeUrlRef.current = '';
     setComentariosOpen(false);
     revokeViewerUrls();
     setViewer({ open: false, id: null, url: '', fallbackUrl: '', loading: false });
+  }
+  // Opened from the grid, the viewer takes one entry in the history (state.enVisor), so the «atrás» of Android closes
+  // it instead of leaving the Gallery; closing it by hand gives that entry back. Opened by the URL (?photo=), the
+  // entry that opened it is already there
+  const visorEntradaRef = useRef(false);
+  function abrirDesdeCuadricula(id) {
+    if (!visorEntradaRef.current) {
+      visorEntradaRef.current = true;
+      navigate({ pathname: location.pathname, search: location.search }, { state: { ...location.state, enVisor: true } });
+    }
+    openViewer(id);
+  }
+  useEffect(() => {
+    if (!visorEntradaRef.current || location.state?.enVisor) return;
+    // That entry is gone (back): the viewer goes with it
+    visorEntradaRef.current = false;
+    soltarVisor();
+  }, [location]);
+
+  function closeViewer() {
+    soltarVisor();
+    if (visorEntradaRef.current) {
+      visorEntradaRef.current = false;
+      navigate(-1);
+      return;
+    }
     // Navigate to clear the URL parameter, preventing the viewer from re-opening. Opened from an album, a stamp or
     // «hace un año» (Recuerdos), it goes back there instead of staying on the Gallery: one step back in the history
     // when there is a page before (the one that opened it), since replacing would leave that page twice in a row
@@ -1073,7 +1099,7 @@ export default function Gallery() {
                   <button
                     key={it.id}
                     type="button"
-                    onClick={() => (seleccionando ? alternar([it.id]) : openViewer(it.id))}
+                    onClick={() => (seleccionando ? alternar([it.id]) : abrirDesdeCuadricula(it.id))}
                     aria-label={`Foto del ${photoDate((enVista ? fechaEfectiva(it) : it.createdAt) || 0)}${noLeidos.has(it.id) ? ', con comentarios sin leer' : ''}`}
                     aria-pressed={seleccionando ? seleccion.has(it.id) : undefined}
                     disabled={seleccionando && pendingIds.includes(it.id)}

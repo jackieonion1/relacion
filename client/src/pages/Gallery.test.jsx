@@ -648,6 +648,25 @@ describe('3.1: selección y fecha en bloque', () => {
     expect(screen.getByText('otra pantalla')).not.toBeNull();
   });
 
+  test('«atrás» cierra el visor abierto desde la cuadrícula en vez de salir de la Galería, y «Cerrar» no deja una entrada de más', async () => {
+    getOriginal.mockResolvedValue(null);
+    getOriginalUrl.mockResolvedValue('https://example.test/orig.jpg');
+    conHistorial();
+    await act(flush);
+    await act(async () => { fireEvent.click(cells()[0]); await flush(); });
+    expect(screen.getByRole('button', { name: 'Cerrar' })).not.toBeNull();
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'atrás' })); await flush(); });
+    expect(screen.queryByRole('button', { name: 'Cerrar' })).toBeNull();
+    expect(screen.queryByText('otra pantalla')).toBeNull();
+    expect(cells()).toHaveLength(3);
+    // Closed by hand, the entry goes with it: the next «atrás» leaves the Gallery
+    await act(async () => { fireEvent.click(cells()[1]); await flush(); });
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Cerrar' })); await flush(); });
+    expect(screen.queryByRole('button', { name: 'Cerrar' })).toBeNull();
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'atrás' })); await flush(); });
+    expect(screen.getByText('otra pantalla')).not.toBeNull();
+  });
+
   test('tocar una foto la elige en vez de abrirla, y la fecha va a todas con confirmación', async () => {
     await mount();
     await elegir(0, 2);
