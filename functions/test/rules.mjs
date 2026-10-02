@@ -80,7 +80,7 @@ const walk = (d) => {
   }
 };
 walk(clientSrc);
-const COLLECTIONS = ['locations', 'notes', 'photos', 'meta', 'pushSubs', 'mapState', 'music', 'events'];
+const COLLECTIONS = ['locations', 'notes', 'photos', 'meta', 'pushSubs', 'mapState', 'music', 'events', 'photoComments', 'albums'];
 // members: el cliente la lee (Ajustes) pero no la escribe nunca
 const READ_ONLY = ['members'];
 check(used.size > 0 && [...used].every((c) => COLLECTIONS.includes(c) || READ_ONLY.includes(c)), `el cliente solo usa colecciones cubiertas aquí (${[...used].sort().join(', ')})`);
