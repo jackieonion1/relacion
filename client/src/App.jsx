@@ -151,7 +151,7 @@ export default function App() {
               <header
                 className="fixed top-0 inset-x-0 z-20 backdrop-blur-sm border-b border-rose-100 transition-all duration-300"
                 style={{
-                  background: 'linear-gradient(to bottom, rgba(255,255,255,1) 0%, rgba(255,255,255,0.7) 100%)',
+                  background: 'linear-gradient(to bottom, var(--card) 0%, color-mix(in oklab, var(--card) 70%, transparent) 100%)',
                   paddingTop: 'env(safe-area-inset-top, 0px)'
                 }}
               >
