@@ -291,14 +291,16 @@ export async function quitarDeAlbum(pairId, album, ids, identity = 'yo') {
   return { committed };
 }
 
-// Deletes a manual album and the mark in its photos (the photos stay in the gallery)
+// Deletes a manual album and the mark in its photos (the photos stay in the gallery). Resolves once the delete is
+// queued, not waiting for the server (offline it would never come) nor for the photos: their mark is cleaned up
+// afterwards, and one that is left (no connection to find them) is only an id no album lists
 export async function borrarAlbum(pairId, album) {
   const f = await contexto(pairId);
   olvidarPortadas();
-  const { items } = await listarConTope(pairId, ({ query, where }, col) => query(col, where('albumIds', 'array-contains', album.id)), { max: 0 });
-  await f.deleteDoc(f.doc(db, 'pairs', pairId, 'albums', album.id));
-  if (items.length) {
-    const committed = actualizarFotos(f, pairId, items.map((it) => it.id), ({ arrayRemove }) => ({ albumIds: arrayRemove(album.id) }));
-    committed.catch(() => {});
-  }
+  const borrado = f.deleteDoc(f.doc(db, 'pairs', pairId, 'albums', album.id));
+  borrado.catch(() => {});
+  (async () => {
+    const { items } = await listarConTope(pairId, ({ query, where }, col) => query(col, where('albumIds', 'array-contains', album.id)), { max: 0 });
+    if (items.length) await actualizarFotos(f, pairId, items.map((it) => it.id), ({ arrayRemove }) => ({ albumIds: arrayRemove(album.id) }));
+  })().catch(() => {});
 }

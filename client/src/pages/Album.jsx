@@ -95,6 +95,7 @@ export default function Album() {
   const [estado, setEstado] = useState({ fase: 'carga', album: null }); // carga | lista | falta | error
   const [intento, setIntento] = useState(0);
   const [hoja, setHoja] = useState(null); // null | 'editar' | 'borrar'
+  const [borrando, setBorrando] = useState(false);
   const identity = localStorage.getItem('identity') || 'yo';
   const atras = { to: location.state?.volver || '/recuerdos/albumes' };
 
@@ -141,8 +142,13 @@ export default function Album() {
     setHoja(null);
   }
   async function borrar() {
-    await borrarAlbum(pairId, album);
-    navigate('/recuerdos/albumes', { replace: true });
+    setBorrando(true);
+    try {
+      await borrarAlbum(pairId, album);
+      navigate('/recuerdos/albumes', { replace: true });
+    } catch {
+      setBorrando(false);
+    }
   }
 
   return (
@@ -165,7 +171,7 @@ export default function Album() {
         <div className="flex flex-col gap-3 px-5 pt-3 pb-[34px]">
           <h2 className="serif text-[26px] leading-[1.15] font-normal">¿Borrar «{album.titulo}»?</h2>
           <p className="text-[15px] text-ink-2">Las fotos se quedan en la galería; solo desaparece el álbum.</p>
-          <Button variant="dan" size="l" icon="borrar" onClick={borrar}>Borrar álbum</Button>
+          <Button variant="dan" size="l" icon="borrar" busy={borrando} busyText="Borrando…" onClick={borrar}>Borrar álbum</Button>
           <Button variant="sec" size="l" onClick={() => setHoja('editar')}>Mejor no</Button>
         </div>
       </Sheet>

@@ -147,6 +147,21 @@ test('un álbum a mano se borra tras preguntar, y las fotos se quedan', async ()
   expect(await screen.findByText(/destino \/recuerdos\/albumes/)).not.toBeNull();
 });
 
+test('mientras se borra el botón queda ocupado y no se puede pulsar otra vez; si falla, se puede reintentar', async () => {
+  let fallar;
+  borrarAlbum.mockReturnValueOnce(new Promise((_, rechazar) => { fallar = rechazar; }));
+  pinta('a1');
+  fireEvent.click(await screen.findByRole('button', { name: 'Editar álbum' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Borrar álbum' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Borrar álbum' }));
+  const ocupado = await screen.findByRole('button', { name: 'Borrando…' });
+  expect(ocupado.disabled).toBe(true);
+  fireEvent.click(ocupado);
+  expect(borrarAlbum).toHaveBeenCalledTimes(1);
+  fallar(new Error('sin red'));
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Borrar álbum' }).disabled).toBe(false));
+});
+
 test('el álbum de un viaje no se puede borrar (volvería a salir del calendario)', async () => {
   leerAlbum.mockResolvedValue(viaje);
   pinta('ev-roma');

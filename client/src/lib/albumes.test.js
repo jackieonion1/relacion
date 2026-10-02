@@ -1,9 +1,11 @@
-import { albumDeDoc, albumDeEvento, combinarAlbumes, diasDeAlbum, guardarAlbum, idDeEvento, leerAlbum, quitarDeAlbum, rangoDeAlbum } from './albumes';
-import { arrayUnion, doc as docRef, collection, getDoc, setDoc, updateDoc, writeBatch, serverTimestamp, Timestamp } from 'firebase/firestore';
+import { albumDeDoc, albumDeEvento, borrarAlbum, combinarAlbumes, diasDeAlbum, guardarAlbum, idDeEvento, leerAlbum, quitarDeAlbum, rangoDeAlbum } from './albumes';
+import { listarConTope } from './recuerdos';
+import { arrayRemove, arrayUnion, doc as docRef, collection, deleteDoc, getDoc, setDoc, updateDoc, writeBatch, serverTimestamp, Timestamp } from 'firebase/firestore';
 
+vi.mock('./recuerdos', async (orig) => ({ ...(await orig()), listarConTope: vi.fn() }));
 vi.mock('./firebase', () => ({ auth: { currentUser: { uid: 'u1' } }, db: {}, storage: null, whenAuthed: () => Promise.resolve({ uid: 'u1' }) }));
 vi.mock('firebase/firestore', () => ({
-  collection: vi.fn(), doc: vi.fn(), getDoc: vi.fn(), setDoc: vi.fn(), updateDoc: vi.fn(), writeBatch: vi.fn(), arrayUnion: vi.fn(), arrayRemove: vi.fn(),
+  collection: vi.fn(), doc: vi.fn(), getDoc: vi.fn(), setDoc: vi.fn(), deleteDoc: vi.fn(), updateDoc: vi.fn(), writeBatch: vi.fn(), arrayUnion: vi.fn(), arrayRemove: vi.fn(),
   serverTimestamp: vi.fn(), Timestamp: { fromMillis: vi.fn() },
 }));
 
@@ -159,6 +161,50 @@ describe('el fin de un evento creado en otro huso', () => {
     const una = deDoc(medioDia(2026, 3, 15, -5), finLocal(2026, 3, 15, -5));
     const otra = deDoc(una.start, una.end);
     expect(otra.end).toBe(una.end);
+  });
+});
+
+describe('borrarAlbum', () => {
+  const manual = { id: 'a1', titulo: 'Finde', emoji: '🩷', tipo: 'manual', eventId: null, start: null, end: null, excluidas: [], virtual: false, creadoEn: 0 };
+  const flush = async () => { for (let i = 0; i < 10; i++) await Promise.resolve(); };
+  // Whether the promise settles by itself: 'colgada' when it takes more than a few turns
+  const sinColgarse = (p) => Promise.race([p.then(() => 'resuelta'), new Promise((r) => setTimeout(() => r('colgada'), 50))]);
+  let lote;
+
+  beforeEach(() => {
+    collection.mockImplementation((d, ...p) => ({ path: p.join('/') }));
+    docRef.mockImplementation((c, ...p) => ({ path: p.length ? p.join('/') : `${c.path}/NEW`, id: p[p.length - 1] }));
+    arrayRemove.mockImplementation((...x) => ({ remove: x }));
+    lote = { update: vi.fn(), commit: vi.fn().mockResolvedValue() };
+    writeBatch.mockReturnValue(lote);
+    listarConTope.mockResolvedValue({ items: [{ id: 'p1' }, { id: 'p2' }] });
+    deleteDoc.mockResolvedValue();
+  });
+
+  test('sin conexión no se cuelga: encola el borrado del álbum sin esperar al servidor', async () => {
+    deleteDoc.mockReturnValue(new Promise(() => {})); // offline: never settles
+    expect(await sinColgarse(borrarAlbum('SEB1998', manual))).toBe('resuelta');
+    expect(deleteDoc).toHaveBeenCalledWith({ path: 'pairs/SEB1998/albums/a1', id: 'a1' });
+  });
+
+  test('tampoco espera a la lectura de las fotos marcadas, que se limpian después', async () => {
+    let fin;
+    listarConTope.mockReturnValue(new Promise((r) => { fin = r; }));
+    expect(await sinColgarse(borrarAlbum('SEB1998', manual))).toBe('resuelta');
+    expect(lote.commit).not.toHaveBeenCalled();
+    fin({ items: [{ id: 'p1' }, { id: 'p2' }] });
+    await flush();
+    expect(lote.update).toHaveBeenCalledTimes(2);
+    expect(lote.update.mock.calls[0][1]).toEqual({ albumIds: { remove: ['a1'] } });
+    expect(lote.commit).toHaveBeenCalledTimes(1);
+  });
+
+  test('si no se pueden leer las fotos marcadas, el álbum se borra igual', async () => {
+    listarConTope.mockRejectedValue(new Error('offline'));
+    await borrarAlbum('SEB1998', manual);
+    await flush();
+    expect(deleteDoc).toHaveBeenCalledTimes(1);
+    expect(lote.commit).not.toHaveBeenCalled();
   });
 });
 
