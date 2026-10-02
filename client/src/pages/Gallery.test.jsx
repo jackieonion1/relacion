@@ -10,6 +10,7 @@ import { escucharComentarios, addComentario, deleteComentario, marcarLeidos } fr
 import { useNoLeidos, useNoLeidosConfirmados } from '../lib/fotoAvisos';
 import { ponerFecha, ponerFavorita } from '../lib/fotoSeleccion';
 import { madridMediodia } from '../lib/fotoFecha';
+import { registrarTanda, resolverTandas } from '../lib/actividad';
 
 // The real module underneath: a name that lib/photos gains later is there without touching this mock (a closed list
 // would throw «no "x" export is defined» for the modules Gallery pulls in, e.g. lib/recuerdos). Only what the tests
@@ -46,6 +47,8 @@ vi.mock('../lib/fotoComentarios', async (orig) => ({
 }));
 vi.mock('../lib/fotoAvisos', () => ({ useNoLeidos: vi.fn(), useNoLeidosConfirmados: vi.fn(), useGaleriaBadge: vi.fn() }));
 vi.mock('../lib/fotoSeleccion', async (orig) => ({ ...(await orig()), ponerFecha: vi.fn(), ponerFavorita: vi.fn() }));
+// What the viewer tells the other one (its own tests are in lib/actividad.test.js)
+vi.mock('../lib/actividad', async (orig) => ({ ...(await orig()), registrarActividad: vi.fn(), registrarTanda: vi.fn(), resolverTandas: vi.fn() }));
 // The picker has its own tests: here it only answers Gallery with what its onDone gets
 const { selectorAlbum } = vi.hoisted(() => ({ selectorAlbum: vi.fn() }));
 vi.mock('../components/AlbumPicker', () => ({
@@ -788,5 +791,46 @@ describe('3.1: selección y fecha en bloque', () => {
     await act(async () => { fireEvent.click(within(screen.getByRole('region', { name: 'Fotos subidas el mismo día' })).getByRole('button', { name: 'Ahora no' })); await flush(); });
     expect(screen.queryByRole('region', { name: 'Fotos subidas el mismo día' })).toBeNull();
     localStorage.removeItem('galeria:golpe-visto:SEB1998');
+  });
+});
+
+describe('3.1: avisos de las tandas de fotos', () => {
+  const subir = async (...ids) => {
+    const input = document.querySelector('input[type="file"]');
+    const files = ids.map((id) => new File(['x'], `${id}.jpg`, { type: 'image/jpeg' }));
+    await act(async () => { fireEvent.change(input, { target: { files } }); await flush(); });
+  };
+  const subida = (id, extra = {}) => ({ id, thumbUrl: '', createdAt: 1, pending: false, error: null, ...extra });
+
+  test('una tanda con una foto sin subir (sin conexión) se registra con la pendiente, sin avisar aún', async () => {
+    const { uploadPhoto } = await import('../lib/photos');
+    uploadPhoto.mockResolvedValueOnce(subida('N1')).mockResolvedValueOnce(subida('N2', { pending: true, error: new Error('offline') }));
+    await mount();
+    getPendingIds.mockReturnValue(['N2']);
+    await subir('a', 'b');
+    expect(registrarTanda).toHaveBeenCalledTimes(1);
+    expect(registrarTanda).toHaveBeenCalledWith('SEB1998', 'yo', ['N1'], ['N2'], ['N2']);
+  });
+
+  test('una subida lenta avisa al terminar, sin esperar a la tanda', async () => {
+    const { uploadPhoto } = await import('../lib/photos');
+    let terminar;
+    const done = new Promise((r) => { terminar = r; });
+    uploadPhoto.mockResolvedValueOnce(subida('N1', { pending: true, error: new Error('slow'), done }));
+    await mount();
+    getPendingIds.mockReturnValue(['N1']);
+    await subir('a');
+    expect(registrarTanda).toHaveBeenCalledWith('SEB1998', 'yo', [], ['N1'], ['N1']);
+    expect(resolverTandas).not.toHaveBeenCalled();
+    getPendingIds.mockReturnValue([]);
+    await act(async () => { terminar(); await flush(); });
+    expect(resolverTandas).toHaveBeenCalledWith('SEB1998', [], ['N1']);
+  });
+
+  test('el reintento de las pendientes dice a las tandas qué fotos ha subido', async () => {
+    getPendingIds.mockReturnValue(['P1', 'P2']);
+    retryPendingPhotos.mockResolvedValue({ sent: 1, failed: 0, lost: 0, offline: false, queued: [], sentIds: ['P1'] });
+    await mount();
+    expect(resolverTandas).toHaveBeenCalledWith('SEB1998', ['P1', 'P2'], ['P1']);
   });
 });

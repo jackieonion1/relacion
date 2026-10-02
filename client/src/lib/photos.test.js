@@ -413,6 +413,17 @@ describe('uploadPhoto', () => {
       expect(uploadBytes.mock.calls.filter(([ref]) => ref.path.includes(id))).toHaveLength(1);
       expect(r).toMatchObject({ sent: 1, failed: 0 });
     });
+
+    test('el reintento dice qué fotos ha subido (sentIds), para avisar de su tanda', async () => {
+      uploadBytes.mockResolvedValue();
+      getDoc.mockResolvedValue({ exists: () => false });
+      getThumb.mockResolvedValue(new Blob(['t']));
+      getOrig.mockResolvedValue(new Blob(['o']));
+
+      const r = await retryPendingPhotos(PAIR);
+
+      expect(r.sentIds).toEqual([P1]);
+    });
   });
 });
 

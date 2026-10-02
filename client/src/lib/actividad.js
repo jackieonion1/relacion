@@ -64,6 +64,62 @@ export function registrarActividad(pairId, quien, tipo, datos) {
   })().catch((err) => console.warn('Activity write failed', err));
 }
 
+// --- Batches of photos ---
+
+// One «fotos» entry per batch, told when the upload has really finished. The photos of a batch that are still pending
+// (offline, slow, failed) keep it waiting in localStorage, so it survives a reload; each one that goes up, from the page
+// or from a retry, moves to the batch's uploaded ones, and when none is pending any more the entry is written. The batch
+// is dropped before the write, so a retry that tells again of the same photos can't repeat it
+const tandasKey = (pairId) => `actividad:tandas:${pairId}`;
+
+function leerTandas(pairId) {
+  try {
+    const v = JSON.parse(localStorage.getItem(tandasKey(pairId)) || '[]');
+    return Array.isArray(v) ? v : [];
+  } catch {
+    return [];
+  }
+}
+
+function guardarTandas(pairId, list) {
+  try {
+    if (list.length) localStorage.setItem(tandasKey(pairId), JSON.stringify(list));
+    else localStorage.removeItem(tandasKey(pairId));
+  } catch {}
+}
+
+function avisarTanda(pairId, quien, subidas) {
+  if (subidas.length) registrarActividad(pairId, quien, 'fotos', { n: subidas.length, ref: { photoId: subidas[0] } });
+}
+
+// A batch of `quien`: `subidas` already in the cloud, `pendientes` still to go up. `pendientesAhora` = the pending ids
+// of the pair at this moment: one that has left it already (it finished while the rest was still going) counts as sent
+export function registrarTanda(pairId, quien, subidas, pendientes, pendientesAhora) {
+  if (!pairId) return;
+  const siguen = pendientes.filter((id) => pendientesAhora.includes(id));
+  const hechas = [...subidas, ...pendientes.filter((id) => !pendientesAhora.includes(id))];
+  if (!siguen.length) { avisarTanda(pairId, quien, hechas); return; }
+  guardarTandas(pairId, [...leerTandas(pairId), { quien, subidas: hechas, pendientes: siguen }]);
+}
+
+// Something went up (`enviadas`) or left the pending list (`pendientesAhora` is what is still in it): the batches that
+// have nothing pending left are told. A photo that left without being sent (lost, deleted) is not counted
+export function resolverTandas(pairId, pendientesAhora, enviadas) {
+  if (!pairId) return;
+  const tandas = leerTandas(pairId);
+  if (!tandas.length) return;
+  const siguen = [];
+  const listas = [];
+  tandas.forEach((t) => {
+    const quedan = t.pendientes.filter((id) => pendientesAhora.includes(id));
+    const subidas = [...t.subidas, ...t.pendientes.filter((id) => !pendientesAhora.includes(id) && enviadas.includes(id))];
+    if (quedan.length) siguen.push({ ...t, subidas, pendientes: quedan });
+    else listas.push({ quien: t.quien, subidas });
+  });
+  guardarTandas(pairId, siguen);
+  listas.forEach((t) => avisarTanda(pairId, t.quien, t.subidas));
+}
+
 // --- Words ---
 
 // What the entry says after the emoji of who did it

@@ -1,6 +1,7 @@
 import {
   entradaActividad, registrarActividad, textoActividad, lineaActividad, tiempoRelativo, paraMi, noLeidas, insignia,
   agruparActividad, destinoActividad, escucharActividad, escucharVisto, marcarVisto, MOSTRADAS, NUNCA,
+  registrarTanda, resolverTandas,
 } from './actividad';
 import { collection, doc, setDoc, onSnapshot, query, orderBy, limit, where, serverTimestamp, Timestamp } from 'firebase/firestore';
 
@@ -114,6 +115,69 @@ describe('registrarActividad', () => {
     registrarActividad('p1', 'yo', 'reaccion', { ref: { photoId: 'F1' }, texto: '' });
     await flush();
     expect(setDoc).not.toHaveBeenCalled();
+  });
+});
+
+// One «fotos» entry per batch, when the upload has really finished (offline, slow or retried ones included)
+describe('tandas de fotos', () => {
+  const fotos = () => setDoc.mock.calls.map(([, data]) => data).filter((d) => d.tipo === 'fotos');
+  beforeEach(() => localStorage.clear());
+  afterEach(() => localStorage.clear());
+
+  test('sin nada pendiente, el aviso sale ya, con las subidas', async () => {
+    registrarTanda('p1', 'yo', ['F1', 'F2'], [], []);
+    await flush();
+    expect(setDoc.mock.calls[0][0].path).toBe('pairs/p1/actividad-ella/A1');
+    expect(fotos()).toEqual([expect.objectContaining({ n: 2, quien: 'yo', ref: { photoId: 'F1' } })]);
+  });
+
+  test('con pendientes espera: sale una sola vez, al subir la última, con todas las que subieron', async () => {
+    registrarTanda('p1', 'yo', ['F1'], ['F2', 'F3'], ['F2', 'F3']);
+    await flush();
+    expect(setDoc).not.toHaveBeenCalled();
+    resolverTandas('p1', ['F3'], ['F2']); // F2 goes up, F3 still waits
+    await flush();
+    expect(setDoc).not.toHaveBeenCalled();
+    resolverTandas('p1', [], ['F3']);
+    await flush();
+    expect(fotos()).toEqual([expect.objectContaining({ n: 3, ref: { photoId: 'F1' } })]);
+    // A retry that tells again of photos already told: nothing more
+    resolverTandas('p1', [], ['F2', 'F3']);
+    resolverTandas('p1', [], ['F3']);
+    await flush();
+    expect(setDoc).toHaveBeenCalledTimes(1);
+  });
+
+  test('sobrevive a una recarga: la tanda espera en localStorage', async () => {
+    registrarTanda('p1', 'ella', [], ['F9'], ['F9']);
+    resolverTandas('p1', [], ['F9']);
+    await flush();
+    expect(setDoc.mock.calls[0][0].path).toBe('pairs/p1/actividad-yo/A1');
+    expect(fotos()).toEqual([expect.objectContaining({ n: 1, quien: 'ella', ref: { photoId: 'F9' } })]);
+  });
+
+  test('una foto perdida o borrada no cuenta; si ninguna subió, no hay aviso', async () => {
+    registrarTanda('p1', 'yo', ['F1'], ['F2', 'F3'], ['F2', 'F3']);
+    registrarTanda('p1', 'yo', [], ['G1'], ['G1']);
+    resolverTandas('p1', [], ['F2']); // F3 and G1 left the pending list without being sent
+    await flush();
+    expect(fotos()).toEqual([expect.objectContaining({ n: 2 })]);
+  });
+
+  test('si una pendiente ya había terminado cuando se registra la tanda, cuenta como subida', async () => {
+    registrarTanda('p1', 'yo', ['F1'], ['F2', 'F3'], ['F3']);
+    resolverTandas('p1', [], ['F3']);
+    await flush();
+    expect(fotos()).toEqual([expect.objectContaining({ n: 3 })]);
+  });
+
+  test('sin localStorage no lanza ni escribe de más', async () => {
+    const get = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => { throw new Error('denied'); });
+    const set = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('denied'); });
+    expect(() => registrarTanda('p1', 'yo', ['F1'], ['F2'], ['F2'])).not.toThrow();
+    expect(() => resolverTandas('p1', [], ['F2'])).not.toThrow();
+    get.mockRestore();
+    set.mockRestore();
   });
 });
 
