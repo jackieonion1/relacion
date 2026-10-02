@@ -586,6 +586,20 @@ describe('3.1: selección y fecha en bloque', () => {
     localStorage.removeItem(otroDia);
   });
 
+  test('encolado sin conexión, si al volver una ya no estaba, se avisa de esa y no de todas', async () => {
+    const onLine = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
+    let responde;
+    ponerFecha.mockReturnValueOnce(new Promise((res) => { responde = res; }));
+    await mount();
+    await elegir(0, 1, 2);
+    await ponerDia('2025-03-12');
+    expect(screen.getByRole('status').textContent).toMatch('Sin conexión');
+    await act(async () => { responde({ hechas: 2, borradas: ['D1'], fallidas: [] }); await flush(); });
+    expect(screen.getByRole('status').textContent).toMatch('Una ya no estaba');
+    expect(cells()).toHaveLength(2);
+    onLine.mockRestore();
+  });
+
   test('con red que no responde la hoja se cierra al encolar, y el resultado llega después como aviso', async () => {
     let responde;
     ponerFecha.mockReturnValueOnce(new Promise((res) => { responde = res; }));

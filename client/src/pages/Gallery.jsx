@@ -414,7 +414,7 @@ export default function Gallery() {
     done.then((r) => {
       deshacer(r.fallidas);
       quitarBorradas(r.borradas);
-      if (!sinRed || r.fallidas.length) contarResultado(r, hecho, () => guardarFecha(dia, r.fallidas));
+      if (!sinRed || r.fallidas.length || r.borradas.length) contarResultado(r, hecho, () => guardarFecha(dia, r.fallidas));
     }).catch((e) => {
       console.warn('Bulk date failed', e);
       deshacer(ids);

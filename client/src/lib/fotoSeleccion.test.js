@@ -1,4 +1,4 @@
-import { actualizarEnLote, ponerFecha, ponerFavorita, subidasDeGolpe, fechaComun, LOTE } from './fotoSeleccion';
+import { actualizarEnLote, ponerFecha, ponerFavorita, subidasDeGolpe, fechaComun } from './fotoSeleccion';
 import { collection, doc, updateDoc, writeBatch, deleteField, arrayUnion } from 'firebase/firestore';
 import { madridMediodia } from './fotoFecha';
 
@@ -14,30 +14,24 @@ vi.mock('firebase/firestore', () => ({
 }));
 
 const ids = (n) => Array.from({ length: n }, (_, i) => `P${i}`);
-let batches;
 beforeEach(() => {
+  vi.clearAllMocks();
   collection.mockImplementation((d, ...p) => ({ path: p.join('/') }));
   doc.mockImplementation((c, id) => ({ path: `${c.path}/${id}`, id }));
   deleteField.mockReturnValue('<borrar>');
   arrayUnion.mockImplementation((x) => `+${x}`);
-  batches = [];
-  writeBatch.mockImplementation(() => {
-    const b = { ops: [], update: (ref, data) => b.ops.push([ref.id, data]), commit: vi.fn(async () => {}) };
-    batches.push(b);
-    return b;
-  });
+  updateDoc.mockReset();
+  updateDoc.mockResolvedValue();
 });
 
-test('en lotes de como mucho 400', async () => {
+test('cada foto es su propia escritura, sin lotes: una borrada entretanto no arrastra a las demás', async () => {
   const r = await actualizarEnLote('SEB1998', ids(850), () => ({ x: 1 }));
-  expect(LOTE).toBe(400);
-  expect(batches.map((b) => b.ops.length)).toEqual([400, 400, 50]);
+  expect(updateDoc).toHaveBeenCalledTimes(850);
+  expect(writeBatch).not.toHaveBeenCalled();
   expect(r).toEqual({ hechas: 850, borradas: [], fallidas: [] });
-  expect(updateDoc).not.toHaveBeenCalled();
 });
 
-test('F2: si un lote falla entero, va foto a foto y salta las que se han borrado', async () => {
-  writeBatch.mockImplementationOnce(() => ({ update: () => {}, commit: async () => { throw Object.assign(new Error('x'), { code: 'not-found' }); } }));
+test('F2: la que ya no está cuenta aparte y la que falla queda para reintentar; las demás se guardan', async () => {
   updateDoc.mockImplementation(async (ref) => {
     if (ref.id === 'P1') throw Object.assign(new Error('gone'), { code: 'not-found' });
     if (ref.id === 'P2') throw Object.assign(new Error('net'), { code: 'unavailable' });
@@ -50,14 +44,14 @@ test('F2: si un lote falla entero, va foto a foto y salta las que se han borrado
 test('ponerFecha guarda el mediodía de Madrid como fecha, y null la quita', async () => {
   const ms = madridMediodia('2025-03-12');
   await ponerFecha('SEB1998', ['A'], ms);
-  expect(batches[0].ops).toEqual([['A', { takenAt: new Date(ms) }]]);
+  expect(updateDoc).toHaveBeenLastCalledWith(expect.objectContaining({ id: 'A' }), { takenAt: new Date(ms) });
   await ponerFecha('SEB1998', ['A'], null);
-  expect(batches[1].ops).toEqual([['A', { takenAt: '<borrar>' }]]);
+  expect(updateDoc).toHaveBeenLastCalledWith(expect.objectContaining({ id: 'A' }), { takenAt: '<borrar>' });
 });
 
 test('ponerFavorita añade solo el nombre de quien la marca', async () => {
   await ponerFavorita('SEB1998', ['A', 'B'], 'ella', true);
-  expect(batches[0].ops).toEqual([['A', { favBy: '+ella' }], ['B', { favBy: '+ella' }]]);
+  expect(updateDoc.mock.calls.map(([ref, data]) => [ref.id, data])).toEqual([['A', { favBy: '+ella' }], ['B', { favBy: '+ella' }]]);
 });
 
 describe('subidasDeGolpe', () => {
