@@ -82,8 +82,8 @@ async function fb() {
   if (!_fb) {
     try {
       const { ref, uploadBytes, getDownloadURL, deleteObject } = await import('firebase/storage');
-      const { collection, doc, setDoc, updateDoc, getDoc, getDocs, query, orderBy, limit, startAfter, serverTimestamp, deleteDoc, waitForPendingWrites } = await import('firebase/firestore');
-      _fb = { ref, uploadBytes, getDownloadURL, deleteObject, collection, doc, setDoc, updateDoc, getDoc, getDocs, query, orderBy, limit, startAfter, serverTimestamp, deleteDoc, waitForPendingWrites };
+      const { collection, doc, setDoc, updateDoc, getDoc, getDocs, getCountFromServer, documentId, query, where, orderBy, limit, startAfter, serverTimestamp, deleteDoc, waitForPendingWrites } = await import('firebase/firestore');
+      _fb = { ref, uploadBytes, getDownloadURL, deleteObject, collection, doc, setDoc, updateDoc, getDoc, getDocs, getCountFromServer, documentId, query, where, orderBy, limit, startAfter, serverTimestamp, deleteDoc, waitForPendingWrites };
     } catch (e) {
       _fb = null;
     }
@@ -237,6 +237,22 @@ function hash32(str) {
   return (h >>> 0);
 }
 
+// FNV-1a barely changes its high bits when only the last character does (consecutive days), so it is
+// finalized with murmur3's fmix32 before being used as a position
+function mix32(h) {
+  h ^= h >>> 16;
+  h = Math.imul(h, 0x85ebca6b);
+  h ^= h >>> 13;
+  h = Math.imul(h, 0xc2b2ae35);
+  h ^= h >>> 16;
+  return h >>> 0;
+}
+
+// Position (0-based, oldest first) of the day's photo among `count` photos
+export function dailyPhotoIndex(pairId, dayKey, count) {
+  return mix32(hash32(`${pairId}|${dayKey}`)) % count;
+}
+
 // Get or compute the shared daily photo id for today (Europe/Madrid). Writes to Firestore so all devices share it.
 export async function getDailyPhotoId(pairId) {
   if (!pairId) return '';
@@ -263,12 +279,26 @@ export async function getDailyPhotoId(pairId) {
 
     // Compute deterministically
     const col = collection(db, 'pairs', pairId, 'photos');
-    const q = query(col, orderBy('createdAt', 'desc'), limit(200));
-    const snap = await getDocs(q);
-    const ids = snap.docs.map((d) => d.id);
-    if (ids.length === 0) return '';
-    const idx = hash32(`${pairId}|${dayKey}`) % ids.length;
-    const chosen = ids[idx];
+    // Uniform over all photos, with no new field and no writes: count them, take k = hash mod count and read
+    // the k-th photo in a total order (createdAt, then id). Counting costs 1 read per 1000 photos and the walk
+    // starts from the nearer end, so at most count/2 + 1 documents (once a day per couple, the first to open)
+    let count;
+    try {
+      count = (await fblib.getCountFromServer(col)).data().count;
+    } catch {
+      // Offline: the newest photo (from cache if need be), not persisted so it cannot override the other phone
+      const newest = await getDocs(query(col, orderBy('createdAt', 'desc'), limit(1)));
+      return newest.docs[0]?.id || '';
+    }
+    if (!count) return '';
+    const k = dailyPhotoIndex(pairId, dayKey, count);
+    const fromEnd = k >= count - 1 - k;
+    const dir = fromEnd ? 'desc' : 'asc';
+    const steps = (fromEnd ? count - 1 - k : k) + 1;
+    const walk = await getDocs(query(col, orderBy('createdAt', dir), orderBy(fblib.documentId(), dir), limit(steps)));
+    // Photos without createdAt fall out of the order; if the count ran ahead of them, settle for the last one read
+    const chosen = walk.docs[walk.docs.length - 1]?.id;
+    if (!chosen) return '';
     // Persist so all devices use the same
     // Not awaited: offline the write only resolves once the server confirms, and Inicio must paint meanwhile
     Promise.resolve(setDoc(metaRef, { dayKey, photoId: chosen, updatedAt: fblib.serverTimestamp ? fblib.serverTimestamp() : new Date() }, { merge: true })).catch(() => {});

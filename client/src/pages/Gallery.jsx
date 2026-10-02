@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router';
 import { listPhotosPage, listPendingPhotos, getPendingIds, retryPendingPhotos, confirmQueued, uploadPhoto, getOriginal, getOriginalUrl, deletePhoto } from '../lib/photos';
+import { whenAuthed } from '../lib/firebase';
 import { mergeUnique } from '../lib/pagination';
 import { MONTHS } from '../lib/eventText';
 import Modal from '../components/Modal';
@@ -10,6 +11,8 @@ import Icon from '../components/Icon';
 import './Gallery.css';
 
 const PAGE_SIZE = 60;
+// Si Firestore se cuelga sin fallar, la primera página no se queda en «Cargando» para siempre
+const LOAD_TIMEOUT_MS = 20000;
 const WHO = { yo: '🫒', ella: '🍪' };
 // Deslizar en el visor (C3): recorrido mínimo, y franja de los bordes que se deja al gesto «atrás» del sistema
 const SWIPE_MIN = 56;
@@ -113,10 +116,21 @@ export default function Gallery() {
       urlsRef.current = [];
       thumbsRef.current = new Map();
       let replaced = false;
+      let timedOut = false;
+      let timer;
       try {
-        const [page, pendingItems] = await Promise.all([
-          listPhotosPage(pairId, { pageSize: PAGE_SIZE, onThumb: makeOnThumb(gen) }),
-          listPendingPhotos(pairId),
+        // The cap is for Firestore, not for waiting on the session (whenAuthed has its own, up to 15 s)
+        await whenAuthed();
+        if (cancelled) return;
+        const timeout = new Promise((_, reject) => {
+          timer = setTimeout(() => { timedOut = true; reject(Object.assign(new Error('timeout'), { code: 'timeout' })); }, LOAD_TIMEOUT_MS);
+        });
+        const [page, pendingItems] = await Promise.race([
+          Promise.all([
+            listPhotosPage(pairId, { pageSize: PAGE_SIZE, onThumb: makeOnThumb(gen) }),
+            listPendingPhotos(pairId),
+          ]),
+          timeout,
         ]);
         if (cancelled) return;
         // Pendientes que no aparecen aún en Firestore van delante; si ya están, su miniatura local rellena el hueco
@@ -144,7 +158,10 @@ export default function Gallery() {
       } finally {
         if (replaced || cancelled) stale.forEach((u) => { if (u && u.startsWith('blob:')) URL.revokeObjectURL(u); });
         else urlsRef.current.push(...stale);
+        clearTimeout(timer);
         if (!cancelled && gen === genRef.current) setLoading(false);
+        // The hung load may still deliver thumbnails: from here on they are stale and get revoked
+        if (timedOut && gen === genRef.current) genRef.current += 1;
       }
     }
     if (pairId) load();

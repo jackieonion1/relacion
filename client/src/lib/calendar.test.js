@@ -64,6 +64,27 @@ describe('eventToFormValues', () => {
   });
 });
 
+describe('allDay: evento sin hora', () => {
+  test('sin hora guarda allDay y start a las 12:00; con hora, allDay false', () => {
+    const base = { title: 'Cena', date: '2025-06-14' };
+    const sin = buildEventFields({ ...base, time: '' }, toTs);
+    expect(sin.allDay).toBe(true);
+    expect(sin.start.toDate().getHours()).toBe(12);
+    expect(buildEventFields({ ...base, time: '12:00' }, toTs).allDay).toBe(false);
+    expect(buildEventFields({ ...base, time: '21:30' }, toTs).allDay).toBe(false);
+  });
+
+  test('un evento allDay sale del formulario sin hora y guardar sin tocar lo deja allDay', () => {
+    const ev = { title: 'Viaje', allDay: true, start: ts(new Date(2025, 5, 14, 12, 0)) };
+    expect(eventToFormValues(ev).time).toBe('');
+    expect(roundTrip(ev).allDay).toBe(true);
+  });
+
+  test('un evento antiguo (sin allDay) conserva su hora en el formulario', () => {
+    expect(eventToFormValues({ start: ts(new Date(2025, 5, 14, 12, 0)) }).time).toBe('12:00');
+  });
+});
+
 describe('ida y vuelta formulario -> evento -> formulario', () => {
   const cases = {
     'sin fin': { start: new Date(2025, 5, 14, 12, 0) },
