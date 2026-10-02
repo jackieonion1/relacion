@@ -150,3 +150,12 @@ test('al desmontar o apagarla no queda ningún intervalo vivo', () => {
   expect(vi.getTimerCount()).toBe(0);
   expect(stopButton()).toBeNull();
 });
+
+// Delayed particles must sit at their first keyframe while they wait, not at their resting spot
+test('las animaciones con retraso usan fill-mode both', () => {
+  const css = readFileSync(path.resolve(__dirname, 'HeartRain.css'), 'utf8');
+  for (const name of ['heartFall', 'heartFireworks']) {
+    const rule = css.match(new RegExp(`animation:\\s*${name}[^;]*;`));
+    expect(rule && rule[0]).toMatch(/\bboth\b/);
+  }
+});

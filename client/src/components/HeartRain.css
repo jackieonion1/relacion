@@ -26,11 +26,11 @@
 }
 
 .heart-fall {
-  animation: heartFall 4s ease-in forwards;
+  animation: heartFall 4s ease-in both;
 }
 
 .heart-fireworks {
-  animation: heartFireworks 3s ease-out forwards;
+  animation: heartFireworks 3s ease-out both;
 }
 
 /* Centred above the bottom bar (same offset as .fab), clear of the home indicator */
