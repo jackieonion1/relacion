@@ -8,7 +8,8 @@ import RandomPhoto from '../components/RandomPhoto';
 import { db } from '../lib/firebase';
 import { ANNIVERSARY, timeBetween } from '../lib/together';
 import { nextSpecialEvents } from '../lib/specialDays';
-import { fetchCityWeather, weatherEmoji, weatherType } from '../lib/weather';
+import TarjetaTiempo from '../components/TarjetaTiempo';
+import { fetchCityWeather, weatherType } from '../lib/weather';
 import { ROLE_LABELS } from '../lib/eventTypes';
 import {
   BOTH_LABEL, cityTimeText, dayMonthText, eventMark, longDateText, monthTile, shortDateText, skyWords, todayText, togetherWords, whenText,
@@ -222,9 +223,6 @@ export default function Dashboard() {
 
   // One sky per person: 🫒 is him (novio), 🍪 is her (novia)
   function renderWeatherCard(who, label, w, city) {
-    const head = (
-      <p className="etiqueta cielo-2 tracking-[0.06em] truncate">{who} {label}</p>
-    );
     if (!w) {
       const loadingNow = weatherLoading;
       return (
@@ -256,24 +254,7 @@ export default function Dashboard() {
     const theme = getWeatherTheme(w);
     const words = skyWords(theme.type);
     const localTime = cityTimeText(w.timezone, clock);
-    return (
-      <div className={`cielo min-w-0 rounded-tarjeta px-3.5 pt-3 pb-3.5 flex flex-col gap-0.5 ${theme.dark ? 'de-noche' : ''}`}>
-        <div aria-hidden="true" className={`cielo-fondo ${theme.container} animate-gradient-subtle`} />
-        <div className="flex items-center justify-between gap-1.5">
-          {head}
-          {/* Moon at night and the weather emoji, both (F4) */}
-          <span className="text-[18px] leading-none flex items-center gap-1 shrink-0">
-            {w.phase === 'night' && <span>{w.moon || '🌙'}</span>}
-            <span>{weatherEmoji(w.code ?? -1)}</span>
-          </span>
-        </div>
-        <p className="num text-[24px] font-semibold tracking-[-0.01em]">{w.temp != null ? `${w.temp}°` : '—°'}</p>
-        {words && <p className="text-[14px] font-semibold">{words}</p>}
-        <p className="num text-[12px] cielo-2">Sensación {w.feels != null ? `${w.feels}°` : '—°'} · 💧 {w.humidity != null ? `${w.humidity} %` : '— %'}</p>
-        <p className="num text-[12px] cielo-2">🌬️ {w.wind != null ? `${w.wind} km/h` : '— km/h'}</p>
-        <p className="text-[13px] font-semibold truncate">{w.city || '—'}{localTime && <span className="num"> · {localTime}</span>}</p>
-      </div>
-    );
+    return <TarjetaTiempo who={who} label={label} w={w} theme={theme} words={words} localTime={localTime} />;
   }
 
   const words = timeTogether ? togetherWords(timeTogether) : [];

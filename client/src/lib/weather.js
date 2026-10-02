@@ -117,7 +117,7 @@ export async function fetchCityWeather(city) {
   if (!city) return null;
   const g = await geocodeCity(city);
   if (!g) return null;
-  const url = `https://api.open-meteo.com/v1/forecast?latitude=${g.lat}&longitude=${g.lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,wind_speed_10m,weather_code&daily=sunrise,sunset&forecast_days=1&wind_speed_unit=kmh&timezone=auto`;
+  const url = `https://api.open-meteo.com/v1/forecast?latitude=${g.lat}&longitude=${g.lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,wind_speed_10m,weather_code&daily=sunrise,sunset,weather_code,temperature_2m_max,temperature_2m_min&forecast_days=2&wind_speed_unit=kmh&timezone=auto`;
   const res = await fetch(url, { mode: 'cors' });
   if (!res.ok) return null;
   const data = await res.json();
@@ -131,6 +131,13 @@ export async function fetchCityWeather(city) {
 
   const phase = dayPhase(now, sunrise, sunset);
 
+  // Tomorrow, from the second day of the same request (the card's tap shows it); null if the answer lacks it
+  const d = data?.daily || {};
+  const tomorrow = typeof d.weather_code?.[1] === 'number' && typeof d.temperature_2m_max?.[1] === 'number'
+    && typeof d.temperature_2m_min?.[1] === 'number'
+    ? { code: d.weather_code[1], max: Math.round(d.temperature_2m_max[1]), min: Math.round(d.temperature_2m_min[1]) }
+    : null;
+
   return {
     city,
     temp: typeof c.temperature_2m === 'number' ? Math.round(c.temperature_2m) : null,
@@ -143,6 +150,7 @@ export async function fetchCityWeather(city) {
     now: nowIso,
     timezone: data?.timezone || null, // IANA name from timezone=auto, for the city's local time (C8)
     phase,
+    tomorrow,
     moon: phase === 'night' ? moonPhaseEmoji(now) : null,
   };
 }
