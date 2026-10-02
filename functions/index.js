@@ -111,6 +111,9 @@ export const joinPair = onCall(async (request) => {
       if (!inv.exists || inv.get('pairId') !== pairId || inv.get('expiresAt').toMillis() < Date.now()) {
         throw new HttpsError('permission-denied', 'invite');
       }
+      // An invite dies with its creator: a device taken out can't come back through one it left behind
+      const creator = await tx.get(memberRef(pairId, String(inv.get('createdBy') || '-')));
+      if (!creator.exists) throw new HttpsError('permission-denied', 'invite');
       tx.delete(ref); // single use
     }
     tx.set(me, { joinedAt: FieldValue.serverTimestamp(), ...(label ? { label } : {}), via: locked ? 'invite' : 'code', trusted: locked || old });
@@ -153,7 +156,8 @@ export const lockPair = onCall(async (request) => {
   return { ok: true };
 });
 
-// Callable (trusted members only): takes another device out of the pair, with its push subscriptions
+// Callable (trusted members only): takes another device out of the pair, with its push subscriptions and the
+// invites it made
 export const removeMember = onCall(async (request) => {
   const pairId = readPairId(request);
   const uid = request.auth.uid;
@@ -161,9 +165,13 @@ export const removeMember = onCall(async (request) => {
   if (!target || target.includes('/')) throw new HttpsError('invalid-argument', 'uid requerido');
   if (target === uid) throw new HttpsError('failed-precondition', 'No puedes quitar este dispositivo');
   await requireTrusted(pairId, uid);
-  const subs = await pairRef(pairId).collection('pushSubs').where('uid', '==', target).get();
+  const [subs, invites] = await Promise.all([
+    pairRef(pairId).collection('pushSubs').where('uid', '==', target).get(),
+    db.collection('pairInvites').where('pairId', '==', pairId).get(),
+  ]);
   const batch = db.batch();
   subs.forEach((d) => batch.delete(d.ref));
+  invites.forEach((d) => { if (d.get('createdBy') === target) batch.delete(d.ref); });
   batch.delete(memberRef(pairId, target));
   await batch.commit();
   return { ok: true };

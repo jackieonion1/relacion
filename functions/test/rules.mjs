@@ -259,6 +259,13 @@ await expectCall('removeMember de un miembro', 'removeMember', { pairId: J, uid:
 check(!(await db.doc(`pairs/${J}/members/${C}`).get()).exists, 'el member quitado ya no existe');
 check(!(await db.doc(`pairs/${J}/pushSubs/sub-c`).get()).exists && (await db.doc(`pairs/${J}/pushSubs/sub-a`).get()).exists, 'se borran solo sus pushSubs');
 await expectDeny('el dispositivo quitado ya no lee', 'GET', `/pairs/${J}/notes`, { uid: C });
+// Sus invitaciones se van con él, y una que quedase de alguien que ya no es miembro tampoco vale
+check(!(await db.collection('pairInvites').where('pairId', '==', J).get()).docs.some((d) => d.get('createdBy') === C), 'removeMember borra las invitaciones del quitado');
+await expectCall('la invitación del quitado ya no vale', 'joinPair', { pairId: J, invite: invC.result?.code }, D, 'PERMISSION_DENIED');
+const huerfana = 'MMMMMMMM';
+await db.collection('pairInvites').doc(createHash('sha256').update(`${J}:${huerfana}`).digest('hex'))
+  .set({ pairId: J, createdBy: 'uid-que-ya-no-es-miembro', expiresAt: Timestamp.fromMillis(Date.now() + 60000) });
+await expectCall('una invitación cuyo creador ya no es miembro no vale', 'joinPair', { pairId: J, invite: huerfana }, D, 'PERMISSION_DENIED');
 await expectCall('el dispositivo quitado no vuelve a entrar sin invitación', 'joinPair', { pairId: J }, C, 'FAILED_PRECONDITION');
 
 // --- Coste de las reglas: llamadas a exists()/get() por petición, contadas en el informe de cobertura del

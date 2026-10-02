@@ -43,8 +43,8 @@ const note = { fields: { title: { stringValue: 'x' } } };
 const OLD = { creationTime: '2025-01-01T00:00:00Z', lastSignInTime: '2025-01-01T00:00:00Z' };
 const NEW = { creationTime: '2026-11-01T00:00:00Z', lastSignInTime: '2026-11-01T00:00:00Z' };
 await getAuth().importUsers([
-  ...['yo-A', 'ella-A', 'yo-B', 'yo-D'].map((uid) => ({ uid, metadata: OLD })),
-  ...['mal-A', 'mal-B'].map((uid) => ({ uid, metadata: NEW })),
+  ...['yo-A', 'ella-A', 'yo-B', 'yo-C', 'yo-D'].map((uid) => ({ uid, metadata: OLD })),
+  ...['mal-A', 'mal-B', 'mal-C', 'mal2-C'].map((uid) => ({ uid, metadata: NEW })),
 ]);
 
 // A. Periodo abierto: un extraño con el código se une, pero no cierra ni echa a la pareja
@@ -84,6 +84,20 @@ await getAuth().importUsers([
   const left = (await db.collection(`pairs/${P}/pushSubs`).get()).docs.map((d) => d.id).sort();
   check(JSON.stringify(left) === JSON.stringify(['yo-dev1']), `B tras cerrar y quitar solo queda la pushSub de yo (${left})`);
   check(await req('GET', `/pairs/${P}/pushSubs/yo-dev1`, 'mal-B') === 403, 'B el quitado no lee pushSubs');
+}
+
+// C. Un dispositivo invitado (de confianza) que luego se quita: sus invitaciones dejan de valer, y no vuelve
+{
+  const P = 'ATKC';
+  await call('joinPair', { pairId: P }, 'yo-C');
+  await call('lockPair', { pairId: P }, 'yo-C');
+  const inv = await call('createInvite', { pairId: P }, 'yo-C');
+  await expectCall('C entra un dispositivo con invitación', 'joinPair', { pairId: P, invite: inv.result?.code }, 'mal-C');
+  const left = await expectCall('C el invitado deja otra invitación', 'createInvite', { pairId: P }, 'mal-C');
+  await expectCall('C yo lo quita', 'removeMember', { pairId: P, uid: 'mal-C' }, 'yo-C');
+  await expectCall('C otro uid no entra con la invitación que dejó', 'joinPair', { pairId: P, invite: left.result?.code }, 'mal2-C', 'PERMISSION_DENIED');
+  check(await req('GET', `/pairs/${P}/notes/x`, 'yo-C') !== 403, 'C yo sigue dentro');
+  check(JSON.stringify(await members(P)) === JSON.stringify(['yo-C']), 'C solo queda yo');
 }
 
 // D. Carrera de doble uso: 8 joinPair concurrentes con la misma invitación dan un solo miembro nuevo
