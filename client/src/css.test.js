@@ -31,8 +31,8 @@ describe.skipIf(!hasBuild && !process.env.CI)('el CSS de la build', () => {
   });
 
   test('conserva los prefijos y los bloques de iOS', () => {
-    // Selector by selector: Safari on the iPhone blurs only with the prefix
-    for (const s of ['.marca', '.barra', '.heart-rain-stop', '.backdrop-blur-sm', '.backdrop-blur-xs', '.backdrop-blur-\\[18px\\]']) {
+    // Selector by selector: Safari on the iPhone blurs only with the prefix (the top bar blurs only once scrolled)
+    for (const s of ['.marca.is-scrolled', '.barra', '.heart-rain-stop', '.backdrop-blur-sm', '.backdrop-blur-xs', '.backdrop-blur-\\[18px\\]']) {
       expect(rules(s), s).toMatch(/-webkit-backdrop-filter:/);
     }
     expect(css).toContain('@supports (-webkit-touch-callout:none)');
