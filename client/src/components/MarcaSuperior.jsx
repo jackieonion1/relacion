@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router';
 import Icon from './Icon';
 
@@ -21,12 +21,28 @@ export function useOnline() {
   return online;
 }
 
+// True once the nearest scroll container (.app-scroll) has left the top: the bar is paper-opaque at rest and glass after
+function useScrolled(ref) {
+  const [scrolled, setScrolled] = useState(false);
+  useEffect(() => {
+    const box = ref.current?.closest('.app-scroll');
+    if (!box) return undefined;
+    const update = () => setScrolled(box.scrollTop > 0);
+    update();
+    box.addEventListener('scroll', update, { passive: true });
+    return () => box.removeEventListener('scroll', update);
+  }, [ref]);
+  return scrolled;
+}
+
 // 🍪🫒 and ⚙ on every screen (Q2), sticky over the content. The route title is each screen's own serif h1.
 // The music pill (Music.jsx, fixed top safe+8px right-16) lands just left of the ⚙ while a song is loaded
 export default function MarcaSuperior() {
   const online = useOnline();
+  const ref = useRef(null);
+  const scrolled = useScrolled(ref);
   return (
-    <div className="marca">
+    <div ref={ref} className={`marca${scrolled ? ' is-scrolled' : ''}`}>
       <div className="max-w-(--breakpoint-md) mx-auto h-11 flex items-center justify-between pl-5 pr-2">
         <span className="text-[17px] leading-none" role="img" aria-label="Nosotros">🍪🫒</span>
         <Link to="/settings" aria-label="Ajustes" className="btn btn-icono">

@@ -364,7 +364,15 @@ html, body, #root { height: 100%; }
   .marca {
     position: sticky; top: 0; z-index: 20;
     padding-top: env(safe-area-inset-top, 0px);
+    /* At rest it is the paper, opaque and borderless: Android paints its status bar with theme-color (the same
+       paper) and cannot be drawn under, so any translucency there would show a seam. Scrolled, it turns glass */
+    background-color: var(--paper);
+    border-bottom: 1px solid transparent;
+    transition: background-color var(--dur-fundido) var(--ease-suave), border-color var(--dur-fundido) var(--ease-suave);
+  }
+  .marca.is-scrolled {
     background-color: color-mix(in oklab, var(--paper) 88%, transparent);
+    border-bottom-color: var(--line);
     -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px);
   }
   .sin-conexion {
