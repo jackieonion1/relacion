@@ -104,13 +104,28 @@ export function portadaDeRango(pairId, desde, hasta) {
   });
 }
 
-// Forgets that today's «Hace un año» was empty (any yearsBack): to call when photos are dated in bulk, which can
-// fill it
+// What the «Hace un año» card of Inicio worked out today ({ anos, total, otros, foto }, see HaceUnAnoTarjeta), kept
+// for the session (sessionStorage) so the card does not read the photos of those days on every visit to Inicio
+const claveTarjeta = (pairId, date) => `hace-un-ano-tarjeta:${pairId}:${madridDayKey(date)}`;
+export function tarjetaGuardada(pairId, date = new Date()) {
+  try {
+    return JSON.parse(sessionStorage.getItem(claveTarjeta(pairId, date)) || 'null');
+  } catch {
+    return null;
+  }
+}
+export function guardarTarjeta(pairId, tarjeta, date = new Date()) {
+  try { sessionStorage.setItem(claveTarjeta(pairId, date), JSON.stringify(tarjeta)); } catch {}
+}
+
+// Forgets that today's «Hace un año» was empty (any yearsBack) and the card kept for today: to call when photos are
+// dated in bulk, which changes what those days hold
 export function olvidarVacioHoy(pairId, date = new Date()) {
   const prefix = `hace-un-ano:${pairId}:${madridDayKey(date)}:`;
   try {
     Object.keys(localStorage).filter((k) => k.startsWith(prefix)).forEach((k) => localStorage.removeItem(k));
   } catch {}
+  try { sessionStorage.removeItem(claveTarjeta(pairId, date)); } catch {}
 }
 
 // «Hace un año»: the photos of this same Madrid day in each of the previous `yearsBack` years, nearest year first:

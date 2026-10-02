@@ -1,11 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router';
 import Icon from './Icon';
-import { fotosDelDia, haceAnosTexto } from '../lib/recuerdos';
+import { thumbDeItem } from '../lib/photos';
+import { fotosDelDia, guardarTarjeta, haceAnosTexto, tarjetaGuardada } from '../lib/recuerdos';
 
 // «Hace un año» on Inicio: a card that shows up only on the days a past year has photos (most days it renders
-// nothing). A day with no photos is remembered by fotosDelDia, so those days cost no reads after the first look.
-// It brings a single thumb for each year, not one for every photo, and the whole card opens the hub
+// nothing). A day with no photos is remembered by fotosDelDia, and a day with them by the session (tarjetaGuardada),
+// so after the first look of the day Inicio reads nothing but the thumb. It brings a single thumb for each year, not
+// one for every photo, and the whole card opens the hub
 export default function HaceUnAnoTarjeta() {
   const [hay, setHay] = useState(null); // { anos, total, otros: [años], url }
 
@@ -15,13 +17,30 @@ export default function HaceUnAnoTarjeta() {
     let cancelado = false;
     let urls = [];
     const soltar = () => urls.forEach((u) => { if (u.startsWith('blob:')) URL.revokeObjectURL(u); });
-    fotosDelDia(pairId, new Date(), 3, { max: 1 }).then((grupos) => {
-      urls = grupos.flatMap((g) => g.items.map((it) => it.thumbUrl)).filter(Boolean);
-      if (cancelado) { soltar(); return; }
-      if (!grupos.length) return;
-      const [cerca, ...otros] = grupos;
-      setHay({ anos: cerca.anos, total: cerca.items.length, otros: otros.map((g) => g.anos), url: cerca.items.find((it) => it.thumbUrl)?.thumbUrl || '' });
-    }).catch(() => {}); // no photos to show is no card: nothing to tell about a failed look
+    const guardada = tarjetaGuardada(pairId);
+    if (guardada) {
+      // Seen already today: no reads of those days, only the thumb again (the cached one, if it is still there)
+      setHay({ ...guardada, url: '' });
+      if (guardada.foto) {
+        thumbDeItem(pairId, guardada.foto).then((u) => {
+          if (!u) return;
+          urls = [u];
+          if (cancelado) soltar(); else setHay((h) => h && { ...h, url: u });
+        }).catch(() => {});
+      }
+    } else {
+      fotosDelDia(pairId, new Date(), 3, { max: 1 }).then((grupos) => {
+        urls = grupos.flatMap((g) => g.items.map((it) => it.thumbUrl)).filter(Boolean);
+        if (!grupos.length) return;
+        const [cerca, ...otros] = grupos;
+        const conMiniatura = cerca.items.find((it) => it.thumbUrl);
+        const tarjeta = { anos: cerca.anos, total: cerca.items.length, otros: otros.map((g) => g.anos), foto: conMiniatura ? { id: conMiniatura.id, thumbDoc: conMiniatura.thumbDoc || '' } : null };
+        // Offline an answer may be only what the local cache holds: it is not kept for the rest of the day
+        if (!(typeof navigator !== 'undefined' && navigator.onLine === false)) guardarTarjeta(pairId, tarjeta);
+        if (cancelado) { soltar(); return; }
+        setHay({ ...tarjeta, url: conMiniatura?.thumbUrl || '' });
+      }).catch(() => {}); // no photos to show is no card: nothing to tell about a failed look
+    }
     return () => {
       cancelado = true;
       soltar();
