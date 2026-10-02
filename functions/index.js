@@ -10,6 +10,7 @@ import { createHash, randomInt } from 'node:crypto';
 import { eventBody } from './pushLogic.js';
 import { deviceLabel } from './membershipLogic.js';
 import { madridDate, remindersFor, skipPairs } from './reminders.js';
+import { capsuleDay, capsulePushes } from './capsulas.js';
 
 // Global options
 setGlobalOptions({ region: 'europe-southwest1', maxInstances: 5 });
@@ -285,20 +286,50 @@ export const onNewEvent = onDocumentCreated('pairs/{pairId}/events/{eventId}', a
   }
 });
 
-// Every morning at 9:00 Madrid time: the monthiversary (every 24th, anniversary in November) and birthdays.
-// What is due today is decided in reminders.js; each identity gets its own text
+// A comment on a photo: a push to the other one (never to whoever wrote it), which opens that photo
+export const onNewPhotoComment = onDocumentCreated('pairs/{pairId}/photoComments/{commentId}', async (event) => {
+  try {
+    const { pairId, commentId } = event.params;
+    const data = event.data?.data();
+    if (!data || !data.photoId) return;
+    const who = data.identity === 'ella' ? '🍪' : data.identity === 'yo' ? '🫒' : '';
+    await sendToPair(pairId, {
+      title: who ? `${who} ha comentado una foto` : 'Nuevo comentario en una foto',
+      body: truncate(data.text),
+      url: `/gallery?photo=${encodeURIComponent(String(data.photoId))}`,
+      icon: '/icon.svg',
+      badge: '/icon.svg',
+      data: { type: 'photoComment', commentId, photoId: String(data.photoId), pairId },
+    }, { excludeIdentity: data.identity, excludeUid: data.createdBy });
+  } catch (e) {
+    console.warn('onNewPhotoComment error', e);
+  }
+});
+
+// Every morning at 9:00 Madrid time: the monthiversary (every 24th, anniversary in November), birthdays and the time
+// capsules that open today. What is due is decided in reminders.js and capsulas.js; each identity gets its own text
 export const morningReminders = onSchedule({ schedule: '0 9 * * *', timeZone: 'Europe/Madrid' }, async () => {
   const now = new Date();
   const due = remindersFor(now);
-  if (due.length === 0) return;
   // Pairs listed in REMINDER_SKIP_PAIRS (functions/.env, comma-separated) get nothing; none by default
   const skip = skipPairs(process.env.REMINDER_SKIP_PAIRS);
   const { year, month, day } = madridDate(now);
   const today = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+  const { start, end } = capsuleDay(now);
   // listDocuments also returns pair ids that only have subcollections (no pair doc of their own)
   const pairs = await db.collection('pairs').listDocuments();
   for (const pair of pairs) {
     if (skip.has(pair.id)) continue;
+    // Capsules opening today: a range on a single field, so the automatic index serves it
+    let capsules = {};
+    try {
+      const snap = await pair.collection('capsules')
+        .where('openAt', '>=', Timestamp.fromDate(start)).where('openAt', '<', Timestamp.fromDate(end)).get();
+      capsules = capsulePushes(snap.docs.map((d) => d.data()));
+    } catch (e) {
+      console.warn('morningReminders capsules error', pair.id, e);
+    }
+    if (due.length === 0 && Object.keys(capsules).length === 0) continue;
     // One lock per pair and day: if Scheduler delivers the run twice, the second finds it and sends nothing
     try {
       await pair.collection('meta').doc(`reminders-${today}`).create({ at: FieldValue.serverTimestamp() });
@@ -321,6 +352,20 @@ export const morningReminders = onSchedule({ schedule: '0 9 * * *', timeZone: 'E
         } catch (e) {
           console.warn('morningReminders error', pair.id, e);
         }
+      }
+    }
+    for (const [identity, text] of Object.entries(capsules)) {
+      try {
+        await sendToPair(pair.id, {
+          title: text.title,
+          body: text.body,
+          url: '/recuerdos/capsulas',
+          icon: '/icon.svg',
+          badge: '/icon.svg',
+          data: { type: 'capsule', pairId: pair.id },
+        }, { excludeIdentity: identity === 'yo' ? 'ella' : 'yo' });
+      } catch (e) {
+        console.warn('morningReminders capsule error', pair.id, e);
       }
     }
   }
