@@ -136,8 +136,9 @@ export default function Gallery() {
   const [saltarOpen, setSaltarOpen] = useState(false);
   const [primera, setPrimera] = useState(null);
   const rootRef = useRef(null);
-  // Selection mode (3.1): the picked ids (null = off), its sheets, and the result of a change to all of them
-  const [seleccion, setSeleccion] = useState(null);
+  // Selection mode (3.1): the picked ids (null = off), its sheets, and the result of a change to all of them.
+  // An empty album sends us here with state.seleccionar, so it opens already selecting
+  const [seleccion, setSeleccion] = useState(() => (location.state?.seleccionar ? new Set() : null));
   const [fechaOpen, setFechaOpen] = useState(false);
   const [albumOpen, setAlbumOpen] = useState(false);
   const [resultado, setResultado] = useState(null); // { titulo, texto, error }
@@ -353,11 +354,32 @@ export default function Gallery() {
   }
 
   const seleccionando = seleccion !== null;
+  // Selecting takes one entry in the history (state.enSeleccion), so the «atrás» of Android or the swipe ends the
+  // selection instead of leaving the Gallery; ending it by hand gives that entry back
+  const entradaRef = useRef(false);
+  function empezarSeleccion(ids = []) {
+    setSeleccion(new Set(ids));
+    if (entradaRef.current) return;
+    entradaRef.current = true;
+    navigate({ pathname: location.pathname, search: location.search }, { state: { ...location.state, enSeleccion: true } });
+  }
   function terminarSeleccion() {
     setSeleccion(null);
     setFechaOpen(false);
     setAlbumOpen(false);
+    if (entradaRef.current) {
+      entradaRef.current = false;
+      navigate(-1);
+    }
   }
+  useEffect(() => {
+    if (!entradaRef.current || location.state?.enSeleccion) return;
+    // That entry is gone (back): the selection goes with it
+    entradaRef.current = false;
+    setSeleccion(null);
+    setFechaOpen(false);
+    setAlbumOpen(false);
+  }, [location]);
   // What the album sheet ended in: { album, n } when the photos went into one (said, and the selection is over), or
   // null when it was closed without choosing
   function alAnadirAAlbum(r) {
@@ -696,12 +718,38 @@ export default function Gallery() {
     openViewer(id);
   }
 
-  function closeViewer() {
+  function soltarVisor() {
     advanceFromRef.current = null;
     comentariosDeUrlRef.current = '';
     setComentariosOpen(false);
     revokeViewerUrls();
     setViewer({ open: false, id: null, url: '', fallbackUrl: '', loading: false });
+  }
+  // Opened from the grid, the viewer takes one entry in the history (state.enVisor), so the «atrás» of Android closes
+  // it instead of leaving the Gallery; closing it by hand gives that entry back. Opened by the URL (?photo=), the
+  // entry that opened it is already there
+  const visorEntradaRef = useRef(false);
+  function abrirDesdeCuadricula(id) {
+    if (!visorEntradaRef.current) {
+      visorEntradaRef.current = true;
+      navigate({ pathname: location.pathname, search: location.search }, { state: { ...location.state, enVisor: true } });
+    }
+    openViewer(id);
+  }
+  useEffect(() => {
+    if (!visorEntradaRef.current || location.state?.enVisor) return;
+    // That entry is gone (back): the viewer goes with it
+    visorEntradaRef.current = false;
+    soltarVisor();
+  }, [location]);
+
+  function closeViewer() {
+    soltarVisor();
+    if (visorEntradaRef.current) {
+      visorEntradaRef.current = false;
+      navigate(-1);
+      return;
+    }
     // Navigate to clear the URL parameter, preventing the viewer from re-opening. Opened from an album, a stamp or
     // «hace un año» (Recuerdos), it goes back there instead of staying on the Gallery: one step back in the history
     // when there is a page before (the one that opened it), since replacing would leave that page twice in a row
@@ -964,7 +1012,7 @@ export default function Gallery() {
             <p className="text-[13px] text-ink-2 text-pretty">Si son de otros días, ponles el suyo: así salen en su mes, en «Hace un año» y en Nuestro año.</p>
           </div>
           <div className="flex items-center gap-1">
-            <Button onClick={() => { setSeleccion(new Set(golpe.ids)); setFechaOpen(true); }}>Ponerles fecha</Button>
+            <Button onClick={() => { empezarSeleccion(golpe.ids); setFechaOpen(true); }}>Ponerles fecha</Button>
             <Button variant="txt" onClick={() => dejarGolpe(golpe.dia)}>Ahora no</Button>
           </div>
         </section>
@@ -1018,7 +1066,7 @@ export default function Gallery() {
                 return (
                   <button
                     type="button"
-                    onClick={() => (seleccionando ? alternar(g.items.map((it) => it.id)) : setSeleccion(new Set()))}
+                    onClick={() => (seleccionando ? alternar(g.items.map((it) => it.id)) : empezarSeleccion())}
                     aria-label={seleccionando ? `${llena ? 'Quitar' : 'Elegir'} todas las de ${g.label}` : undefined}
                     className={`absolute right-2 ${gi === 0 ? '-top-2.5' : 'top-2.5'} h-10 px-3 rounded-full text-[13px] font-semibold text-accent-ink active:bg-sunk`}
                   >
@@ -1051,7 +1099,7 @@ export default function Gallery() {
                   <button
                     key={it.id}
                     type="button"
-                    onClick={() => (seleccionando ? alternar([it.id]) : openViewer(it.id))}
+                    onClick={() => (seleccionando ? alternar([it.id]) : abrirDesdeCuadricula(it.id))}
                     aria-label={`Foto del ${photoDate((enVista ? fechaEfectiva(it) : it.createdAt) || 0)}${noLeidos.has(it.id) ? ', con comentarios sin leer' : ''}`}
                     aria-pressed={seleccionando ? seleccion.has(it.id) : undefined}
                     disabled={seleccionando && pendingIds.includes(it.id)}
@@ -1244,6 +1292,7 @@ export default function Gallery() {
           onFecha={() => setFechaOpen(true)}
           onAlbum={() => setAlbumOpen(true)}
           onFav={() => favoritasEnBloque(!elegidasFav)}
+          onSalir={terminarSeleccion}
         />
       )}
 

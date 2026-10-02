@@ -595,6 +595,78 @@ describe('3.1: selección y fecha en bloque', () => {
     await act(async () => { fireEvent.click(within(hoja).getByRole('button', { name: 'Poner fecha' })); await flush(); });
   }
 
+  test('si llega con state.seleccionar (un álbum vacío) ya está eligiendo; sin él, no', async () => {
+    const { unmount } = render(<MemoryRouter initialEntries={[{ pathname: '/gallery', state: { seleccionar: true } }]}><Gallery /></MemoryRouter>);
+    await act(flush);
+    expect(barra()).not.toBeNull();
+    expect(screen.getByText('Elige las fotos')).not.toBeNull();
+    unmount();
+    await mount();
+    expect(screen.queryByRole('toolbar', { name: 'Fotos seleccionadas' })).toBeNull();
+  });
+
+  // A page before the Gallery, and a button that does what «atrás» does
+  function Atras() {
+    const navigate = useNavigate();
+    return <button type="button" onClick={() => navigate(-1)}>atrás</button>;
+  }
+  const conHistorial = () => render(
+    <MemoryRouter initialEntries={['/otra', '/gallery']} initialIndex={1}>
+      <Routes>
+        <Route path="/gallery" element={<><Gallery /><Atras /></>} />
+        <Route path="/otra" element={<p>otra pantalla</p>} />
+      </Routes>
+    </MemoryRouter>,
+  );
+  const sinBarra = () => expect(screen.queryByRole('toolbar', { name: 'Fotos seleccionadas' })).toBeNull();
+
+  test('la ✕ de la barra sale de la selección, y no deja una entrada de más en el historial', async () => {
+    conHistorial();
+    await act(flush);
+    await elegir(0);
+    const salir = within(barra()).getByRole('button', { name: 'Salir de la selección' });
+    await act(async () => { fireEvent.click(salir); await flush(); });
+    sinBarra();
+    expect(cells()).toHaveLength(3);
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'atrás' })); await flush(); });
+    expect(screen.getByText('otra pantalla')).not.toBeNull();
+  });
+
+  test('«atrás» sale de la selección en vez de salir de la Galería', async () => {
+    conHistorial();
+    await act(flush);
+    await elegir(0, 1);
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'atrás' })); await flush(); });
+    sinBarra();
+    expect(screen.queryByText('otra pantalla')).toBeNull();
+    expect(cells()).toHaveLength(3);
+    // Selecting again takes its entry again, and the next «atrás» does leave
+    await elegir();
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'atrás' })); await flush(); });
+    sinBarra();
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'atrás' })); await flush(); });
+    expect(screen.getByText('otra pantalla')).not.toBeNull();
+  });
+
+  test('«atrás» cierra el visor abierto desde la cuadrícula en vez de salir de la Galería, y «Cerrar» no deja una entrada de más', async () => {
+    getOriginal.mockResolvedValue(null);
+    getOriginalUrl.mockResolvedValue('https://example.test/orig.jpg');
+    conHistorial();
+    await act(flush);
+    await act(async () => { fireEvent.click(cells()[0]); await flush(); });
+    expect(screen.getByRole('button', { name: 'Cerrar' })).not.toBeNull();
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'atrás' })); await flush(); });
+    expect(screen.queryByRole('button', { name: 'Cerrar' })).toBeNull();
+    expect(screen.queryByText('otra pantalla')).toBeNull();
+    expect(cells()).toHaveLength(3);
+    // Closed by hand, the entry goes with it: the next «atrás» leaves the Gallery
+    await act(async () => { fireEvent.click(cells()[1]); await flush(); });
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Cerrar' })); await flush(); });
+    expect(screen.queryByRole('button', { name: 'Cerrar' })).toBeNull();
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'atrás' })); await flush(); });
+    expect(screen.getByText('otra pantalla')).not.toBeNull();
+  });
+
   test('tocar una foto la elige en vez de abrirla, y la fecha va a todas con confirmación', async () => {
     await mount();
     await elegir(0, 2);

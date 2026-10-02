@@ -12,20 +12,22 @@ import { rangoTexto } from '../lib/recuerdos';
 // The dates under an album that has them
 const fechas = (a) => (a.start != null ? rangoTexto(a.start, a.end) : '');
 
-// A card with its cover: the first photo of the album, asked for when the card comes near the screen
+// A card with its cover: the first photo of the album, asked for when the card comes near the screen. An album with
+// no photo yet is an empty polaroid (a dotted frame, no picture) that says so; if the look fails it stays the usual card
 function AlbumTarjeta({ a, pairId }) {
   const [ref, visible] = useVisible();
-  const [portada, setPortada] = useState(undefined); // undefined while it loads, '' when the album has no photo
+  const [portada, setPortada] = useState(undefined); // undefined while it loads, '' when the album has no photo, null when it could not be read
   useEffect(() => {
     if (!visible || !pairId) return undefined;
     let cancelado = false;
-    portadaDeAlbum(pairId, a).then((u) => { if (!cancelado) setPortada(u); }).catch(() => { if (!cancelado) setPortada(''); });
+    portadaDeAlbum(pairId, a).then((u) => { if (!cancelado) setPortada(u); }).catch(() => { if (!cancelado) setPortada(null); });
     return () => { cancelado = true; };
   }, [visible, pairId, a]);
+  const vacia = portada === '';
 
   return (
     <li>
-      <Link ref={ref} to={`/recuerdos/albumes/${encodeURIComponent(a.id)}`} state={{ volver: '/recuerdos/albumes' }} className="album-tarjeta">
+      <Link ref={ref} to={`/recuerdos/albumes/${encodeURIComponent(a.id)}`} state={{ volver: '/recuerdos/albumes' }} className={`album-tarjeta${vacia ? ' vacia' : ''}`}>
         <span className="album-portada">
           {portada ? <img src={portada} alt="" loading="lazy" /> : portada === undefined && pairId && visible
             ? <span className="recuerdo-hueco" /> : <span aria-hidden="true">{a.emoji}</span>}
@@ -34,6 +36,7 @@ function AlbumTarjeta({ a, pairId }) {
         <span className="flex flex-col gap-0.5 px-1">
           <span className="serif text-[19px] leading-[1.15] text-ink line-clamp-2 break-words">{a.titulo}</span>
           {fechas(a) && <span className="num text-[13px] text-ink-2">{fechas(a)}</span>}
+          {vacia && <span className="text-[13px] text-ink-2">Sin fotos todavía</span>}
         </span>
       </Link>
     </li>

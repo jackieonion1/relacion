@@ -38,6 +38,21 @@ test('con fotos es un enlace al hub: el año más cercano, cuántas fotos y los 
   expect(container.querySelector('img').getAttribute('src')).toBe('blob:a');
 });
 
+test('con foto pinta su copia, y si ninguna tiene miniatura no pinta una copia vacía que parezca foto', async () => {
+  fotosDelDia.mockResolvedValue([{ anos: 1, items: [foto('a', 'blob:a')] }]);
+  const con = pinta();
+  await screen.findByRole('link');
+  expect(con.container.querySelector('.hace-print img').getAttribute('src')).toBe('blob:a');
+  con.unmount();
+
+  sessionStorage.clear();
+  fotosDelDia.mockResolvedValue([{ anos: 1, items: [foto('b')] }]);
+  const sin = pinta();
+  await screen.findByRole('link');
+  expect(screen.getByText(/1 foto/)).not.toBeNull();
+  expect(sin.container.querySelector('.hace-print')).toBeNull();
+});
+
 test('pide una sola miniatura por año: el resto de fotos no se baja', async () => {
   fotosDelDia.mockResolvedValue([]);
   pinta();
