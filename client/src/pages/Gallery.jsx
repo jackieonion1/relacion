@@ -22,7 +22,7 @@ import { fotosDelDia, fotosEnRango, olvidarVacioHoy } from '../lib/recuerdos';
 import { fechaEfectiva, rangoMesMadrid, madridMediodia } from '../lib/fotoFecha';
 import { escucharComentarios, addComentario, deleteComentario, marcarLeidos } from '../lib/fotoComentarios';
 import { useNoLeidos, useNoLeidosConfirmados } from '../lib/fotoAvisos';
-import { registrarActividad } from '../lib/actividad';
+import { registrarActividad, borrarActividad, registrarTanda, resolverTandas } from '../lib/actividad';
 import './Gallery.css';
 
 const PAGE_SIZE = 60;
@@ -339,8 +339,10 @@ export default function Gallery() {
     // An open «Favoritas» keeps the photo (nothing jumps under the finger); the next visit asks again
     vistaCacheRef.current.delete('favoritas');
     setFavorita(pairId, id, identity, on).catch((e) => console.warn('Favourite failed', e));
-    // Avisos of the other one: only a favourite put on, and only on their photo
+    // Avisos of the other one: only a favourite put on, and only on their photo; taking it off takes the aviso away
+    const deLaOtra = viewerFoto?.identity === (identity === 'yo' ? 'ella' : 'yo');
     if (on) registrarActividad(pairId, identity, 'favorita', { ref: { photoId: id }, autor: viewerFoto?.identity });
+    else if (deLaOtra) borrarActividad(pairId, 'favorita', { quien: identity, ref: { photoId: id } });
   }
 
   async function abrirSaltar() {
@@ -502,6 +504,7 @@ export default function Gallery() {
     });
     setReaccion(pairId, id, identity, emoji).catch((e) => console.warn('Reaction failed', e));
     if (emoji) registrarActividad(pairId, identity, 'reaccion', { ref: { photoId: id }, texto: emoji, autor: viewerFoto?.identity });
+    else borrarActividad(pairId, 'reaccion', { quien: identity, ref: { photoId: id } });
   }
 
   async function loadMore() {
@@ -530,9 +533,13 @@ export default function Gallery() {
       // Sin recargar: las pendientes ya están en la cuadrícula con su miniatura local; solo cambia su insignia
       // (el finally refresca pendingIds). Recargar devolvía a la página 1 tras cada reintento
       const r = await retryPendingPhotos(pairId);
+      // Las que suben ahora completan su tanda: el aviso al otro sale cuando no queda ninguna pendiente
+      resolverTandas(pairId, getPendingIds(pairId), r.sentIds || []);
       // Ya en la cola del SDK: cuando el servidor lo confirme, quita la marca y la tarjeta «sin subir»
       if (r.queued.length > 0) {
-        confirmQueued(pairId, r.queued).then((n) => { if (n > 0) setPendingIds(getPendingIds(pairId)); });
+        confirmQueued(pairId, r.queued).then((n) => {
+          if (n > 0) { setPendingIds(getPendingIds(pairId)); resolverTandas(pairId, getPendingIds(pairId), r.queued); }
+        });
       }
       if (r.lost > 0) {
         addNotice(`${r.lost === 1 ? 'Una foto ya no está' : `${r.lost} fotos ya no están`} en este móvil y no se puede subir. Vuelve a elegirla.`);
@@ -564,21 +571,26 @@ export default function Gallery() {
     if (!list.length || !pairId) return;
     const identity = localStorage.getItem('identity') || 'yo';
     setUploadingCount((n) => n + list.length);
-    const subidas = []; // las que ya están en la nube (o terminarán solas): un solo aviso para el otro por tanda
+    // Un solo aviso para el otro por tanda, cuando todas han subido de verdad: `subidas` ya están en la nube y
+    // `pendientes` (sin conexión, lentas o con error) la completan después, aquí o en un reintento (registrarTanda)
+    const subidas = [];
+    const pendientes = [];
     try {
       for (const f of list) {
         // Un fichero que falla no debe abortar el resto del lote
         try {
           const added = await uploadPhoto(pairId, f, identity);
           if (added.cancelled) continue; // borrada mientras subía
-          if (!added.pending) subidas.push(added.id);
+          (added.pending ? pendientes : subidas).push(added.id);
           if (added.thumbUrl) urlsRef.current.push(added.thumbUrl);
           // Una recarga durante la subida ya puede haber traído esta foto como pendiente: sin duplicar
           setItems((prev) => [{ id: added.id, thumbUrl: added.thumbUrl, createdAt: added.createdAt, identity }, ...prev.filter((it) => it.id !== added.id)]);
           if (added.done) {
             // Lenta (>45 s): sigue subiendo en segundo plano y el lote continúa; al acabar se quita la insignia
             addNotice(`"${f.name}" va lenta: sigue subiendo en segundo plano. Está guardada en este móvil.`);
-            added.done.catch(() => {}).finally(() => setPendingIds(getPendingIds(pairId)));
+            added.done
+              .then(() => resolverTandas(pairId, getPendingIds(pairId), [added.id]), () => {})
+              .finally(() => setPendingIds(getPendingIds(pairId)));
           } else if (added.pending) {
             const why = added.error?.message === 'offline' ? 'sin conexión' : 'error al subir';
             addNotice(`"${f.name}" no se ha subido (${why}). Está guardada en este móvil; se reintentará sola o pulsa Reintentar.`);
@@ -593,7 +605,7 @@ export default function Gallery() {
     } finally {
       setPendingIds(getPendingIds(pairId));
       input.value = ''; // permite volver a elegir el mismo fichero
-      if (subidas.length) registrarActividad(pairId, identity, 'fotos', { n: subidas.length, ref: { photoId: subidas[0] } });
+      registrarTanda(pairId, identity, subidas, pendientes, getPendingIds(pairId));
     }
   }
 
@@ -846,16 +858,19 @@ export default function Gallery() {
 
   async function onSendComentario(text) {
     const id = viewer.id;
-    await addComentario(pairId, id, text, identity);
+    const { id: comentarioId } = await addComentario(pairId, id, text, identity);
     patchFoto(id, (it) => ({ commentCount: (it.commentCount || 0) + 1 }));
-    registrarActividad(pairId, identity, 'comentario', { ref: { photoId: id }, texto: text, autor: viewerFoto?.identity });
+    registrarActividad(pairId, identity, 'comentario', { ref: { photoId: id }, clave: comentarioId, texto: text, autor: viewerFoto?.identity });
   }
 
   function onDeleteComentario(c) {
     // The sheet has all the comments of the photo, so the count is set to what is left
     const restantes = deLaFoto && comentarios.id === c.photoId ? deLaFoto.filter((x) => x.id !== c.id).length : undefined;
     deleteComentario(pairId, c, restantes)
-      .then((r) => r?.committed.catch((e) => console.warn('Comment delete failed', e)))
+      .then((r) => {
+        if (r) borrarActividad(pairId, 'comentario', { clave: c.id }); // its aviso goes with it
+        return r?.committed.catch((e) => console.warn('Comment delete failed', e));
+      })
       .catch((e) => console.warn('Comment delete failed', e));
     patchFoto(c.photoId, (it) => ({ commentCount: restantes ?? Math.max(0, (it.commentCount || 0) - 1) }));
   }

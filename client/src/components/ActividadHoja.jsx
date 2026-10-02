@@ -25,7 +25,7 @@ function Fila({ e, nueva, pairId, now, onElegir }) {
       <button
         type="button"
         onClick={() => onElegir(e)}
-        aria-label={`${lineaActividad(e)}, ${tiempoRelativo(e.ms, now)}`}
+        aria-label={`${lineaActividad(e)}, ${tiempoRelativo(e.ms, now)}${nueva ? ', nuevo' : ''}`}
         className="w-full flex items-center gap-3 px-5 py-2.5 text-left transition-colors duration-200 ease-suave active:bg-sunk focus-visible:outline-2 focus-visible:outline-lacre focus-visible:-outline-offset-2"
       >
         <span aria-hidden="true" className="size-10 shrink-0 rounded-full bg-sunk flex items-center justify-center text-xl leading-none">{WHO[e.quien]}</span>
@@ -54,8 +54,9 @@ function Grupo({ titulo, lista, nueva, pairId, now, onElegir }) {
   );
 }
 
-// «Avisos»: what the other one has done, in «Nuevas» (since `vistoHasta`) and «Antes». onElegir(entry) goes to it
-export function ActividadHoja({ isOpen, onClose, lista, vistoHasta, pairId, onElegir, now = new Date() }) {
+// «Avisos»: what the other one has done, in «Nuevas» (since `vistoHasta`) and «Antes». onElegir(entry) goes to it.
+// `cargando` = the listener has not answered yet: an empty list then is not «nothing»
+export function ActividadHoja({ isOpen, onClose, lista, vistoHasta, cargando = false, pairId, onElegir, now = new Date() }) {
   const { nuevas, antes } = agruparActividad(lista || [], vistoHasta);
   return (
     <Sheet isOpen={isOpen} onClose={onClose}>
@@ -66,7 +67,7 @@ export function ActividadHoja({ isOpen, onClose, lista, vistoHasta, pairId, onEl
         </div>
         {!nuevas.length && !antes.length ? (
           <p className="m-auto py-8 px-5 text-[15px] text-ink-2 text-center text-pretty max-w-[280px]">
-            Aún no hay nada por aquí. Cuando la otra persona comente, reaccione o suba algo, lo verás aquí.
+            {cargando ? 'Cargando…' : 'Aún no hay nada por aquí. Cuando la otra persona comente, reaccione o suba algo, lo verás aquí.'}
           </p>
         ) : (
           <div className="flex flex-col gap-4">
@@ -84,7 +85,7 @@ export function ActividadHoja({ isOpen, onClose, lista, vistoHasta, pairId, onEl
 // `actividad` is useActividad(), from MarcaSuperior
 export default function Campana({ actividad }) {
   const navigate = useNavigate();
-  const { lista, vistoHasta, noLeidas } = actividad;
+  const { lista, vistoHasta, noLeidas, listo } = actividad;
   const [abierta, setAbierta] = useState(null); // vistoHasta at the moment it opened, or null when closed
   const [pairId] = useState(() => { try { return localStorage.getItem('pairId') || ''; } catch { return ''; } });
 
@@ -115,6 +116,7 @@ export default function Campana({ actividad }) {
         onClose={() => setAbierta(null)}
         lista={lista}
         vistoHasta={abierta ?? vistoHasta}
+        cargando={listo === false}
         pairId={pairId}
         onElegir={elegir}
       />

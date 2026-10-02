@@ -3,7 +3,10 @@ import { render, screen, act, fireEvent, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 import CalendarPage from './Calendar';
 import { listEvents } from '../lib/calendar';
+import { registrarActividad, borrarActividad } from '../lib/actividad';
 import { RAIN } from '../lib/rain';
+
+vi.mock('../lib/actividad', async (orig) => ({ ...(await orig()), registrarActividad: vi.fn(), borrarActividad: vi.fn() }));
 
 vi.mock('../lib/calendar', () => ({
   listEvents: vi.fn(),
@@ -160,6 +163,44 @@ test('borrar pide confirmación y llama a deleteEvent', async () => {
   await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Borrar evento' })); await flush(); });
   expect(deleteEvent).toHaveBeenCalledWith('SEB1998', 'ev1');
   expect(screen.queryByRole('dialog')).toBeNull();
+});
+
+test('borrar un evento borra sus avisos; si no se pudo borrar, no', async () => {
+  const { deleteEvent } = await import('../lib/calendar');
+  listEvents.mockResolvedValue([cena]);
+  deleteEvent.mockRejectedValueOnce(new Error('denied')).mockResolvedValue();
+  await mount();
+  await openFromList('Cena en casa');
+  fireEvent.click(screen.getByRole('button', { name: 'Borrar evento' }));
+  await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Borrar evento' })); await flush(); });
+  expect(borrarActividad).not.toHaveBeenCalled();
+  await openFromList('Cena en casa');
+  fireEvent.click(screen.getByRole('button', { name: 'Borrar evento' }));
+  await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Borrar evento' })); await flush(); });
+  expect(borrarActividad).toHaveBeenCalledWith('SEB1998', ['evento', 'eventoEditado', 'nosVemos'], { clave: 'ev1' });
+});
+
+test('un evento nuevo se cuenta con su id cuando el servidor lo da', async () => {
+  const { addEvent } = await import('../lib/calendar');
+  addEvent.mockResolvedValue({ committed: Promise.resolve({ id: 'NEW1' }) });
+  await mount('/calendar?y=2026&m=8&d=23');
+  fireEvent.click(screen.getByRole('button', { name: /Añadir a este día/ }));
+  fireEvent.change(screen.getByLabelText('Título'), { target: { value: 'Cena' } });
+  await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Guardar' })); await flush(); });
+  expect(registrarActividad).toHaveBeenCalledTimes(1);
+  expect(registrarActividad).toHaveBeenCalledWith('SEB1998', expect.any(String), 'evento', { ref: { eventId: 'NEW1', dia: '2026-09-23' }, clave: 'NEW1', texto: 'Cena' });
+});
+
+test('un evento editado se cuenta con el id del evento', async () => {
+  const { updateEvent, eventToFormValues } = await import('../lib/calendar');
+  listEvents.mockResolvedValue([cena]);
+  eventToFormValues.mockReturnValue({ title: 'Cena en casa', location: 'Casa', date: '2099-05-10', time: '21:00', endDate: '', eventType: 'novia', seeEachOther: false });
+  updateEvent.mockResolvedValue({ committed: Promise.resolve() });
+  await mount();
+  await openFromList('Cena en casa');
+  fireEvent.click(screen.getByRole('button', { name: /Editar/ }));
+  await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Guardar' })); await flush(); });
+  expect(registrarActividad).toHaveBeenLastCalledWith('SEB1998', expect.any(String), 'eventoEditado', { ref: { eventId: 'ev1', dia: '2099-05-10' }, clave: 'ev1', texto: 'Cena en casa' });
 });
 
 test('O3: «Borrar evento» y «Cancelar» dentro del formulario deja todos los campos como estaban', async () => {

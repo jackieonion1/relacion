@@ -642,14 +642,14 @@ export async function uploadPhoto(pairId, file, identity = 'yo') {
   return { id, thumbUrl: URL.createObjectURL(thumbBlob), createdAt: now, pending, error, ...(done ? { done } : {}) };
 }
 
-// Try again every pending photo of this pair. Returns { sent, failed, lost, offline, queued }.
+// Try again every pending photo of this pair. Returns { sent, failed, lost, offline, queued, sentIds }.
 // `lost` = the local copy is gone (cannot be recovered, the user has to pick it again).
 // `queued` = ids whose write is already in the SDK queue waiting for the server (see confirmQueued).
 let retryRun = null;
 export function retryPendingPhotos(pairId) {
   if (retryRun) return retryRun;
   retryRun = (async () => {
-    const result = { sent: 0, failed: 0, lost: 0, offline: false, queued: [] };
+    const result = { sent: 0, failed: 0, lost: 0, offline: false, queued: [], sentIds: [] };
     const pending = readPending(pairId);
     if (!pending.length) return result;
     if (isOffline()) { result.offline = true; result.failed = pending.length; return result; }
@@ -668,6 +668,7 @@ export function retryPendingPhotos(pairId) {
           if (snap.metadata?.hasPendingWrites) { result.queued.push(p.id); continue; } // queued, not acknowledged yet
           removePending(pairId, p.id);
           result.sent += 1;
+          result.sentIds.push(p.id);
           continue;
         }
         const [thumbBlob, origBlob] = await Promise.all([getThumb(p.id), getOrig(p.id)]);
@@ -678,6 +679,7 @@ export function retryPendingPhotos(pairId) {
         }
         await pushRemote(pairId, p.id, p.identity || 'yo', thumbBlob, origBlob, p.takenAt ?? null);
         result.sent += 1;
+        result.sentIds.push(p.id);
       } catch (e) {
         if (e?.message !== 'cancelled') result.failed += 1; // deleted while uploading: nothing to retry
       }

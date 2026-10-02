@@ -1,8 +1,10 @@
 import React from 'react';
 import { render, screen, fireEvent, act } from '@testing-library/react';
 import Notes from './Notes';
-import { listenNotes, markThreadRead } from '../lib/notes';
+import { listenNotes, markThreadRead, deleteNote, deleteThread } from '../lib/notes';
+import { borrarActividad } from '../lib/actividad';
 
+vi.mock('../lib/actividad', async (orig) => ({ ...(await orig()), registrarActividad: vi.fn(), borrarActividad: vi.fn() }));
 vi.mock('../lib/notes', () => ({
   addNote: vi.fn(),
   deleteNote: vi.fn(),
@@ -73,6 +75,38 @@ describe('las salidas que marcan leído', () => {
     await open('nota suelta');
     fireEvent.click(backdrop());
     expect(markThreadRead.mock.calls).toEqual([['SEB1998', 'S1', 'ella']]);
+  });
+});
+
+// Taking a note back takes its aviso away (nota-{id}); the whole thread, the avisos of each of its notes
+describe('borrar una nota borra su aviso', () => {
+  const borrar = async () => {
+    fireEvent.click(screen.getByRole('button', { name: 'Opciones de la nota' }));
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: /Borrar nota/ })); });
+    await act(async () => { fireEvent.click(button('Borrar nota')); });
+  };
+
+  test('una nota suelta', async () => {
+    deleteNote.mockResolvedValue();
+    await open('nota suelta');
+    await borrar();
+    expect(deleteNote).toHaveBeenCalledWith('SEB1998', 'S1');
+    expect(borrarActividad).toHaveBeenCalledWith('SEB1998', 'nota', { clave: 'S1' });
+  });
+
+  test('un hilo entero, con el de cada nota', async () => {
+    deleteThread.mockResolvedValue();
+    await open('respuesta del hilo');
+    await borrar();
+    expect(deleteThread).toHaveBeenCalledWith('SEB1998', 'T1');
+    expect(borrarActividad.mock.calls).toEqual([['SEB1998', 'nota', { clave: 'T1' }], ['SEB1998', 'nota', { clave: 'R1' }]]);
+  });
+
+  test('si no se pudo borrar, el aviso se queda', async () => {
+    deleteNote.mockRejectedValue(new Error('denied'));
+    await open('nota suelta');
+    await borrar();
+    expect(borrarActividad).not.toHaveBeenCalled();
   });
 });
 
