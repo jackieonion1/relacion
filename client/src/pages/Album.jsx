@@ -13,7 +13,7 @@ const MINIATURAS = 36;
 const pl = (n, uno, varios) => (n === 1 ? uno : varios);
 
 // The photos of an album, oldest first, with the way to take some out
-function Fotos({ album, pairId, volver, alCambiar }) {
+function Fotos({ album, pairId, volver, alQuitar }) {
   const navigate = useNavigate();
   const f = useFotosDe(
     (poner) => fotosDeAlbum(pairId, album, { onThumb: poner, max: MINIATURAS }),
@@ -21,13 +21,20 @@ function Fotos({ album, pairId, volver, alCambiar }) {
   );
   const [seleccion, setSeleccion] = useState(null); // null, or the Set of the ones chosen to take out
   const [quitando, setQuitando] = useState(false);
+  // The ones taken out stay out of the grid at once: the list is not read again (the write may not have reached
+  // the server yet, and a trip would bring them back by its days)
+  const [quitadas, setQuitadas] = useState(() => new Set());
+  const fotos = quitadas.size ? f.fotos.filter((x) => !quitadas.has(x.id)) : f.fotos;
 
   async function quitar() {
     setQuitando(true);
     try {
-      await quitarDeAlbum(pairId, album, [...seleccion], localStorage.getItem('identity') || 'yo');
+      const ids = [...seleccion];
+      await quitarDeAlbum(pairId, album, ids, localStorage.getItem('identity') || 'yo');
+      setQuitadas((q) => new Set([...q, ...ids]));
       setSeleccion(null);
-      alCambiar();
+      setQuitando(false);
+      alQuitar(ids);
     } catch {
       setQuitando(false);
     }
@@ -46,7 +53,7 @@ function Fotos({ album, pairId, volver, alCambiar }) {
       </section>
     );
   }
-  if (!f.fotos.length) {
+  if (!fotos.length) {
     return (
       <section aria-label="Sin fotos" className="p-5 rounded-hero border-[1.5px] border-dashed border-line flex flex-col items-start gap-3">
         <h2 className="etiqueta">Sin fotos</h2>
@@ -60,13 +67,13 @@ function Fotos({ album, pairId, volver, alCambiar }) {
   return (
     <>
       <div className="flex items-center justify-between gap-3 px-1 pb-3 -mt-2">
-        <p className="num text-[14px] text-ink-2">{f.fotos.length} {pl(f.fotos.length, 'foto', 'fotos')}</p>
+        <p className="num text-[14px] text-ink-2">{fotos.length} {pl(fotos.length, 'foto', 'fotos')}</p>
         {seleccion
           ? <Button variant="txt" onClick={() => setSeleccion(null)} className="text-ink-2">Cancelar</Button>
           : <Button variant="txt" accent onClick={() => setSeleccion(new Set())}>Elegir</Button>}
       </div>
       <div className="-mx-4">
-        <FotosMosaico fotos={f.fotos} urls={f.urls} listo={f.listo} pairId={pairId} poner={f.poner} onTocar={tocar} seleccion={seleccion} label={`Fotos de ${album.titulo}`} />
+        <FotosMosaico fotos={fotos} urls={f.urls} listo={f.listo} pairId={pairId} poner={f.poner} onTocar={tocar} seleccion={seleccion} label={`Fotos de ${album.titulo}`} />
       </div>
       {seleccion && (
         <div className="sticky bottom-3 flex justify-center pt-4">
@@ -124,6 +131,10 @@ export default function Album() {
     );
   }
 
+  // An event album now has its doc and lists those photos as excluded (as quitarDeAlbum wrote it)
+  function alQuitar(ids) {
+    setEstado((e) => (e.album ? { ...e, album: { ...e.album, virtual: false, excluidas: e.album.start != null ? [...e.album.excluidas, ...ids] : e.album.excluidas } } : e));
+  }
   async function guardar(valores) {
     const r = await guardarAlbum(pairId, album, valores, identity);
     setEstado({ fase: 'lista', album: r.album });
@@ -141,7 +152,7 @@ export default function Album() {
       accion={<Button icon="editar" label="Editar álbum" onClick={() => setHoja('editar')} className="mt-2 shrink-0" />}
     >
       {album.start != null && <p className="num text-[15px] text-ink-2 px-1 -mt-3 pb-4">{rangoTexto(album.start, album.end)}</p>}
-      <Fotos key={`${album.id}:${intento}`} album={album} pairId={pairId} volver={`/recuerdos/albumes/${encodeURIComponent(album.id)}`} alCambiar={() => setIntento((k) => k + 1)} />
+      <Fotos key={`${album.id}:${intento}`} album={album} pairId={pairId} volver={`/recuerdos/albumes/${encodeURIComponent(album.id)}`} alQuitar={alQuitar} />
 
       <Sheet isOpen={hoja === 'editar'} onClose={() => setHoja(null)}>
         <AlbumForm

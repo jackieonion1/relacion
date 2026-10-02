@@ -71,7 +71,29 @@ test('«Elegir» y «Quitar del álbum» saca esas fotos del álbum y lo recarga
   expect(fotos[0].getAttribute('aria-pressed')).toBe('true');
   fireEvent.click(screen.getByRole('button', { name: 'Quitar del álbum (2)' }));
   await waitFor(() => expect(quitarDeAlbum).toHaveBeenCalledWith(PAIR, manual, ['p1', 'p3'], 'ella'));
-  await waitFor(() => expect(leerAlbum).toHaveBeenCalledTimes(2));
+  expect(await screen.findByText('1 foto')).not.toBeNull();
+});
+
+test('quitar fotos de un viaje las saca del mosaico y del contador al momento, sin releer nada', async () => {
+  leerAlbum.mockResolvedValue(viaje);
+  // As the real one: the days of the event minus the ones the album lists as excluded
+  fotosDeAlbum.mockImplementation(async (pairId, album) => ({ items: [foto('p1'), foto('p2'), foto('p3')].filter((f) => !album.excluidas.includes(f.id)) }));
+  pinta('ev-roma');
+  expect(await screen.findByText('3 fotos')).not.toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Elegir' }));
+  const fotos = screen.getAllByRole('button', { name: /^Foto del/ });
+  fireEvent.click(fotos[0]);
+  fireEvent.click(fotos[2]);
+  fireEvent.click(screen.getByRole('button', { name: 'Quitar del álbum (2)' }));
+  expect(await screen.findByText('1 foto')).not.toBeNull();
+  expect(screen.getAllByRole('button', { name: /^Foto del/ })).toHaveLength(1);
+  expect(leerAlbum).toHaveBeenCalledTimes(1);
+  // The album now lists them as excluded and has its doc, so a second take-out goes to the doc
+  fireEvent.click(screen.getByRole('button', { name: 'Elegir' }));
+  fireEvent.click(screen.getByRole('button', { name: /^Foto del/ }));
+  fireEvent.click(screen.getByRole('button', { name: 'Quitar del álbum (1)' }));
+  await waitFor(() => expect(quitarDeAlbum).toHaveBeenCalledTimes(2));
+  expect(quitarDeAlbum.mock.calls[1][1]).toMatchObject({ virtual: false, excluidas: ['p1', 'p3'] });
 });
 
 test('cancelar la selección no toca nada', async () => {
