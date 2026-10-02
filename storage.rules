@@ -1,20 +1,23 @@
 rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
-    // The same membership as firestore.rules: a uid in pairs/{pairId}/members (written only by joinPair)
-    function isMember(pairId) {
-      return request.auth != null
-        && firestore.exists(/databases/(default)/documents/pairs/$(pairId)/members/$(request.auth.uid));
+    // The same access as firestore.rules: anyone with a session while the pair is open, only members once locked
+    function canUse(pairId) {
+      return request.auth != null && (
+        firestore.exists(/databases/(default)/documents/pairs/$(pairId)/members/$(request.auth.uid))
+        || !firestore.exists(/databases/(default)/documents/pairs/$(pairId))
+        || firestore.get(/databases/(default)/documents/pairs/$(pairId)).data.get('locked', false) != true
+      );
     }
 
     // Fotos: pairs/{pairId}/photos/{photoId}/(thumb.jpg|orig.jpg)
     match /pairs/{pairId}/photos/{photoId}/{fileName} {
-      allow read, write: if isMember(pairId);
+      allow read, write: if canUse(pairId);
     }
 
     // Música: pairs/{pairId}/music/{musicId}/orig
     match /pairs/{pairId}/music/{musicId}/{fileName} {
-      allow read, write: if isMember(pairId);
+      allow read, write: if canUse(pairId);
     }
   }
 }

@@ -1,25 +1,33 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Only uids listed in pairs/{pair}/members get in. Knowing the pair code is not enough (it is in the public
-    // repo's history): the joinPair callable is the only way into members, and it writes with the Admin SDK
+    // Until someone locks the pair (lockPair, from Ajustes), knowing the code is enough, as before: 2.5.1 and 3.0
+    // keep working and 3.1 joins in the background. Once pairs/{pair} has locked: true, only uids listed in
+    // pairs/{pair}/members get in, and only the joinPair callable writes there (Admin SDK)
     function isMember(pairId) {
-      return request.auth != null
-        && exists(/databases/$(database)/documents/pairs/$(pairId)/members/$(request.auth.uid));
+      return exists(/databases/$(database)/documents/pairs/$(pairId)/members/$(request.auth.uid));
+    }
+    function isOpen(pairId) {
+      let pair = /databases/$(database)/documents/pairs/$(pairId);
+      return !exists(pair) || get(pair).data.get('locked', false) != true;
+    }
+    // Member first: once locked, the usual request costs one lookup instead of two
+    function canUse(pairId) {
+      return request.auth != null && (isMember(pairId) || isOpen(pairId));
     }
 
     // The pair doc only carries `locked` (written by lockPair); members read it for Ajustes
     match /pairs/{pairId} {
-      allow get: if isMember(pairId);
+      allow get: if request.auth != null && isMember(pairId);
     }
 
     match /pairs/{pairId}/members/{uid} {
-      allow read: if isMember(pairId);
+      allow read: if request.auth != null && isMember(pairId);
     }
 
     // Rutas explícitas pairs/{pair}/{colección}/{doc}: sin `**`, que también casaba /pairs y /pairs/{pair}
     match /pairs/{pairId}/{col}/{docId} {
-      allow read, write: if col != 'members' && isMember(pairId);
+      allow read, write: if col != 'members' && canUse(pairId);
     }
 
     // pairInvites/{hash}: Admin SDK only (createInvite, joinPair); no rule, so the client never reaches it
