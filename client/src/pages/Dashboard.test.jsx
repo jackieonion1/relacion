@@ -93,6 +93,29 @@ test('el clima pinta la luna y el emoji a la vez y el cielo de la tabla 7 × 4',
   expect(screen.getByText('Sin ubicación')).not.toBeNull();
 });
 
+test('sin conexión el clima dice «Sin conexión» y no «Sin ubicación»', async () => {
+  fetchCityWeather.mockImplementation(async (city) => { if (city) throw new TypeError('Failed to fetch'); return null; });
+  const online = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
+  try {
+    await mount();
+    const clima = screen.getByRole('region', { name: 'Clima ahora' });
+    expect(clima.textContent).toMatch('Sin conexión');
+    expect(clima.textContent).toMatch('Ciudad A');
+    expect(clima.textContent).not.toMatch('Sin ubicación');
+  } finally {
+    online.mockRestore();
+  }
+});
+
+test('con red y una ciudad sin parte del tiempo dice «Sin datos del tiempo»', async () => {
+  fetchCityWeather.mockResolvedValue(null);
+  await mount();
+  const clima = screen.getByRole('region', { name: 'Clima ahora' });
+  expect(clima.textContent).toMatch('Sin datos del tiempo');
+  expect(clima.textContent).toMatch('Ciudad A');
+  expect(screen.getAllByText('Sin ubicación')).toHaveLength(1); // la de ella, que no tiene ciudad
+});
+
 test('la hora local de la ciudad sale junto a su nombre y se oculta sin zona horaria (C8)', async () => {
   fetchCityWeather.mockImplementation(async (city) => (city ? {
     city, temp: 18, feels: 17, humidity: 64, wind: 12, code: 0, phase: 'day', timezone: 'Asia/Tokyo',

@@ -358,7 +358,7 @@ describe('listPhotosPage', () => {
   test('sin sesión tras la espera también es un error, y no lee Firestore', async () => {
     const { whenAuthed } = await import('./firebase');
     whenAuthed.mockResolvedValueOnce(null);
-    await expect(listPhotosPage(PAIR, { pageSize: 60 })).rejects.toThrow('no-auth');
+    await expect(listPhotosPage(PAIR, { pageSize: 60 })).rejects.toMatchObject({ code: 'no-auth' });
     expect(getDocs).not.toHaveBeenCalled();
   });
 });

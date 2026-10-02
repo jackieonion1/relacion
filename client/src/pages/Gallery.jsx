@@ -49,7 +49,7 @@ export default function Gallery() {
   const pairId = useMemo(() => localStorage.getItem('pairId') || '', []);
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState(false);
+  const [loadError, setLoadError] = useState(false); // false, or the error's code (no-auth, permission-denied…)
   const [reloadKey, setReloadKey] = useState(0);
   // Fotos del lote que aún no han vuelto de uploadPhoto: una celda «Subiendo» por cada una
   const [uploadingCount, setUploadingCount] = useState(0);
@@ -140,7 +140,7 @@ export default function Gallery() {
       } catch (e) {
         // También sin sesión: es «no se pudo cargar», no una galería vacía
         console.error('Gallery load failed', e);
-        if (!cancelled) setLoadError(true);
+        if (!cancelled) setLoadError(e?.code || 'unknown');
       } finally {
         if (replaced || cancelled) stale.forEach((u) => { if (u && u.startsWith('blob:')) URL.revokeObjectURL(u); });
         else urlsRef.current.push(...stale);
@@ -579,6 +579,8 @@ export default function Gallery() {
           <h2 className="text-[17px] font-semibold">No se pudieron cargar las fotos</h2>
           <p className="text-sm text-ink-2">Puede ser la conexión. Las fotos siguen ahí.</p>
           <Button variant="sec" onClick={() => setReloadKey((k) => k + 1)}>Reintentar</Button>
+          {/* Small, to tell «no session» (no-auth, permission-denied) from «Firestore unreachable» (unavailable…) */}
+          <p className="num text-xs text-ink-2 opacity-75">{loadError}</p>
         </section>
       ) : isEmpty ? (
         <section className="mx-4 mt-6 flex flex-col items-center gap-3 py-9 px-6 rounded-hero border-[1.5px] border-dashed border-line text-center">

@@ -173,7 +173,7 @@ export async function listPhotos(pairId, max = 100) {
 export async function listPhotosPage(pairId, { pageSize = 60, cursor = null, onThumb = null } = {}) {
   const fblib = await fb();
   if (db && fblib) {
-    if (!(await whenAuthed())) throw new Error('no-auth');
+    if (!(await whenAuthed())) throw Object.assign(new Error('no-auth'), { code: 'no-auth' });
     const { collection, getDocs, query, orderBy, limit, startAfter } = fblib;
     const col = collection(db, 'pairs', pairId, 'photos');
     // pageSize + 1 tells us whether there is another page without an empty extra read

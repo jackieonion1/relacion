@@ -206,13 +206,21 @@ describe('C3: pasar de foto en el visor', () => {
 
 // Le pasó en el iPhone: falló la primera página y decía «Aún no hay fotos»
 test('si no se puede cargar la galería lo dice, con Reintentar, y no la da por vacía', async () => {
-  listPhotosPage.mockRejectedValueOnce(new Error('no-auth'));
+  listPhotosPage.mockRejectedValueOnce(Object.assign(new Error('no-auth'), { code: 'no-auth' }));
   vi.spyOn(console, 'error').mockImplementation(() => {});
   await mount();
   expect(screen.queryByText('Aún no hay fotos')).toBeNull();
   expect(screen.getByRole('alert').textContent).toMatch('No se pudieron cargar las fotos');
+  expect(screen.getByText('no-auth')).toBeTruthy(); // el código, para distinguir sesión de red
   await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Reintentar' })); await flush(); });
   expect(cells()).toHaveLength(3);
+});
+
+test('con Firestore inalcanzable el aviso lleva su código', async () => {
+  listPhotosPage.mockRejectedValueOnce(Object.assign(new Error('Failed to get documents'), { code: 'unavailable' }));
+  vi.spyOn(console, 'error').mockImplementation(() => {});
+  await mount();
+  expect(screen.getByRole('alert').textContent).toMatch('unavailable');
 });
 
 test('vacía de verdad sí dice «Aún no hay fotos»', async () => {
