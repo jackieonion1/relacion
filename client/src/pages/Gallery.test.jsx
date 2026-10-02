@@ -5,6 +5,8 @@ import Gallery from './Gallery';
 import { whenAuthed } from '../lib/firebase';
 import { listPhotosPage, listPendingPhotos, getPendingIds, retryPendingPhotos, getOriginal, getOriginalUrl, deletePhoto } from '../lib/photos';
 import { escucharFoto, setReaccion } from '../lib/fotoSocial';
+import { escucharComentarios, addComentario, deleteComentario, marcarLeidos } from '../lib/fotoComentarios';
+import { useNoLeidos } from '../lib/fotoAvisos';
 
 // The real module underneath: a name that lib/photos gains later is there without touching this mock (a closed list
 // would throw «no "x" export is defined» for the modules Gallery pulls in, e.g. lib/recuerdos). Only what the tests
@@ -31,9 +33,23 @@ vi.mock('../lib/fotoSocial', async (orig) => ({
   escucharFoto: vi.fn(),
   setReaccion: vi.fn(),
 }));
+vi.mock('../lib/fotoComentarios', async (orig) => ({
+  ...(await orig()),
+  escucharComentarios: vi.fn(),
+  addComentario: vi.fn(),
+  deleteComentario: vi.fn(),
+  marcarLeidos: vi.fn(),
+}));
+vi.mock('../lib/fotoAvisos', () => ({ useNoLeidos: vi.fn(), useGaleriaBadge: vi.fn() }));
+const NADA_SIN_LEER = new Map();
 beforeEach(() => {
   escucharFoto.mockReturnValue(() => {});
   setReaccion.mockResolvedValue({ committed: Promise.resolve() });
+  escucharComentarios.mockReturnValue(() => {});
+  addComentario.mockResolvedValue({ id: 'C1', committed: Promise.resolve() });
+  deleteComentario.mockResolvedValue();
+  marcarLeidos.mockResolvedValue();
+  useNoLeidos.mockReturnValue(NADA_SIN_LEER);
 });
 
 const flush = async () => { for (let i = 0; i < 10; i++) await Promise.resolve(); };
@@ -358,5 +374,44 @@ describe('3.1: reacciones en el visor', () => {
     await act(async () => { fireEvent.click(cells()[0]); await flush(); });
     expect(screen.queryByRole('group', { name: 'Reacciones' })).toBeNull();
     expect(screen.getByText('La subió 🍪')).toBeTruthy();
+  });
+});
+
+describe('3.1: comentarios en el visor', () => {
+  const foto = { id: 'K', thumbUrl: '', createdAt: new Date(2025, 2, 12, 12).getTime(), identity: 'ella', commentCount: 1 };
+  const suyo = { id: 'c1', photoId: 'K', text: 'Qué guapos', identity: 'ella', createdAt: null, unreadFor: ['yo'] };
+  beforeEach(() => {
+    localStorage.setItem('identity', 'yo');
+    listPhotosPage.mockResolvedValue({ items: [foto], cursor: null, hasMore: false, thumbsDone: Promise.resolve() });
+    getOriginal.mockResolvedValue(null);
+    getOriginalUrl.mockResolvedValue('https://example.test/orig.jpg');
+  });
+  afterEach(() => localStorage.removeItem('identity'));
+
+  test('la hoja los enseña, los marca leídos al verlos y envía el nuestro', async () => {
+    await mount();
+    await act(async () => { fireEvent.click(cells()[0]); await flush(); });
+    await rest();
+    const llega = escucharComentarios.mock.calls.at(-1)[2];
+    await act(async () => { llega([suyo]); await flush(); });
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Comentarios: 1' })); await flush(); });
+    const hoja = screen.getByRole('dialog');
+    expect(within(hoja).getByText('Qué guapos')).toBeTruthy();
+    expect(marcarLeidos).toHaveBeenCalledWith('SEB1998', [suyo], 'yo');
+    fireEvent.change(within(hoja).getByRole('textbox', { name: 'Escribe un comentario' }), { target: { value: '  Mucho  ' } });
+    await act(async () => { fireEvent.click(within(hoja).getByRole('button', { name: 'Enviar' })); await flush(); });
+    expect(addComentario).toHaveBeenCalledWith('SEB1998', 'K', '  Mucho  ', 'yo');
+    expect(within(hoja).getByRole('textbox').value).toBe('');
+    // Con la hoja abierta, las flechas escriben: no pasan de foto
+    await act(async () => { fireEvent.keyDown(document, { key: 'ArrowRight' }); await flush(); });
+    expect(screen.getByRole('dialog')).toBeTruthy();
+  });
+
+  test('desde la push (?photo=) con algo sin leer, los comentarios se abren solos', async () => {
+    useNoLeidos.mockReturnValue(new Map([['K', 1]]));
+    render(<MemoryRouter initialEntries={['/gallery?photo=K']}><Gallery /></MemoryRouter>);
+    await act(flush);
+    expect(screen.getByRole('heading', { name: 'Comentarios' })).toBeTruthy();
+    expect(cells()[0].getAttribute('aria-label')).toMatch('con comentarios sin leer');
   });
 });

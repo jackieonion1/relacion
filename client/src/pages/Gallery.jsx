@@ -9,7 +9,10 @@ import Sheet from '../components/Sheet';
 import Button from '../components/Button';
 import Icon from '../components/Icon';
 import VisorPie, { photoDate } from '../components/VisorPie';
+import ComentariosHoja from '../components/ComentariosHoja';
 import { escucharFoto, setReaccion } from '../lib/fotoSocial';
+import { escucharComentarios, addComentario, deleteComentario, marcarLeidos } from '../lib/fotoComentarios';
+import { useNoLeidos } from '../lib/fotoAvisos';
 import './Gallery.css';
 
 const PAGE_SIZE = 60;
@@ -73,6 +76,11 @@ export default function Gallery() {
   // The open photo's doc, live ({ id, foto }; foto null once deleted): reactions of the other, and the footer of a
   // photo opened with ?photo= that is not in the loaded grid
   const [vivo, setVivo] = useState({ id: null, foto: null });
+  // Comments of the open photo ({ id, list }; list null until loaded) and their sheet
+  const [comentarios, setComentarios] = useState({ id: null, list: null });
+  const [comentariosOpen, setComentariosOpen] = useState(false);
+  const noLeidos = useNoLeidos();
+  const comentariosDeUrlRef = useRef(''); // opened from a comment's push: its comments open by themselves
   // Paginación: cursor = último doc de la página cargada; genRef descarta páginas de una carga anterior
   const cursorRef = useRef(null);
   const genRef = useRef(0);
@@ -190,6 +198,7 @@ export default function Gallery() {
     if (!photoIdFromUrl) { urlOpenedRef.current = ''; return; }
     if (!pairId || viewer.open || urlOpenedRef.current === photoIdFromUrl) return;
     urlOpenedRef.current = photoIdFromUrl;
+    comentariosDeUrlRef.current = photoIdFromUrl;
     openViewer(photoIdFromUrl);
   }, [photoIdFromUrl, viewer.open]);
 
@@ -440,6 +449,7 @@ export default function Gallery() {
 
   function closeViewer() {
     advanceFromRef.current = null;
+    setComentariosOpen(false);
     revokeViewerUrls();
     setViewer({ open: false, id: null, url: '', fallbackUrl: '', loading: false });
     // Navigate to clear the URL parameter, preventing the viewer from re-opening. Opened from an album, a stamp or
@@ -479,6 +489,45 @@ export default function Gallery() {
   // A photo still only on this phone has no doc yet: nothing to react to
   const viewerFoto = vivo.id === viewer.id && vivo.foto ? { ...viewerItem, ...vivo.foto, thumbUrl: viewerItem?.thumbUrl || '' } : viewerItem;
   const social = !!viewerFoto && !pendingIds.includes(viewer.id);
+  const deLaFoto = comentarios.id === viewer.id ? comentarios.list : null;
+  const nComentarios = deLaFoto ? deLaFoto.length : (viewerFoto?.commentCount || 0);
+  const sinLeer = !!viewer.id && noLeidos.has(viewer.id);
+  // Only listened to when it has some (or the sheet is open): an empty query still costs a read per photo passed
+  const quiereComentarios = viewer.open && social && (nComentarios > 0 || sinLeer || comentariosOpen);
+
+  useEffect(() => {
+    const id = quiereComentarios ? viewer.id : null;
+    if (!id) return undefined;
+    let unsub = null;
+    const timer = setTimeout(() => {
+      unsub = escucharComentarios(pairId, id, (list) => setComentarios({ id, list }), (e) => console.warn('Comments listener failed', e));
+    }, LIVE_DELAY_MS);
+    return () => { clearTimeout(timer); if (unsub) unsub(); };
+  }, [quiereComentarios, viewer.id, pairId]);
+
+  // Read once the sheet shows them
+  useEffect(() => {
+    if (comentariosOpen && deLaFoto) marcarLeidos(pairId, deLaFoto, identity).catch(() => {});
+  }, [comentariosOpen, deLaFoto]);
+
+  // From the push of a comment (/gallery?photo=ID): with something unread, its comments open by themselves
+  useEffect(() => {
+    const from = comentariosDeUrlRef.current;
+    if (!from || !viewer.open || viewer.loading) return;
+    comentariosDeUrlRef.current = '';
+    if (viewer.id === from && sinLeer) setComentariosOpen(true);
+  }, [viewer.open, viewer.id, viewer.loading, sinLeer]);
+
+  async function onSendComentario(text) {
+    const id = viewer.id;
+    await addComentario(pairId, id, text, identity);
+    patchFoto(id, (it) => ({ commentCount: (it.commentCount || 0) + 1 }));
+  }
+
+  function onDeleteComentario(c) {
+    deleteComentario(pairId, c).catch((e) => console.warn('Comment delete failed', e));
+    patchFoto(c.photoId, (it) => ({ commentCount: Math.max(0, (it.commentCount || 0) - 1) }));
+  }
   const pendingCount = pendingIds.length;
 
   // C3: anterior y siguiente entre las ya cargadas, en el orden de la cuadrícula. Desde la última, si hay más
@@ -490,7 +539,7 @@ export default function Gallery() {
   const nextOnNextPage = at >= 0 && !nextItem && hasMore;
 
   function step(dir) {
-    if (!viewer.open || deleting || confirmDeleteOpen) return;
+    if (!viewer.open || deleting || confirmDeleteOpen || comentariosOpen) return;
     if (dir < 0) {
       if (prevItem) showPhoto(prevItem.id);
     } else if (nextItem) {
@@ -664,7 +713,7 @@ export default function Gallery() {
                     key={it.id}
                     type="button"
                     onClick={() => openViewer(it.id)}
-                    aria-label={`Foto del ${photoDate(it.createdAt || 0)}`}
+                    aria-label={`Foto del ${photoDate(it.createdAt || 0)}${noLeidos.has(it.id) ? ', con comentarios sin leer' : ''}`}
                     className="galeria-celda relative block w-full aspect-square overflow-hidden bg-sunk active:opacity-80"
                     style={{ animationDelay: `${Math.min(i, 11) * 20}ms` }}
                   >
@@ -674,6 +723,9 @@ export default function Gallery() {
                       <span className="galeria-hueco" />
                     ) : (
                       <span className="absolute inset-0 flex items-center justify-center text-ink-2"><Icon name="sinConexion" size={20} /></span>
+                    )}
+                    {noLeidos.has(it.id) && (
+                      <span aria-hidden="true" className="galeria-punto absolute top-1.5 right-1.5" />
                     )}
                     {pendingIds.includes(it.id) && (
                       <span className="absolute left-1.5 bottom-1.5 px-2 py-[3px] rounded-[10px] bg-ink text-paper text-xs font-semibold">Sin subir</span>
@@ -807,10 +859,22 @@ export default function Gallery() {
               deleting={deleting}
               onDelete={() => setConfirmDeleteOpen(true)}
               onReact={social ? onReact : null}
+              comentarios={{ n: nComentarios, unread: sinLeer }}
+              onComments={() => setComentariosOpen(true)}
             />
           )}
         </div>
       </Modal>
+
+      <ComentariosHoja
+        isOpen={comentariosOpen && viewer.open}
+        onClose={() => setComentariosOpen(false)}
+        comentarios={deLaFoto}
+        cargando={!deLaFoto && nComentarios > 0}
+        identity={identity}
+        onSend={onSendComentario}
+        onDelete={onDeleteComentario}
+      />
 
       <Sheet isOpen={confirmDeleteOpen} onClose={() => setConfirmDeleteOpen(false)}>
         <div className="flex flex-col gap-1.5 px-5 pt-3.5 pb-[34px]">

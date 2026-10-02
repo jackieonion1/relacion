@@ -30,6 +30,12 @@
 }
 .visor-flecha:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
 
+/* Unread comments on a photo (3.1): the tab bar's lacre dot, ringed so it reads over any photo */
+.galeria-punto {
+  width: 10px; height: 10px; border-radius: 50%;
+  background-color: var(--lacre); box-shadow: 0 0 0 2px var(--paper);
+}
+
 /* uploadBytes reports no progress: the ring only turns (plan A9) */
 .galeria-anillo { animation: galeria-giro 1100ms linear infinite; }
 @keyframes galeria-giro { to { transform: rotate(360deg); } }
