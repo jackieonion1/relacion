@@ -1,7 +1,7 @@
 import React, { useEffect, useId, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { followViewport, revealOnKeyboard } from '../lib/sheetViewport';
-import { STOP_BAR_ROOM, useStopBar } from '../lib/stopBar';
+import { STOP_BAR_PADDING, useStopBar } from '../lib/stopBar';
 
 const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [contenteditable="true"], [tabindex]:not([tabindex="-1"])';
 
@@ -75,7 +75,7 @@ export default function Sheet({ isOpen, onClose, label, children }) {
         aria-label={label}
         tabIndex={-1}
         className="hoja relative w-full max-w-lg mx-auto max-h-[92dvh] overflow-y-auto overscroll-contain bg-card text-ink rounded-t-hoja border border-b-0 border-line shadow-hoja outline-hidden"
-        style={{ paddingBottom: raining ? `calc(env(safe-area-inset-bottom, 0px) + ${STOP_BAR_ROOM}px)` : 'env(safe-area-inset-bottom, 0px)' }}
+        style={{ paddingBottom: raining ? STOP_BAR_PADDING : 'env(safe-area-inset-bottom, 0px)' }}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex justify-center pt-2" aria-hidden="true">

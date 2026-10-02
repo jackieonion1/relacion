@@ -4,6 +4,7 @@ import Button from '../components/Button';
 import Chip from '../components/Chip';
 import Icon from '../components/Icon';
 import { prefersReducedMotion } from '../lib/motion';
+import { STOP_BAR_PADDING } from '../lib/stopBar';
 
 const MAX_OPTIONS = 15;
 const SIZE = 280; // wheel canvas, CSS px
@@ -415,7 +416,7 @@ export default function Roulette() {
               tabIndex={-1}
               className="hoja pointer-events-auto w-full max-w-lg px-5 pt-2 bg-card text-ink text-center rounded-t-hoja border border-b-0 border-line shadow-hoja outline-hidden flex flex-col items-center gap-2 transition-[padding] duration-260 ease-suave"
               // While the fireworks run, «Parar la fiesta» floats above the bar: the buttons make room for it
-              style={{ paddingBottom: `calc(env(safe-area-inset-bottom, 0px) + ${fireworksActive ? 10.5 : 2.125}rem)` }}
+              style={{ paddingBottom: fireworksActive ? STOP_BAR_PADDING : 'calc(env(safe-area-inset-bottom, 0px) + 2.125rem)' }}
             >
               <span className="block w-9 h-[5px] rounded-full bg-line mb-3" aria-hidden="true" />
               <p className="etiqueta">🎉 Ha salido 🎉</p>
