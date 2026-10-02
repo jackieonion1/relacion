@@ -5,6 +5,7 @@ import Settings from './Settings';
 import { getPushSubscription, getPushDiag, subscribeToPush, unsubscribeFromPush } from '../lib/push';
 import { checkForUpdate, getRegistration, applyUpdate } from '../lib/appUpdate';
 import { getPairInfo, createInvite, lockPair, removeMember } from '../lib/pair';
+import { membership } from '../lib/firebase';
 
 vi.mock('../lib/push', () => ({
   getPushSubscription: vi.fn(), getPushDiag: vi.fn(), subscribeToPush: vi.fn(), unsubscribeFromPush: vi.fn(),
@@ -215,8 +216,8 @@ test('«Así era» en La app lleva a /asi-era', async () => {
 
 test('Dispositivos: lista, invitación de un solo uso, quitar otro y cerrar la pareja con confirmación', async () => {
   const members = [
-    { uid: 'u1', label: 'iPhone', joinedAt: Date.UTC(2026, 9, 1), me: true },
-    { uid: 'u2', label: 'Android', joinedAt: Date.UTC(2026, 9, 2), me: false },
+    { uid: 'u1', label: 'iPhone', joinedAt: Date.UTC(2026, 9, 1), via: 'code', me: true },
+    { uid: 'u2', label: 'Android', joinedAt: Date.UTC(2026, 9, 2), via: 'invite', me: false },
   ];
   getPairInfo.mockResolvedValue({ locked: false, members });
   createInvite.mockResolvedValue({ code: 'ABCDEFGH', expiresAt: Date.now() + 15 * 60 * 1000 });
@@ -224,7 +225,10 @@ test('Dispositivos: lista, invitación de un solo uso, quitar otro y cerrar la p
   removeMember.mockResolvedValue({ ok: true });
   await mount();
   expect(getPairInfo).toHaveBeenCalledWith('SEB1998');
-  expect(screen.queryByText('iPhone · este')).not.toBeNull();
+  expect(screen.queryByText('iPhone · este dispositivo')).not.toBeNull();
+  // Fecha y hora del alta y por dónde entró (lo pone joinPair)
+  expect(screen.queryByText(/^Desde el .+ 2026, \d\d:\d\d · con el código$/)).not.toBeNull();
+  expect(screen.queryByText(/^Desde el .+ 2026, \d\d:\d\d · con una invitación$/)).not.toBeNull();
   expect(screen.getAllByRole('button', { name: 'Quitar' })).toHaveLength(1); // este no se quita a sí mismo
 
   await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Añadir un dispositivo' })); await flush(); });
@@ -254,6 +258,21 @@ test('Dispositivos sin red: no se puede invitar ni cerrar', async () => {
   await mount();
   expect(screen.getByRole('button', { name: 'Añadir un dispositivo' }).disabled).toBe(true);
   expect(screen.getByRole('button', { name: 'Cerrar la pareja' }).disabled).toBe(true);
+});
+
+test('Dispositivos en un dispositivo que aún no se ha unido: lo dice, no culpa a la conexión', async () => {
+  const state = { status: 'retrying' };
+  membership.get = () => state;
+  membership.subscribe = () => () => {};
+  getPairInfo.mockRejectedValue(Object.assign(new Error('denied'), { code: 'permission-denied' }));
+  try {
+    await mount();
+    expect(screen.queryByText(/Este dispositivo aún no está en la lista/)).not.toBeNull();
+    expect(screen.queryByText(/con conexión\.$/)).toBeNull();
+  } finally {
+    delete membership.get;
+    delete membership.subscribe;
+  }
 });
 
 test('Dispositivos en un dispositivo sin permiso: los botones se explican en vez de fallar', async () => {

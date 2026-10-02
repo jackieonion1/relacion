@@ -8,6 +8,7 @@ import { onSchedule } from 'firebase-functions/v2/scheduler';
 import webpush from 'web-push';
 import { createHash, randomInt } from 'node:crypto';
 import { eventBody } from './pushLogic.js';
+import { deviceLabel } from './membershipLogic.js';
 import { madridDate, remindersFor, skipPairs } from './reminders.js';
 
 // Global options
@@ -96,7 +97,7 @@ export const joinPair = onCall(async (request) => {
   const pairId = readPairId(request);
   const uid = request.auth.uid;
   const invite = String(request.data?.invite || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
-  const label = String(request.data?.label || '').replace(/\s+/g, ' ').trim().slice(0, 40);
+  const kind = deviceLabel(String(request.rawRequest?.headers?.['user-agent'] || ''), request.data?.touch === true);
   // Only for Ajustes, which greys out what this device can't do; the callables ask Auth themselves
   const old = await accountIsOld(uid);
   return db.runTransaction(async (tx) => {
@@ -114,9 +115,11 @@ export const joinPair = onCall(async (request) => {
       // An invite dies with its creator: a device taken out can't come back through one it left behind
       const creator = await tx.get(memberRef(pairId, String(inv.get('createdBy') || '-')));
       if (!creator.exists) throw new HttpsError('permission-denied', 'invite');
-      tx.delete(ref); // single use
     }
-    tx.set(me, { joinedAt: FieldValue.serverTimestamp(), ...(label ? { label } : {}), via: locked ? 'invite' : 'code', trusted: locked || old });
+    // Reads before writes (transaction): an unknown kind is numbered after the devices already in
+    const label = kind || `Dispositivo ${(await tx.get(pairRef(pairId).collection('members'))).size + 1}`;
+    if (locked) tx.delete(inviteRef(pairId, invite)); // single use
+    tx.set(me, { joinedAt: FieldValue.serverTimestamp(), label, via: locked ? 'invite' : 'code', trusted: locked || old });
     return { ok: true };
   });
 });

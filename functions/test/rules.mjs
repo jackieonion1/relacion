@@ -198,10 +198,19 @@ await expectCall('joinPair sin sesión', 'joinPair', { pairId: J }, null, 'UNAUT
 await expectCall('joinPair con un código mal formado', 'joinPair', { pairId: 'a/b' }, A, 'INVALID_ARGUMENT');
 // Abierta: basta con el código, como antes (así los móviles de hoy entran solos al abrir la 3.1)
 await expectCall('joinPair en una pareja abierta', 'joinPair', { pairId: J, label: 'iPhone' }, A);
-check((await db.doc(`pairs/${J}/members/${A}`).get()).get('label') === 'iPhone', 'joinPair guarda el member con su label');
+// La etiqueta la pone el servidor: el label del cliente no cuenta, y sin user agent conocido se numera
+check((await db.doc(`pairs/${J}/members/${A}`).get()).get('label') === 'Dispositivo 1', 'joinPair ignora el label del cliente y numera un user agent desconocido');
 await expectAllow('tras joinPair, el nuevo miembro lee', 'GET', `/pairs/${J}/notes`, { uid: A });
 await expectCall('joinPair es idempotente', 'joinPair', { pairId: J }, A);
 await expectCall('joinPair acepta minúsculas', 'joinPair', { pairId: J.toLowerCase() }, B);
+check((await db.doc(`pairs/${J}/members/${B}`).get()).get('label') === 'Dispositivo 2', 'el siguiente desconocido es el 2');
+await fetch(`${functionsBase}/joinPair`, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 Safari/605.1.15', ...auth('uid-ipad') },
+  body: JSON.stringify({ data: { pairId: J, touch: true, label: '<b>iPhone de ella</b>' } }),
+});
+check((await db.doc(`pairs/${J}/members/uid-ipad`).get()).get('label') === 'iPad', 'joinPair saca la etiqueta del user agent (un iPad dice Macintosh, con táctil)');
+await db.doc(`pairs/${J}/members/uid-ipad`).delete();
 // Solo los miembros invitan, cierran o quitan
 await expectCall('createInvite de un no miembro', 'createInvite', { pairId: J }, C, 'PERMISSION_DENIED');
 await expectCall('lockPair de un no miembro', 'lockPair', { pairId: J }, C, 'PERMISSION_DENIED');

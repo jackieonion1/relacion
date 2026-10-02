@@ -3,7 +3,7 @@ import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
 import { getFirestore, enableIndexedDbPersistence, doc, getDocFromServer } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
 import { createSignIn, createWhenAuthed, listenAfterAuth } from './authGate';
-import { createMembership, deviceLabel } from './membership';
+import { createMembership } from './membership';
 
 const firebaseConfig = {
   apiKey: import.meta.env.REACT_APP_FIREBASE_API_KEY,
@@ -47,8 +47,9 @@ if (required.every(Boolean)) {
     join: async (data) => {
       const { getFunctions, httpsCallable } = await import('firebase/functions');
       const fn = httpsCallable(getFunctions(app, 'europe-southwest1'), 'joinPair', { timeout: 15000 });
-      const label = typeof navigator === 'undefined' ? '' : deviceLabel(navigator.userAgent, navigator.maxTouchPoints);
-      return (await fn({ ...data, label })).data;
+      // joinPair names the device from the user agent; an iPad passes for a Mac but has touch
+      const touch = typeof navigator !== 'undefined' && navigator.maxTouchPoints > 1;
+      return (await fn({ ...data, touch })).data;
     },
     check: async (pairId, uid) => {
       if (!isOnline()) return null;
