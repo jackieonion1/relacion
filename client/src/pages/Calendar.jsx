@@ -3,6 +3,7 @@ import { useLocation } from 'react-router';
 import { createPortal } from 'react-dom';
 import { addEvent, updateEvent, listEvents, deleteEvent, eventToFormValues } from '../lib/calendar';
 import Modal from '../components/Modal';
+import Icon from '../components/Icon';
 import EventTypeSwitcher from '../components/EventTypeSwitcher';
 import ViewSwitcher from '../components/ViewSwitcher';
 import MonthlyCalendarView from '../components/MonthlyCalendarView';
@@ -365,7 +366,7 @@ export default function CalendarPage() {
       {saveError && (
         <div className="card flex items-center justify-between gap-3 text-sm text-rose-600">
           <span>{saveError}</span>
-          <button type="button" onClick={() => setSaveError('')} className="btn-link" aria-label="Cerrar aviso">×</button>
+          <button type="button" onClick={() => setSaveError('')} className="btn-link" aria-label="Cerrar aviso"><Icon name="cerrar" size={18} /></button>
         </div>
       )}
       <ViewSwitcher

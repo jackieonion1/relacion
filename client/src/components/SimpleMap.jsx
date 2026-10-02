@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import Icon from './Icon';
 import { createPortal } from 'react-dom';
 import Modal from './Modal';
 import { db, whenAuthed, listenWhenAuthed } from '../lib/firebase';
@@ -198,7 +199,7 @@ export default function SimpleMap({ onDistanceChange }) {
       {saveError && (
         <div className="mt-2 flex items-center justify-between gap-3 text-xs text-rose-600">
           <span>{saveError}</span>
-          <button type="button" onClick={() => setSaveError('')} className="btn-link" aria-label="Cerrar aviso">×</button>
+          <button type="button" onClick={() => setSaveError('')} className="btn-link" aria-label="Cerrar aviso"><Icon name="cerrar" size={16} /></button>
         </div>
       )}
 

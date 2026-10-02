@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import Icon from './Icon';
 
 function isIOS() {
   if (typeof navigator === 'undefined') return false;
@@ -90,7 +91,7 @@ export default function InstallPrompt() {
             aria-label="Cerrar"
             onClick={dismiss}
             className="ml-auto text-rose-600"
-          >✕</button>
+          ><Icon name="cerrar" size={18} /></button>
         </div>
       ) : (
         <div className="rounded-xl border border-rose-200 bg-rose-50 text-rose-900 px-4 py-3 text-sm flex items-center gap-3">

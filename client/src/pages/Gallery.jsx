@@ -5,6 +5,7 @@ import { listPhotosPage, listPendingPhotos, getPendingIds, retryPendingPhotos, c
 import { mergeUnique } from '../lib/pagination';
 import Modal from '../components/Modal';
 import TrashIcon from '../components/icons/TrashIcon';
+import Icon from '../components/Icon';
 
 const PAGE_SIZE = 60;
 
@@ -352,7 +353,7 @@ export default function Gallery() {
           title="Actualizar"
           className="p-2 rounded-lg hover:bg-rose-50 text-rose-600"
         >
-          <span className="text-xl leading-none">↻</span>
+          <Icon name="recargar" size={22} />
         </button>
       </div>
 
@@ -392,7 +393,7 @@ export default function Gallery() {
             className="btn-link"
             aria-label="Cerrar aviso"
           >
-            ×
+            <Icon name="cerrar" size={18} />
           </button>
         </div>
       ))}

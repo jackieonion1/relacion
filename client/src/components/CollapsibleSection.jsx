@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import Icon from './Icon';
 
 export default function CollapsibleSection({ title, children, defaultOpen = false }) {
   const [isOpen, setIsOpen] = useState(defaultOpen);
@@ -11,7 +12,7 @@ export default function CollapsibleSection({ title, children, defaultOpen = fals
       >
         <span>{title}</span>
         <span className={`transform transition-transform duration-200 text-rose-500 ${isOpen ? 'rotate-180' : 'rotate-0'}`}>
-          ▼
+          <Icon name="abajo" size={20} />
         </span>
       </button>
       {isOpen && (

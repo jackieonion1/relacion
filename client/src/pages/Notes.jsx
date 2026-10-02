@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Modal from '../components/Modal';
+import Icon from '../components/Icon';
 import RichTextEditor from '../components/RichTextEditor';
 import MarkdownRenderer from '../components/MarkdownRenderer';
 import { addNote, deleteNote, listenNotes, deleteThread, markThreadRead } from '../lib/notes';
@@ -210,7 +211,7 @@ export default function Notes() {
       {saveError && (
         <div className="card flex items-center justify-between gap-3 text-sm text-rose-600">
           <span>{saveError}</span>
-          <button type="button" onClick={() => setSaveError('')} className="btn-link" aria-label="Cerrar aviso">×</button>
+          <button type="button" onClick={() => setSaveError('')} className="btn-link" aria-label="Cerrar aviso"><Icon name="cerrar" size={18} /></button>
         </div>
       )}
       {loadError && (
