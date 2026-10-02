@@ -55,6 +55,7 @@ export function albumDeDoc(docSnap) {
   return {
     id: docSnap.id,
     titulo: String(d.title || '').trim() || 'Álbum',
+    sinTitulo: !String(d.title || '').trim(), // the doc of an event album made by taking a photo out: it is named by its event
     emoji: d.emoji || EMOJI_VIAJE,
     tipo: d.kind === 'evento' ? 'evento' : 'manual',
     eventId: d.eventId || null,
@@ -72,7 +73,9 @@ export function combinarAlbumes(docs, eventos, ahora = Date.now()) {
   for (const ev of eventos) {
     if (ev.start == null || ev.start > ahora) continue;
     const a = albumDeEvento(ev);
-    if (!porId.has(a.id)) porId.set(a.id, a);
+    const real = porId.get(a.id);
+    if (!real) porId.set(a.id, a);
+    else if (real.sinTitulo) porId.set(a.id, { ...real, titulo: a.titulo });
   }
   const todos = [...porId.values()];
   const conDias = todos.filter((a) => a.tipo === 'evento' && a.start != null);
@@ -113,12 +116,14 @@ export async function leerAlbum(pairId, id) {
   await whenAuthed();
   const f = await fb();
   const doc = await f.getDoc(f.doc(db, 'pairs', pairId, 'albums', id));
-  if (doc.exists()) return albumDeDoc(doc);
-  if (!id.startsWith('ev-')) return null;
-  const ev = await f.getDoc(f.doc(db, 'pairs', pairId, 'events', id.slice(3)));
-  if (!ev.exists()) return null;
+  const real = doc.exists() ? albumDeDoc(doc) : null;
+  if (real && !(real.sinTitulo && real.eventId)) return real;
+  if (!real && !id.startsWith('ev-')) return null;
+  const ev = await f.getDoc(f.doc(db, 'pairs', pairId, 'events', real?.eventId || id.slice(3)));
+  if (!ev.exists()) return real;
   const x = ev.data();
-  return albumDeEvento({ id: ev.id, title: String(x.title || '').trim(), start: x.start?.toMillis?.() ?? null, end: x.end?.toMillis?.() ?? null });
+  const deEvento = albumDeEvento({ id: ev.id, title: String(x.title || '').trim(), start: x.start?.toMillis?.() ?? null, end: x.end?.toMillis?.() ?? null });
+  return real ? { ...real, titulo: deEvento.titulo } : deEvento;
 }
 
 // The photos of an album, oldest first: { items } (+ thumbsDone with onThumb). Only the first `max` of each query
@@ -183,13 +188,18 @@ export async function crearAlbum(pairId, { titulo, emoji = '🩷' }, identity = 
   return { album, committed };
 }
 
-// Gives the album of an event its doc (idempotent: the id is the same on both phones, and merge keeps what the
-// other one wrote in between)
+// The fields that give the album of an event its doc. Never its title or emoji: a phone with old data would undo the
+// rename of the other one (the title of a doc without one is the event's, see albumDeDoc), so those are only written
+// by a rename. The id is the same on both phones and merge keeps what the other one wrote in between
+function datosDeEvento(f, album, identity) {
+  const { title, emoji, ...resto } = campos(f, album);
+  return { ...resto, createdBy: auth.currentUser.uid, identity, createdAt: f.serverTimestamp() };
+}
+
+// Gives the album of an event its doc (nothing to do if it has one)
 async function materializar(f, pairId, album, identity) {
   if (!album.virtual) return;
-  await f.setDoc(f.doc(db, 'pairs', pairId, 'albums', album.id), {
-    ...campos(f, album), createdBy: auth.currentUser.uid, identity, createdAt: f.serverTimestamp(),
-  }, { merge: true });
+  await f.setDoc(f.doc(db, 'pairs', pairId, 'albums', album.id), datosDeEvento(f, album, identity), { merge: true });
 }
 
 // Renames an album and changes its emoji
@@ -250,11 +260,15 @@ export async function quitarDeAlbum(pairId, album, ids, identity = 'yo') {
   const f = await contexto(pairId);
   olvidarPortadas();
   const committed = (async () => {
-    if (album.start != null) {
-      await materializar(f, pairId, album, identity);
-      await f.updateDoc(f.doc(db, 'pairs', pairId, 'albums', album.id), { excludedIds: f.arrayUnion(...ids) });
-    }
-    return actualizarFotos(f, pairId, ids, ({ arrayRemove }) => ({ albumIds: arrayRemove(album.id) }));
+    // One write for the doc (the first time it also creates it) and the photos', all queued at once: offline the
+    // first one would otherwise keep the others from being written
+    const ref = f.doc(db, 'pairs', pairId, 'albums', album.id);
+    const excluidas = album.start == null ? null
+      : album.virtual ? f.setDoc(ref, { ...datosDeEvento(f, album, identity), excludedIds: f.arrayUnion(...ids) }, { merge: true })
+        : f.updateDoc(ref, { excludedIds: f.arrayUnion(...ids) });
+    const fotos = actualizarFotos(f, pairId, ids, ({ arrayRemove }) => ({ albumIds: arrayRemove(album.id) }));
+    const [, r] = await Promise.all([excluidas, fotos]);
+    return r;
   })();
   committed.catch(() => {});
   return { committed };
