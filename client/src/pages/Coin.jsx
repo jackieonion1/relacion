@@ -76,7 +76,7 @@ export default function Coin() {
   }
 
   return (
-    <div className="flex flex-col items-center gap-7">
+    <div className="flex flex-col items-center gap-7 px-4">
       <header className="self-stretch">
         <h1 className="serif text-[36px] leading-[1.05] font-normal tracking-[-0.01em]">Moneda</h1>
         <p className="text-[15px] text-ink-2">¿{FACES.galleta} o {FACES.aceituna}? Para cuando ninguno quiere decidir.</p>

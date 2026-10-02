@@ -296,7 +296,7 @@ export default function Roulette() {
   }, [options]);
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-4 px-4">
       <header className="flex items-end justify-between">
         <h1 className="serif text-[36px] leading-[1.05] font-normal tracking-[-0.01em]">Ruleta</h1>
         <div className="flex items-center gap-2 pb-0.5">
