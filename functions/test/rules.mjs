@@ -80,7 +80,7 @@ const walk = (d) => {
   }
 };
 walk(clientSrc);
-const COLLECTIONS = ['locations', 'notes', 'photos', 'meta', 'pushSubs', 'mapState', 'music', 'events', 'photoComments', 'albums'];
+const COLLECTIONS = ['locations', 'notes', 'photos', 'meta', 'pushSubs', 'mapState', 'music', 'events', 'photoComments', 'albums', 'actividad'];
 // members: el cliente la lee (Ajustes) pero no la escribe nunca
 const READ_ONLY = ['members'];
 // Con reglas propias (fuera de la genérica): sus checks van aparte, más abajo

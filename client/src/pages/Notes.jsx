@@ -8,6 +8,7 @@ import RichTextEditor from '../components/RichTextEditor';
 import { addNote, deleteNote, listenNotes, deleteThread, markThreadRead } from '../lib/notes';
 import { sanitizeHtml, htmlToPlain } from '../lib/sanitize';
 import { authorEmoji, noteMillis, noteWhen } from '../lib/noteText';
+import { registrarActividad } from '../lib/actividad';
 
 export default function Notes() {
   const pairId = useMemo(() => localStorage.getItem('pairId') || '', []);
@@ -72,7 +73,8 @@ export default function Notes() {
       const plain = htmlToPlain(clean);
       const titleTrim = (title || '').trim();
       // Only waits for the write to be queued, not for the server ack (offline it never arrives)
-      const { committed } = await addNote(pairId, { html: clean, plain, title: titleTrim }, identity, { threadId: replyThreadId || '' });
+      const { id, committed } = await addNote(pairId, { html: clean, plain, title: titleTrim }, identity, { threadId: replyThreadId || '' });
+      registrarActividad(pairId, identity, 'nota', { ref: { noteId: id, threadId: replyThreadId || id }, texto: titleTrim || plain });
       // If the server ends up rejecting it the listener drops the note: say so instead of losing it silently
       committed.catch(() => {
         setNotice(`No se pudo guardar la nota${titleTrim ? ` "${titleTrim}"` : ''}.`);
