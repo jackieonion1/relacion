@@ -67,5 +67,11 @@
 .cielo-fondo { position: absolute; inset: 0; z-index: -1; }
 html[data-tema='oscuro'] .cielo { color: oklch(0.97 0.01 80); border-color: transparent; }
 html[data-tema='oscuro'] .cielo .cielo-2 { color: oklch(0.86 0.03 290); }
+/* The tap (TarjetaTiempo): a button without looking like one; tomorrow's line fades in */
+.cielo-toque { cursor: pointer; -webkit-tap-highlight-color: transparent; transition: transform var(--dur-fundido) var(--ease-suave); }
+.cielo-toque:active { transform: scale(0.98); }
+.cielo-toque:focus-visible { outline: 2px solid var(--lacre); outline-offset: 2px; }
+.cielo-toque .manana { animation: manana-entra var(--dur-revelar) var(--ease-suave); }
+@keyframes manana-entra { from { opacity: 0; transform: translateY(4px); } }
 html[data-tema='oscuro'] .cielo-fondo { filter: brightness(0.5) saturate(1.1); }
 html[data-tema='oscuro'] .cielo.de-noche .cielo-fondo { filter: brightness(0.8); }
