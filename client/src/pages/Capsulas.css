@@ -1,2 +1,107 @@
 /* Cápsulas (3.1): the sealed envelopes and their opening. Imported from App.jsx, not from the lazy page: a CSS file of
-   its own would be named static/css/main.<hash>.css and appUpdate.js would count it as a new version */
+   its own would be named static/css/main.<hash>.css and appUpdate.js would count it as a new version.
+   Reduced motion is the global rule in index.css, and the page skips the opening altogether; the loops also stop below */
+
+/* Envelope: the inside (the element itself), the letter, the front pocket with its V, the flap and the seal.
+   Every colour comes from the theme tokens, so it follows light and dark */
+.sobre {
+  --sobre-papel: color-mix(in oklch, var(--raised) 82%, var(--lacre-soft));
+  --sobre-dentro: color-mix(in oklch, var(--sobre-papel) 86%, var(--ink));
+  --sobre-solapa: color-mix(in oklch, var(--sobre-papel) 94%, var(--ink));
+  position: relative; flex: none; width: 72px; aspect-ratio: 10 / 7;
+  border-radius: 6px; background-color: var(--sobre-dentro);
+  box-shadow: var(--sh-1); perspective: 600px;
+}
+.sobre-grande { width: min(240px, 66vw); border-radius: 10px; box-shadow: var(--sh-2); }
+
+/* The letter inside: ruled paper, peeking under the flap */
+.sobre-carta {
+  position: absolute; left: 8%; right: 8%; top: 7%; bottom: 8%; z-index: 1; border-radius: 3px;
+  background:
+    repeating-linear-gradient(to bottom, transparent 0 calc(12% - 1px), color-mix(in oklch, var(--line) 80%, transparent) calc(12% - 1px) 12%)
+    0 22% / 100% 70% no-repeat,
+    var(--card);
+  border: 1px solid var(--line);
+}
+
+/* Front pocket: the whole face except the V where the flap meets it; the side folds are two soft diagonals */
+.sobre-cuerpo {
+  position: absolute; inset: 0; z-index: 2; border-radius: inherit;
+  background:
+    linear-gradient(to top right, transparent 49.4%, color-mix(in oklch, var(--ink) 7%, transparent) 50%, transparent 51%),
+    linear-gradient(to top left, transparent 49.4%, color-mix(in oklch, var(--ink) 7%, transparent) 50%, transparent 51%),
+    var(--sobre-papel);
+  clip-path: polygon(0 0, 50% 56%, 100% 0, 100% 100%, 0 100%);
+}
+
+/* Flap: hinged on the top edge; while open it goes behind the letter */
+.sobre-solapa {
+  position: absolute; left: 0; right: 0; top: 0; height: 60%; z-index: 3;
+  background-color: var(--sobre-solapa);
+  clip-path: polygon(0 0, 100% 0, 50% 100%);
+  transform-origin: top center; backface-visibility: visible;
+  filter: drop-shadow(0 1px 1px color-mix(in oklch, var(--ink) 18%, transparent));
+}
+
+/* Wax seal on the flap's tip, as on the farewell letter of «Así era» */
+.sobre-lacre {
+  position: absolute; left: 50%; top: 60%; z-index: 4; width: 26px; height: 26px; translate: -50% -50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 47% 53% 50% 50% / 52% 48% 52% 48%;
+  color: var(--on-lacre);
+  background: radial-gradient(circle at 34% 30%, color-mix(in oklch, var(--lacre) 72%, white), var(--lacre) 58%, color-mix(in oklch, var(--lacre) 80%, black));
+  box-shadow: var(--sh-1), inset 0 0 0 2px color-mix(in oklch, var(--lacre) 85%, black);
+  rotate: -8deg;
+}
+.sobre-grande .sobre-lacre { width: 54px; height: 54px; box-shadow: var(--sh-1), inset 0 0 0 3px color-mix(in oklch, var(--lacre) 85%, black); }
+
+/* Ready to open: the seal breathes */
+.sobre-lacre-pulso { animation: lacre-pulso 2.4s var(--ease-suave) infinite; }
+@keyframes lacre-pulso {
+  0%, 100% { box-shadow: var(--sh-1), inset 0 0 0 3px color-mix(in oklch, var(--lacre) 85%, black), 0 0 0 0 color-mix(in oklch, var(--lacre) 40%, transparent); }
+  50% { box-shadow: var(--sh-1), inset 0 0 0 3px color-mix(in oklch, var(--lacre) 85%, black), 0 0 0 10px transparent; }
+}
+
+/* The opening, timed to APERTURA_MS (1700 ms) in Capsulas.jsx: waiting for the server the envelope rocks; then the
+   seal breaks (0-450 ms), the flap lifts (300-900 ms) and the letter rises out (850-1550 ms) */
+.apertura .sobre { z-index: 1; }
+.apertura-texto { z-index: 1; }
+.sobre-espera { animation: sobre-espera 900ms var(--ease-suave) infinite; }
+@keyframes sobre-espera { 0%, 100% { rotate: 0deg; } 25% { rotate: -2deg; } 75% { rotate: 2deg; } }
+.sobre-abriendo .sobre-lacre { animation: lacre-rompe 450ms var(--ease-rapida) forwards; }
+@keyframes lacre-rompe {
+  0% { scale: 1; opacity: 1; }
+  35% { scale: 1.14; opacity: 1; }
+  100% { scale: 0.5; opacity: 0; rotate: 24deg; translate: -50% 10%; }
+}
+.sobre-abriendo .sobre-solapa { animation: solapa-abre 600ms var(--ease-firme) 300ms forwards; }
+@keyframes solapa-abre {
+  0% { transform: rotateX(0deg); z-index: 3; }
+  50% { z-index: 3; }
+  51% { z-index: 0; }
+  100% { transform: rotateX(180deg); z-index: 0; }
+}
+.sobre-abriendo .sobre-carta { animation: carta-sale 700ms var(--ease-suave) 850ms forwards; }
+@keyframes carta-sale { 0% { translate: 0 0; } 100% { translate: 0 -62%; } }
+.sobre-abriendo .sobre-carta { box-shadow: var(--sh-1); }
+
+/* An opened one in the list: the letter out of its envelope, with half a seal */
+.carta-mini {
+  position: relative; flex: none; width: 56px; height: 64px; border-radius: 4px; rotate: -4deg;
+  background:
+    repeating-linear-gradient(to bottom, transparent 0 9px, var(--line) 9px 10px) 8px 14px / calc(100% - 16px) 36px no-repeat,
+    var(--card);
+  border: 1px solid var(--line); box-shadow: var(--sh-1);
+}
+.carta-mini::after {
+  content: ""; position: absolute; right: -6px; bottom: 6px; width: 18px; height: 18px; border-radius: 50%;
+  background-color: var(--lacre); clip-path: polygon(0 0, 60% 0, 40% 100%, 0 100%);
+}
+
+.capsula-fila { transition: transform var(--dur-toque) var(--ease-suave); }
+.capsula-fila:active { transform: scale(0.985); }
+.capsula-fila:focus-visible { outline: 2px solid var(--lacre); outline-offset: 2px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .sobre-lacre-pulso, .sobre-espera { animation: none !important; }
+}
