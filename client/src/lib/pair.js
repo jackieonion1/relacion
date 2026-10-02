@@ -18,7 +18,8 @@ async function call(name, data) {
   return (await fn(data)).data;
 }
 
-// { locked, members: [{ uid, label, joinedAt (ms), me }] }, oldest first
+// { locked, members: [{ uid, label, joinedAt (ms), me, trusted }] }, oldest first. trusted (set by joinPair):
+// false = this device may not invite, lock nor remove; undefined = unknown, the callable decides
 export async function getPairInfo(pairId) {
   if (!pairId || !db) return { locked: false, members: [] };
   await whenAuthed();
@@ -29,7 +30,7 @@ export async function getPairInfo(pairId) {
   ]);
   const me = auth?.currentUser?.uid || '';
   const members = snap.docs
-    .map((d) => ({ uid: d.id, label: d.data().label || '', joinedAt: d.data().joinedAt?.toMillis?.() || 0, me: d.id === me }))
+    .map((d) => ({ uid: d.id, label: d.data().label || '', joinedAt: d.data().joinedAt?.toMillis?.() || 0, me: d.id === me, trusted: d.data().trusted }))
     .sort((a, b) => a.joinedAt - b.joinedAt);
   return { locked: pair.exists() && pair.data().locked === true, members };
 }

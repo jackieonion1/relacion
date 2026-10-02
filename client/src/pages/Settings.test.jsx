@@ -255,3 +255,15 @@ test('Dispositivos sin red: no se puede invitar ni cerrar', async () => {
   expect(screen.getByRole('button', { name: 'Añadir un dispositivo' }).disabled).toBe(true);
   expect(screen.getByRole('button', { name: 'Cerrar la pareja' }).disabled).toBe(true);
 });
+
+test('Dispositivos en un dispositivo sin permiso: los botones se explican en vez de fallar', async () => {
+  getPairInfo.mockResolvedValue({ locked: false, members: [
+    { uid: 'u1', label: 'iPhone', joinedAt: Date.UTC(2026, 9, 1), me: false, trusted: true },
+    { uid: 'u3', label: 'Mac', joinedAt: Date.UTC(2026, 9, 3), me: true, trusted: false },
+  ] });
+  await mount();
+  expect(screen.getByRole('button', { name: 'Añadir un dispositivo' }).disabled).toBe(true);
+  expect(screen.getByRole('button', { name: 'Cerrar la pareja' }).disabled).toBe(true);
+  expect(screen.getByRole('button', { name: 'Quitar' }).disabled).toBe(true);
+  expect(screen.queryByText(/no puede añadir, quitar ni cerrar: hazlo desde el otro móvil/)).not.toBeNull();
+});

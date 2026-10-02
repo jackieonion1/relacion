@@ -1,6 +1,6 @@
 // Test de las reglas REALES de Firestore y Storage (cableadas en firebase.test.json) y de las callables de
 // membresía. Falla con exit 1.
-//   firebase emulators:exec --config firebase.test.json --only functions,firestore,storage --project demo-relacion "node functions/test/rules.mjs"
+//   firebase emulators:exec --config firebase.test.json --only auth,functions,firestore,storage --project demo-relacion "node functions/test/rules.mjs"
 // Peticiones REST con un JWT sin firmar (el emulador no verifica la firma, como en smoke.mjs). Permitido = 200 o
 // 404 (la regla dejó pasar; el doc no existe); denegado = 403. La siembra va por Admin SDK, que se salta las reglas.
 import fs from 'node:fs';
@@ -9,6 +9,7 @@ import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { initializeApp } from 'firebase-admin/app';
 import { getFirestore, Timestamp } from 'firebase-admin/firestore';
+import { getAuth } from 'firebase-admin/auth';
 
 const host = process.env.FIRESTORE_EMULATOR_HOST;
 if (!host) throw new Error('FIRESTORE_EMULATOR_HOST no definido: ejecuta con emulators:exec');
@@ -176,7 +177,13 @@ await expectStorage('deny', 'sin auth lee una foto', 'GET', `pairs/${PAIR}/photo
 
 // --- Callables de membresía (pareja de prueba propia, para no mezclar con lo de arriba) ---
 const J = 'JOIN2024';
-const A = 'uid-a'; const B = 'uid-b'; const C = 'uid-c'; const D = 'uid-d';
+const A = 'uid-a'; const B = 'uid-b'; const C = 'uid-c'; const D = 'uid-d'; const N = 'uid-nuevo-con-codigo';
+// Cuentas anónimas en el emulador de Auth con su fecha de alta: A y B son de antes del corte (TRUSTED_BEFORE en
+// index.js), como los móviles de la pareja; las demás, de después. uid-sin-cuenta no existe en Auth
+await getAuth().importUsers([
+  ...[A, B].map((uid) => ({ uid, metadata: { creationTime: '2025-01-01T00:00:00Z', lastSignInTime: '2025-01-01T00:00:00Z' } })),
+  ...[C, D, N].map((uid) => ({ uid, metadata: { creationTime: '2026-11-01T00:00:00Z', lastSignInTime: '2026-11-01T00:00:00Z' } })),
+]);
 await expectCall('joinPair sin sesión', 'joinPair', { pairId: J }, null, 'UNAUTHENTICATED');
 await expectCall('joinPair con un código mal formado', 'joinPair', { pairId: 'a/b' }, A, 'INVALID_ARGUMENT');
 // Abierta: basta con el código, como antes (así los móviles de hoy entran solos al abrir la 3.1)
@@ -190,6 +197,20 @@ await expectCall('createInvite de un no miembro', 'createInvite', { pairId: J },
 await expectCall('lockPair de un no miembro', 'lockPair', { pairId: J }, C, 'PERMISSION_DENIED');
 await expectCall('removeMember de un no miembro', 'removeMember', { pairId: J, uid: B }, C, 'PERMISSION_DENIED');
 await expectCall('sendTestPush de un no miembro', 'sendTestPush', { pairId: J }, C, 'PERMISSION_DENIED');
+// Con la pareja abierta cualquiera con el código es miembro: una cuenta nueva entra y lee, pero no cierra, ni
+// quita, ni invita. Una cuenta de antes del corte sí (los móviles de siempre)
+check((await db.doc(`pairs/${J}/members/${A}`).get()).get('via') === 'code' && (await db.doc(`pairs/${J}/members/${A}`).get()).get('trusted') === true, 'un móvil de antes del corte entra por código y queda de confianza');
+await expectCall('joinPair de una cuenta nueva en abierta', 'joinPair', { pairId: J }, N);
+check((await db.doc(`pairs/${J}/members/${N}`).get()).get('trusted') === false, 'la cuenta nueva queda marcada sin confianza (para Ajustes)');
+await expectAllow('la cuenta nueva lee, como hoy', 'GET', `/pairs/${J}/notes`, { uid: N });
+await expectCall('lockPair de una cuenta nueva', 'lockPair', { pairId: J }, N, 'PERMISSION_DENIED');
+await expectCall('removeMember de una cuenta nueva', 'removeMember', { pairId: J, uid: A }, N, 'PERMISSION_DENIED');
+await expectCall('createInvite de una cuenta nueva', 'createInvite', { pairId: J }, N, 'PERMISSION_DENIED');
+await expectCall('joinPair de un uid que Auth no conoce', 'joinPair', { pairId: J }, 'uid-sin-cuenta');
+await expectCall('lockPair de un uid que Auth no conoce', 'lockPair', { pairId: J }, 'uid-sin-cuenta', 'PERMISSION_DENIED');
+check((await db.doc(`pairs/${J}`).get()).get('locked') !== true, 'nada de lo anterior ha cerrado la pareja');
+await expectCall('un móvil de antes del corte quita a la cuenta nueva', 'removeMember', { pairId: J, uid: N }, A);
+await expectCall('un móvil de antes del corte quita al uid sin cuenta', 'removeMember', { pairId: J, uid: 'uid-sin-cuenta' }, A);
 await expectCall('lockPair de un miembro', 'lockPair', { pairId: J }, A);
 check((await db.doc(`pairs/${J}`).get()).get('locked') === true, 'lockPair deja locked: true');
 // Cerrada: sin invitación no, con una mala no, con una buena sí y solo una vez
@@ -204,7 +225,9 @@ check(stored.size === 1 && !stored.docs.some((d) => JSON.stringify(d.data()).inc
 await expectCall('la invitación de otra pareja no vale', 'joinPair', { pairId: OTHER, invite: code }, C, 'PERMISSION_DENIED');
 await expectCall('joinPair con la invitación (con guion y minúsculas)', 'joinPair', { pairId: J, invite: `${code.slice(0, 4).toLowerCase()}-${code.slice(4)}` }, C);
 check((await db.doc(`pairs/${J}/members/${C}`).get()).get('via') === 'invite', 'el member invitado queda marcado');
+check((await db.doc(`pairs/${J}/members/${C}`).get()).get('trusted') === true, 'el invitado es de confianza aunque su cuenta sea nueva');
 await expectCall('la invitación es de un solo uso', 'joinPair', { pairId: J, invite: code }, D, 'PERMISSION_DENIED');
+const invC = await expectCall('el invitado (cuenta nueva) puede invitar', 'createInvite', { pairId: J }, C);
 // Caducada: se siembra con el mismo hash que usa la función
 const expired = 'KKKKKKKK';
 await db.collection('pairInvites').doc(createHash('sha256').update(`${J}:${expired}`).digest('hex'))

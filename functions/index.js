@@ -1,5 +1,6 @@
 import { initializeApp, getApps } from 'firebase-admin/app';
 import { getFirestore, FieldValue, Timestamp } from 'firebase-admin/firestore';
+import { getAuth } from 'firebase-admin/auth';
 import { onDocumentCreated } from 'firebase-functions/v2/firestore';
 import { setGlobalOptions } from 'firebase-functions/v2/options';
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
@@ -47,7 +48,13 @@ const PAIR_RE = /^[A-Z0-9]{4,12}$/;
 const INVITE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 const INVITE_LEN = 8;
 const INVITE_TTL_MS = 15 * 60 * 1000;
-
+// While the pair is open anyone with the (public) code becomes a member, so being one is not enough to lock the
+// pair, take devices out or hand out invites. Those need a trusted device: one that came in with an invite, or
+// whose anonymous Auth account was created before this date (the pair's phones, signed in long before 3.1; it
+// is set by Auth, not by the caller). A real phone that gets a new uid after this date (Safari wiped its data, a
+// reinstall) can still use the app but not lock nor remove: the other phone can, and an invite from it makes
+// this one trusted again
+const TRUSTED_BEFORE = Date.parse('2026-10-02T00:00:00Z');
 const pairRef = (pairId) => db.collection('pairs').doc(pairId);
 const memberRef = (pairId, uid) => pairRef(pairId).collection('members').doc(uid);
 // Only the hash is stored: whoever reads pairInvites (no client can) still cannot use an invite
@@ -63,6 +70,24 @@ function readPairId(request) {
 async function requireMember(pairId, uid) {
   const snap = await memberRef(pairId, uid).get();
   if (!snap.exists) throw new HttpsError('permission-denied', 'Este dispositivo no es de la pareja');
+  return snap;
+}
+
+// An account Auth can't find (or with no date) is not trusted
+async function accountIsOld(uid) {
+  try {
+    const created = Date.parse((await getAuth().getUser(uid)).metadata.creationTime);
+    return created < TRUSTED_BEFORE;
+  } catch {
+    return false;
+  }
+}
+
+// Members only, and of those only trusted devices (see TRUSTED_BEFORE). Ajustes reads the error message
+async function requireTrusted(pairId, uid) {
+  const snap = await requireMember(pairId, uid);
+  if (snap.get('via') === 'invite') return;
+  if (!(await accountIsOld(uid))) throw new HttpsError('permission-denied', 'trusted');
 }
 
 // Callable: makes this uid a member. Idempotent; the app calls it before its first read on a new uid.
@@ -72,6 +97,8 @@ export const joinPair = onCall(async (request) => {
   const uid = request.auth.uid;
   const invite = String(request.data?.invite || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
   const label = String(request.data?.label || '').replace(/\s+/g, ' ').trim().slice(0, 40);
+  // Only for Ajustes, which greys out what this device can't do; the callables ask Auth themselves
+  const old = await accountIsOld(uid);
   return db.runTransaction(async (tx) => {
     const me = memberRef(pairId, uid);
     const [pair, mine] = await Promise.all([tx.get(pairRef(pairId)), tx.get(me)]);
@@ -86,16 +113,16 @@ export const joinPair = onCall(async (request) => {
       }
       tx.delete(ref); // single use
     }
-    tx.set(me, { joinedAt: FieldValue.serverTimestamp(), ...(label ? { label } : {}), ...(locked ? { via: 'invite' } : {}) });
+    tx.set(me, { joinedAt: FieldValue.serverTimestamp(), ...(label ? { label } : {}), via: locked ? 'invite' : 'code', trusted: locked || old });
     return { ok: true };
   });
 });
 
-// Callable (members only): a one-time code for another device, valid for 15 minutes
+// Callable (trusted members only): a one-time code for another device, valid for 15 minutes
 export const createInvite = onCall(async (request) => {
   const pairId = readPairId(request);
   const uid = request.auth.uid;
-  await requireMember(pairId, uid);
+  await requireTrusted(pairId, uid);
   const code = Array.from({ length: INVITE_LEN }, () => INVITE_ALPHABET[randomInt(INVITE_ALPHABET.length)]).join('');
   const now = Date.now();
   const expiresAt = Timestamp.fromMillis(now + INVITE_TTL_MS);
@@ -108,23 +135,23 @@ export const createInvite = onCall(async (request) => {
   return { code, expiresAt: expiresAt.toMillis() };
 });
 
-// Callable (members only): from now on joinPair asks new devices for an invite. One-way from the app on purpose
+// Callable (trusted members only): from now on joinPair asks new devices for an invite. One-way from the app on purpose
 export const lockPair = onCall(async (request) => {
   const pairId = readPairId(request);
   const uid = request.auth.uid;
-  await requireMember(pairId, uid);
+  await requireTrusted(pairId, uid);
   await pairRef(pairId).set({ locked: true, lockedAt: FieldValue.serverTimestamp(), lockedBy: uid }, { merge: true });
   return { ok: true };
 });
 
-// Callable (members only): takes another device out of the pair, with its push subscriptions
+// Callable (trusted members only): takes another device out of the pair, with its push subscriptions
 export const removeMember = onCall(async (request) => {
   const pairId = readPairId(request);
   const uid = request.auth.uid;
   const target = String(request.data?.uid || '');
   if (!target || target.includes('/')) throw new HttpsError('invalid-argument', 'uid requerido');
   if (target === uid) throw new HttpsError('failed-precondition', 'No puedes quitar este dispositivo');
-  await requireMember(pairId, uid);
+  await requireTrusted(pairId, uid);
   const subs = await pairRef(pairId).collection('pushSubs').where('uid', '==', target).get();
   const batch = db.batch();
   subs.forEach((d) => batch.delete(d.ref));
