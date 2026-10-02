@@ -4,7 +4,7 @@ import { MemoryRouter, Routes, Route, useLocation } from 'react-router';
 import Gallery from './Gallery';
 import { whenAuthed } from '../lib/firebase';
 import { listPhotosPage, listPendingPhotos, getPendingIds, retryPendingPhotos, getOriginal, getOriginalUrl, deletePhoto } from '../lib/photos';
-import { listPhotosBy } from '../lib/photos';
+import { listPhotosBy, madridDayKey } from '../lib/photos';
 import { escucharFoto, setReaccion, setFavorita } from '../lib/fotoSocial';
 import { escucharComentarios, addComentario, deleteComentario, marcarLeidos } from '../lib/fotoComentarios';
 import { useNoLeidos, useNoLeidosConfirmados } from '../lib/fotoAvisos';
@@ -571,6 +571,19 @@ describe('3.1: selección y fecha en bloque', () => {
     expect(screen.getByRole('status').textContent).toMatch('Del 12 mar 2025: 2 fotos');
     expect(screen.queryByRole('toolbar')).toBeNull();
     expect(cells()[0].getAttribute('aria-pressed')).toBeNull();
+  });
+
+  test('al fechar fotos se olvida que «Hace un año» estaba vacío hoy, para que las enseñe ya', async () => {
+    const hoy = `hace-un-ano:SEB1998:${madridDayKey(new Date())}:3`;
+    const otroDia = 'hace-un-ano:SEB1998:2020-01-01:3';
+    localStorage.setItem(hoy, '0');
+    localStorage.setItem(otroDia, '0');
+    await mount();
+    await elegir(0, 2);
+    await ponerDia('2025-03-12');
+    expect(localStorage.getItem(hoy)).toBeNull();
+    expect(localStorage.getItem(otroDia)).toBe('0');
+    localStorage.removeItem(otroDia);
   });
 
   test('con red que no responde la hoja se cierra al encolar, y el resultado llega después como aviso', async () => {

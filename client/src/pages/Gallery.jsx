@@ -18,7 +18,7 @@ import AlbumPicker from '../components/AlbumPicker';
 import { ponerFecha, ponerFavorita, subidasDeGolpe, fechaComun } from '../lib/fotoSeleccion';
 import { escucharFoto, setReaccion, setFavorita } from '../lib/fotoSocial';
 import { listFavoritas, primeraFecha } from '../lib/fotoConsultas';
-import { fotosDelDia, fotosEnRango } from '../lib/recuerdos';
+import { fotosDelDia, fotosEnRango, olvidarVacioHoy } from '../lib/recuerdos';
 import { fechaEfectiva, rangoMesMadrid, madridMediodia } from '../lib/fotoFecha';
 import { escucharComentarios, addComentario, deleteComentario, marcarLeidos } from '../lib/fotoComentarios';
 import { useNoLeidos, useNoLeidosConfirmados } from '../lib/fotoAvisos';
@@ -384,6 +384,7 @@ export default function Gallery() {
   // After a change of dates, the other views may hold the photos in the wrong place: asked again
   function recargarVistas() {
     vistaCacheRef.current.clear();
+    olvidarVacioHoy(pairId); // dated photos can fill today's «Hace un año», which may have been seen empty
     if (enVista) setVistaRecarga((k) => k + 1);
   }
 

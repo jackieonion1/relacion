@@ -20,10 +20,19 @@ export async function fotosEnRango(pairId, desde, hasta, { onThumb = null } = {}
   return { items };
 }
 
+// Forgets that today's «Hace un año» was empty (any yearsBack): to call when photos are dated in bulk, which can
+// fill it
+export function olvidarVacioHoy(pairId, date = new Date()) {
+  const prefix = `hace-un-ano:${pairId}:${madridDayKey(date)}:`;
+  try {
+    Object.keys(localStorage).filter((k) => k.startsWith(prefix)).forEach((k) => localStorage.removeItem(k));
+  } catch {}
+}
+
 // «Hace un año»: the photos of this same Madrid day in each of the previous `yearsBack` years, nearest year first:
 // [{ anos, items }], only the years that have photos. That day has no photos for most of the year, so an empty
 // answer is remembered per device and day to skip the queries (a photo dated afterwards on a past day shows up the
-// next day). A failed query throws
+// next day, unless olvidarVacioHoy). A failed query throws
 export async function fotosDelDia(pairId, date = new Date(), yearsBack = 3, { onThumb = null } = {}) {
   const dayKey = madridDayKey(date);
   const flagKey = `hace-un-ano:${pairId}:${dayKey}:${yearsBack}`;
