@@ -3,6 +3,7 @@ import { render, act } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 import RandomPhoto from './RandomPhoto';
 import { getDailyPhotoId, getOriginal, getOriginalUrl, madridDayKey } from '../lib/photos';
+import { photoUploader } from '../lib/inicio';
 
 vi.mock('../lib/photos', () => ({
   getDailyPhotoId: vi.fn(),
@@ -10,6 +11,7 @@ vi.mock('../lib/photos', () => ({
   getOriginalUrl: vi.fn(),
   madridDayKey: vi.fn(),
 }));
+vi.mock('../lib/inicio', async (orig) => ({ ...(await orig()), photoUploader: vi.fn() }));
 
 const flush = async () => { for (let i = 0; i < 10; i++) await Promise.resolve(); };
 
@@ -22,6 +24,7 @@ beforeEach(() => {
   getDailyPhotoId.mockResolvedValue('P1');
   getOriginal.mockResolvedValue(new Blob(['x'.repeat(64)], { type: 'image/jpeg' }));
   getOriginalUrl.mockResolvedValue('https://x/orig.jpg');
+  photoUploader.mockResolvedValue(null);
   URL.createObjectURL = vi.fn(() => `blob:${Math.random()}`);
   URL.revokeObjectURL = vi.fn();
 });
@@ -70,4 +73,18 @@ test('si falla la red al cambiar de día se queda la foto que había', async () 
   // y lo reintenta en el siguiente tick
   await act(async () => { vi.advanceTimersByTime(60 * 1000); await flush(); });
   expect(getDailyPhotoId).toHaveBeenCalledTimes(3);
+});
+
+test('el pie dice quién subió la foto y cuándo (C11)', async () => {
+  photoUploader.mockResolvedValue({ identity: 'ella', createdAt: new Date(2025, 2, 12).getTime() });
+  const { container } = await mount();
+  expect(photoUploader).toHaveBeenCalledWith('SEB1998', 'P1');
+  expect(container.querySelector('figcaption').textContent).toMatch(/La subió 🍪 · 12 mar 2025/);
+});
+
+test('sin identity (foto antigua) no hay pie de autor', async () => {
+  photoUploader.mockResolvedValue({ identity: '', createdAt: null });
+  const { container } = await mount();
+  expect(container.querySelector('figcaption').textContent).not.toMatch(/La subió/);
+  expect(container.querySelector('img')).not.toBeNull();
 });

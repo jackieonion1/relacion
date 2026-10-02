@@ -1,13 +1,19 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { listenEvents } from '../lib/calendar';
+import Button from '../components/Button';
 import Countdown from '../components/Countdown';
+import Icon from '../components/Icon';
 import RandomPhoto from '../components/RandomPhoto';
 import { db } from '../lib/firebase';
 import { ANNIVERSARY, timeBetween } from '../lib/together';
 import { nextSpecialEvents } from '../lib/specialDays';
 import { fetchCityWeather, weatherEmoji, weatherType } from '../lib/weather';
 import { ROLE_LABELS } from '../lib/eventTypes';
+import {
+  BOTH_LABEL, dayMonthText, eventMark, longDateText, monthTile, shortDateText, skyWords, todayText, togetherWords, whenText,
+} from '../lib/inicio';
+import './Dashboard.css';
 
 export default function Dashboard() {
   const navigate = useNavigate();
@@ -21,13 +27,16 @@ export default function Dashboard() {
   const [weatherNovia, setWeatherNovia] = useState(null);
   const [weatherLoading, setWeatherLoading] = useState(true);
 
+  // Latido (C1): local only, it sends nothing. Each tap beats again; the first one lights the heart
+  const [beat, setBeat] = useState(0);
+  const liked = beat > 0;
+
   // Anniversary date (November 24, 2024, local time): ANNIVERSARY in lib/together
 
   const timeTogether = useMemo(() => timeBetween(ANNIVERSARY), []);
 
   useEffect(() => {
     let cancelled = false;
-    console.log('🔄 Dashboard: Subscribing to events');
     setLoading(true);
     const byStart = (a, b) => {
       const dateA = a.start?.toDate ? a.start.toDate() : new Date(0);
@@ -48,7 +57,6 @@ export default function Dashboard() {
     const unsub = listenEvents(pairId, { futureOnly: true, max: 100 }, (list) => {
       const allEvents = [...list, ...nextSpecialEvents()].sort(byStart);
       if (!cancelled) {
-        console.log('✅ Dashboard: Events updated', allEvents.length, 'events');
         setEvents(allEvents);
         setEventsError(false);
         setLoading(false);
@@ -66,9 +74,7 @@ export default function Dashboard() {
   const nextEvent = useMemo(() => {
     // Only show next "conjunto" event for countdown
     const conjuntoEvents = events.filter(event => event.eventType === 'conjunto');
-    const result = conjuntoEvents.length > 0 ? conjuntoEvents[0] : null;
-    console.log('🎯 Dashboard: nextEvent changed', result ? result.title : 'null');
-    return result;
+    return conjuntoEvents.length > 0 ? conjuntoEvents[0] : null;
   }, [events]);
 
   const nextMeetEvent = useMemo(() => {
@@ -142,7 +148,7 @@ export default function Dashboard() {
     const key = palettes[type] ? palettes[type][phase] : 'from-slate-100 to-gray-100';
     const container = `bg-linear-to-br/srgb ${key}`;
     const dark = phase === 'night';
-    return { container, dark };
+    return { container, dark, type };
   }
 
   // Fetch weather once on dashboard load
@@ -203,232 +209,192 @@ export default function Dashboard() {
     return () => { cancelled = true; };
   }, []);
 
-  function renderWeatherCard(label, w) {
-    const loadingState = (
-      <div className="relative rounded-lg bg-linear-to-br/srgb from-slate-50 to-gray-100 p-3 overflow-hidden">
-        <div className="flex items-center justify-between mb-1">
-          <div className="text-xs text-gray-500">{label}</div>
-          <div className="text-xl">⏳</div>
-        </div>
-        <div className="h-6 w-16 bg-gray-200 rounded-sm animate-pulse mb-1" />
-        <div className="h-3 w-24 bg-gray-200 rounded-sm animate-pulse" />
-      </div>
+  // One sky per person: 🫒 is him (novio), 🍪 is her (novia)
+  function renderWeatherCard(who, label, w) {
+    const head = (
+      <p className="etiqueta cielo-2 tracking-[0.06em] truncate">{who} {label}</p>
     );
-    if (weatherLoading && !w) return loadingState;
     if (!w) {
+      const loadingNow = weatherLoading;
       return (
-        <div className="relative rounded-lg bg-linear-to-br/srgb from-slate-50 to-gray-100 p-3 overflow-hidden">
-          <div className="flex items-center justify-between mb-1">
-            <div className="text-xs text-gray-500">{label}</div>
-            <div className="text-xl">🌈</div>
+        <div className="min-w-0 rounded-tarjeta bg-card border border-line px-3.5 pt-3 pb-3.5 flex flex-col gap-0.5">
+          <div className="flex items-center justify-between gap-1.5">
+            <p className="etiqueta tracking-[0.06em] truncate">{who} {label}</p>
+            <span aria-hidden="true" className="text-[18px] leading-none">{loadingNow ? '⏳' : '🌈'}</span>
           </div>
-          <div className="text-sm text-gray-600">Sin ubicación</div>
-          <div className="text-[11px] text-gray-500">Actualiza en Mapa</div>
+          {loadingNow ? (
+            <>
+              <span className="hueco block w-16 h-6 rounded-lg my-1" aria-hidden="true" />
+              <span className="hueco block w-24 h-3.5 rounded-md" aria-hidden="true" />
+              <span className="sr-only">Cargando el tiempo</span>
+            </>
+          ) : (
+            <>
+              <p className="text-[14px] font-semibold text-ink">Sin ubicación</p>
+              <p className="text-[12px] text-ink-2">Actualiza en Mapa</p>
+            </>
+          )}
         </div>
       );
     }
-    const w2 = w;
-    const theme = getWeatherTheme(w2);
-    const muted = theme.dark ? 'text-gray-300' : 'text-gray-600';
-    const title = theme.dark ? 'text-white' : 'text-gray-800';
+    const theme = getWeatherTheme(w);
+    const words = skyWords(theme.type);
     return (
-      <div className={`relative rounded-lg p-3 overflow-hidden ${theme.container} animate-gradient-subtle`}>
-        <div className="relative flex items-center justify-between mb-1">
-          <div className={`text-xs ${muted}`}>{label}</div>
-          <div className="text-xl flex items-center gap-1">
-            {w2.phase === 'night' && <span>{w2.moon || '🌙'}</span>}
-            <span>{weatherEmoji(w2.code ?? -1)}</span>
-          </div>
+      <div className={`cielo min-w-0 rounded-tarjeta px-3.5 pt-3 pb-3.5 flex flex-col gap-0.5 ${theme.dark ? 'de-noche' : ''}`}>
+        <div aria-hidden="true" className={`cielo-fondo ${theme.container} animate-gradient-subtle`} />
+        <div className="flex items-center justify-between gap-1.5">
+          {head}
+          {/* Moon at night and the weather emoji, both (F4) */}
+          <span className="text-[18px] leading-none flex items-center gap-1 shrink-0">
+            {w.phase === 'night' && <span>{w.moon || '🌙'}</span>}
+            <span>{weatherEmoji(w.code ?? -1)}</span>
+          </span>
         </div>
-        <div className={`relative text-xl font-semibold ${title}`}>{w2.temp != null ? `${w2.temp}°` : '—°'}</div>
-        <div className={`relative text-[11px] ${muted} flex flex-col gap-0.5`}>
-          <div>Sensación {w2.feels != null ? `${w2.feels}°` : '—°'}</div>
-          <div>💧 {w2.humidity != null ? `${w2.humidity}%` : '—%'}</div>
-          <div>🌬️ {w2.wind != null ? `${w2.wind} km/h` : '— km/h'}</div>
-        </div>
-        <div className={`relative text-xs truncate font-semibold ${title}`}>{w2.city || '—'}</div>
+        <p className="num text-[24px] font-semibold tracking-[-0.01em]">{w.temp != null ? `${w.temp}°` : '—°'}</p>
+        {words && <p className="text-[14px] font-semibold">{words}</p>}
+        <p className="num text-[12px] cielo-2">Sensación {w.feels != null ? `${w.feels}°` : '—°'} · 💧 {w.humidity != null ? `${w.humidity} %` : '— %'}</p>
+        <p className="num text-[12px] cielo-2">🌬️ {w.wind != null ? `${w.wind} km/h` : '— km/h'}</p>
+        <p className="text-[13px] font-semibold truncate">{w.city || '—'}</p>
       </div>
     );
   }
 
+  const words = timeTogether ? togetherWords(timeTogether) : [];
+  const meetDate = nextMeetEvent?.start?.toDate?.();
+  const nextDate = nextEvent?.start?.toDate?.();
+
   return (
-    <div className="space-y-4">
-      <h2 className="text-lg font-semibold text-rose-600">Inicio</h2>
+    <div className="max-w-(--breakpoint-md) mx-auto w-full pb-2">
+      <p className="etiqueta px-5 pt-1">{todayText()}</p>
+
       {timeTogether ? (
-        <div className="card">
-          <div className="text-sm text-gray-600 mb-2">Llevamos juntos</div>
-          <div className="flex justify-around gap-2 p-3 bg-rose-50/50 rounded-lg">
-            {[ 
-              { value: timeTogether.years, label: 'Año', plural: 'Años' },
-              { value: timeTogether.months, label: 'Mes', plural: 'Meses' },
-              { value: timeTogether.days, label: 'Día', plural: 'Días' } 
-            ].map(({ value, label, plural }) => (
-              (timeTogether.years > 0 || label !== 'Año') && // Show years only if > 0
-              (timeTogether.months > 0 || label !== 'Mes' || timeTogether.years > 0) && // Show months if > 0 or if years are shown
-              <div key={label} className="text-center">
-                <div className="text-2xl md:text-3xl font-bold text-rose-600">{String(value).padStart(2, '0')}</div>
-                <div className="text-xs text-gray-500">{value === 1 ? label : plural}</div>
-              </div>
-            ))}
+        <section aria-label="Tiempo juntos" className="flex items-end gap-2 pl-5 pr-3 pt-2.5 pb-5">
+          <div className="flex-1 min-w-0 flex flex-col gap-1.5">
+            <p className="text-[15px] text-ink-2">Llevamos juntos</p>
+            <h1 className="serif text-[42px] leading-[1.04] font-normal tracking-[-0.015em] flex flex-wrap gap-x-2.5">
+              {words.map((w, i) => (
+                <span key={i} className={i === words.length - 1 ? `italic text-accent-ink brillo ${liked ? 'on' : ''}` : ''}>{w}</span>
+              ))}
+            </h1>
           </div>
-        </div>
+          <button
+            type="button"
+            className={`latido w-12 h-12 rounded-full flex items-center justify-center flex-none ${beat === 0 ? '' : beat % 2 ? 'beat-a' : 'beat-b'}`}
+            aria-label="Latido"
+            aria-pressed={liked}
+            onClick={() => setBeat((b) => b + 1)}
+          >
+            <span className="ring" aria-hidden="true" />
+            {[0, 60, 120, 180, 240, 300].map((a) => (
+              <span key={a} className="spark" aria-hidden="true" style={{ '--a': `${a}deg` }} />
+            ))}
+            <span className="hb"><Icon name="latido" size={28} filled={liked} /></span>
+          </button>
+        </section>
       ) : (
-        <div className="card">
-          <div className="text-sm text-gray-600">Configura tu aniversario en Ajustes</div>
-          <Link to="/settings" className="inline-block mt-2 btn-primary">Ir a Ajustes</Link>
-        </div>
+        <section aria-label="Tiempo juntos" className="mx-4 mt-2.5 mb-5 p-5 rounded-hero border-[1.5px] border-dashed border-line flex flex-col items-start gap-2.5">
+          <h1 className="serif text-[30px] leading-[1.1] font-normal">Configura tu aniversario en Ajustes</h1>
+          <Link to="/settings" className="btn btn-sec">Ir a Ajustes</Link>
+        </section>
       )}
 
-      {nextMeetEvent && (
-        <div className="card">
-          <div className="text-sm text-gray-600 mb-2">Próxima vez que nos vemos</div>
-          <div className="text-lg font-semibold text-gray-900 mb-2">{nextMeetEvent.title}</div>
-          <Countdown toDate={nextMeetEvent.start.toDate()} />
-        </div>
-      )}
-
-      {!hideConjunto && (
-      <div className="card">
-        <div className="text-sm text-gray-600 mb-2">Próximo evento conjunto</div>
-        {nextEvent ? (
-          <>
-            <div className="text-lg font-semibold text-gray-900 mb-2">{nextEvent.title}</div>
-            <Countdown toDate={nextEvent.start.toDate()} />
-          </>
-        ) : (
-          <>
-            <div className="text-lg font-semibold text-gray-900 mb-2">
-              {loading ? (
-                <div className="animate-pulse bg-gray-200 h-6 rounded-sm w-48"></div>
-              ) : (
-                "No hay eventos próximos"
-              )}
-            </div>
-            <div className="flex justify-around gap-2 p-3 bg-rose-50/50 rounded-lg">
-              {loading ? (
-                <>
-                  <div className="text-center">
-                    <div className="animate-pulse bg-gray-200 h-8 w-8 rounded-sm mb-1"></div>
-                    <div className="animate-pulse bg-gray-200 h-3 w-8 rounded-sm"></div>
-                  </div>
-                  <div className="text-center">
-                    <div className="animate-pulse bg-gray-200 h-8 w-8 rounded-sm mb-1"></div>
-                    <div className="animate-pulse bg-gray-200 h-3 w-8 rounded-sm"></div>
-                  </div>
-                  <div className="text-center">
-                    <div className="animate-pulse bg-gray-200 h-8 w-8 rounded-sm mb-1"></div>
-                    <div className="animate-pulse bg-gray-200 h-3 w-8 rounded-sm"></div>
-                  </div>
-                  <div className="text-center">
-                    <div className="animate-pulse bg-gray-200 h-8 w-8 rounded-sm mb-1"></div>
-                    <div className="animate-pulse bg-gray-200 h-3 w-8 rounded-sm"></div>
-                  </div>
-                </>
-              ) : (
-                <div className="text-center text-gray-500">
-                  <span>Sin eventos programados</span>
-                </div>
-              )}
-            </div>
-          </>
-        )}
-      </div>
-      )}
-
-      {/* Weather cards: two side-by-side minimal cards */}
-      <div className="card">
-        <div className="flex items-center justify-between mb-2">
-          <div className="text-sm text-gray-600">Clima ahora</div>
-        </div>
-        <div className="grid grid-cols-2 gap-3">
-          {renderWeatherCard(ROLE_LABELS.novio, weatherNovio)}
-          {renderWeatherCard(ROLE_LABELS.novia, weatherNovia)}
-        </div>
+      <div className="px-4">
+        <RandomPhoto />
       </div>
 
-      <div className="card">
-        <div className="flex items-center justify-between mb-2">
-          <h3 className="text-sm text-gray-600">Próximos eventos</h3>
-          {eventsError ? (
-            <button type="button" onClick={() => { setEventsError(false); setEventsKey((k) => k + 1); }} className="btn-link text-sm text-rose-600">
-              No se pudo cargar. Reintentar
-            </button>
-          ) : (
-            <Link to="/calendar" className="btn-link text-sm">Ver calendario</Link>
-          )}
+      {nextMeetEvent && meetDate && (
+        <section aria-label="Próximo encuentro" className="card mx-4 mt-3 rounded-hero py-4 pr-4 pl-[18px] flex items-center gap-4">
+          <div className="flex-1 min-w-0 flex flex-col gap-0.5">
+            <p className="etiqueta">Nos vemos</p>
+            <p className="serif text-[30px] leading-[1.1] text-ink">{whenText(meetDate)}</p>
+            <p className="text-[15px] font-semibold text-ink">{nextMeetEvent.title}</p>
+            <p className="num text-[14px] text-ink-2">{longDateText(meetDate)}</p>
+            <Countdown toDate={meetDate} className="pt-1" />
+          </div>
+          <div aria-hidden="true" className="w-[60px] flex-none rounded-control overflow-hidden border border-line bg-paper flex flex-col items-center">
+            <span className="w-full text-center bg-lacre text-on-lacre text-[11px] font-bold tracking-[0.1em] py-[3px]">{monthTile(meetDate)}</span>
+            <span className="serif text-[30px] leading-[1.25] text-ink">{meetDate.getDate()}</span>
+          </div>
+        </section>
+      )}
+
+      {!hideConjunto && (loading && !nextEvent ? (
+        <div aria-hidden="true" className="mx-4 mt-3 h-[76px] rounded-tarjeta bg-card border border-line p-4 flex flex-col gap-2.5">
+          <span className="hueco block w-28 h-3 rounded-md" />
+          <span className="hueco block w-48 h-4 rounded-md" />
         </div>
-        <div className="min-h-[140px]">
+      ) : nextEvent && nextDate ? (
+        <section aria-label="Próximo evento de los dos" className="mx-4 mt-3 min-h-[60px] rounded-tarjeta bg-lacre-soft py-2.5 pl-2.5 pr-4 flex items-center gap-3">
+          <span aria-hidden="true" className="w-10 h-10 rounded-full bg-card flex items-center justify-center text-[20px] flex-none">{eventMark(nextEvent).emoji}</span>
+          <span className="flex-1 min-w-0 flex flex-col">
+            <span className="text-[12px] font-semibold uppercase tracking-[0.08em] text-ink-2">Próximo evento · {BOTH_LABEL}</span>
+            <span className="text-[15px] font-semibold text-ink">{nextEvent.title}</span>
+            <span className="text-[13px] text-ink-2">{shortDateText(nextDate)} · {whenText(nextDate)}</span>
+            <Countdown toDate={nextDate} />
+          </span>
+        </section>
+      ) : (
+        <section aria-label="Próximo evento de los dos" className="mx-4 mt-3 rounded-tarjeta border-[1.5px] border-dashed border-line py-3 px-4 flex flex-col gap-0.5">
+          <span className="text-[12px] font-semibold uppercase tracking-[0.08em] text-ink-2">Próximo evento · {BOTH_LABEL}</span>
+          <span className="text-[15px] text-ink-2">No hay eventos próximos</span>
+        </section>
+      ))}
+
+      {eventsError && (
+        <section role="alert" className="mx-4 mt-3 py-3 pr-3 pl-[18px] rounded-hero bg-sunk flex items-center gap-3">
+          <Icon name="info" className="text-ink-2" />
+          <p className="flex-1 text-[15px] text-ink">No se pudieron cargar los eventos.</p>
+          <Button variant="sec" onClick={() => { setEventsError(false); setEventsKey((k) => k + 1); }}>Reintentar</Button>
+        </section>
+      )}
+
+      <section aria-label="Clima ahora" className="mx-4 mt-3 grid grid-cols-2 gap-3">
+        {renderWeatherCard('🫒', ROLE_LABELS.novio, weatherNovio)}
+        {renderWeatherCard('🍪', ROLE_LABELS.novia, weatherNovia)}
+      </section>
+
+      <section aria-label="Próximos eventos" className="mx-4 mt-6">
+        <div className="flex items-center justify-between pl-1">
+          <h2 className="etiqueta">Próximos</h2>
+          <Link to="/calendar" className="btn btn-txt btn-acc">Ver calendario</Link>
+        </div>
+        <div className="rounded-tarjeta bg-card border border-line overflow-hidden flex flex-col">
           {loading ? (
-            <div className="space-y-2">
-              <div className="text-sm flex items-center gap-2">
-                <div className="animate-pulse bg-gray-200 h-4 rounded-sm flex-1"></div>
-                <div className="animate-pulse bg-gray-200 w-2 h-2 rounded-full"></div>
-              </div>
-              <div className="animate-pulse bg-gray-200 h-3 rounded-sm w-20"></div>
-              <div className="text-sm flex items-center gap-2 mt-2">
-                <div className="animate-pulse bg-gray-200 h-4 rounded-sm flex-1"></div>
-                <div className="animate-pulse bg-gray-200 w-2 h-2 rounded-full"></div>
-              </div>
-              <div className="animate-pulse bg-gray-200 h-3 rounded-sm w-24"></div>
-              <div className="text-sm flex items-center gap-2 mt-2">
-                <div className="animate-pulse bg-gray-200 h-4 rounded-sm flex-1"></div>
-                <div className="animate-pulse bg-gray-200 w-2 h-2 rounded-full"></div>
-              </div>
-              <div className="animate-pulse bg-gray-200 h-3 rounded-sm w-16"></div>
+            <div aria-label="Cargando eventos" className="flex flex-col gap-[18px] px-4 py-[18px]">
+              <span className="hueco block h-3.5 rounded-md" />
+              <span className="hueco block h-3.5 w-4/5 rounded-md" />
+              <span className="hueco block h-3.5 w-3/5 rounded-md" />
             </div>
           ) : events.length > 0 ? (
-            <ul className="space-y-2">
-              {events.slice(0, 5).map(ev => {
-                const d = ev.start?.toDate?.();
-                const when = d ? d.toLocaleDateString('es-ES', { month: 'long', day: 'numeric' }) : '';
-                
-                // Get event type color
-                let eventTypeColor = 'bg-rose-500'; // Default: conjunto (pink)
-                if (ev.eventType === 'novio') {
-                  eventTypeColor = 'bg-yellow-500';
-                } else if (ev.eventType === 'novia') {
-                  eventTypeColor = 'bg-purple-500';
-                } else if (ev.eventType === 'sebas-birthday') {
-                  eventTypeColor = 'bg-yellow-500'; // Sebas birthday: yellow
-                } else if (ev.eventType === 'lucy-birthday') {
-                  eventTypeColor = 'bg-purple-400'; // Lucy birthday: lilac
-                } else if (ev.eventType === 'conjunto' && ev.isSpecialEvent) {
-                  eventTypeColor = 'bg-rose-500'; // Anniversary/monthiversary: pink
-                }
-                
-                const handleClick = () => {
-                  if (!d) return;
-                  const y = d.getFullYear();
-                  const m = d.getMonth(); // 0-indexed
-                  const day = d.getDate();
-                  navigate(`/calendar?y=${y}&m=${m}&d=${day}`);
-                };
-
-                return (
-                  <li
-                    key={ev.id}
-                    className="text-sm flex items-center gap-2 cursor-pointer hover:bg-gray-50 rounded-sm px-2 -mx-2"
-                    onClick={handleClick}
-                  >
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className="font-medium text-gray-800 truncate">{ev.title}</span>
-                        <div className={`w-2 h-2 rounded-full shrink-0 ${eventTypeColor}`}></div>
-                      </div>
-                      <span className="text-xs text-gray-500">{when}</span>
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
+            events.slice(0, 5).map((ev, i) => {
+              const d = ev.start?.toDate?.();
+              const mark = eventMark(ev);
+              const handleClick = () => {
+                if (!d) return;
+                const y = d.getFullYear();
+                const m = d.getMonth(); // 0-indexed
+                const day = d.getDate();
+                navigate(`/calendar?y=${y}&m=${m}&d=${day}`);
+              };
+              return (
+                <button
+                  key={ev.id}
+                  type="button"
+                  onClick={handleClick}
+                  className={`fila-evento w-full flex items-center gap-3.5 min-h-14 px-4 py-2 text-left ${i ? 'border-t border-line' : ''}`}
+                >
+                  <span className="num w-[62px] flex-none text-[13px] text-ink-2">{d ? dayMonthText(d) : ''}</span>
+                  <span className="flex-1 min-w-0 text-[16px] font-medium text-ink truncate">{ev.title}</span>
+                  <span aria-hidden="true" className="text-[14px] leading-none">{mark.emoji}</span>
+                  <span className="sr-only">{mark.label}</span>
+                </button>
+              );
+            })
           ) : (
-            <p className="text-gray-500">No hay próximos eventos. ¡Crea el primero!</p>
+            <p className="px-4 py-3.5 text-[15px] text-ink-2">No hay próximos eventos. ¡Crea el primero!</p>
           )}
         </div>
-      </div>
-
-      <RandomPhoto />
-
+      </section>
     </div>
   );
 }
