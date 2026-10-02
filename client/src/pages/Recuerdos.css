@@ -1,2 +1,117 @@
 /* Recuerdos (3.1): the hub, the stamp album and the albums. Imported from App.jsx, not from the lazy pages: a CSS file of
-   their own would be named static/css/main.<hash>.css and appUpdate.js would count it as a new version */
+   their own would be named static/css/main.<hash>.css and appUpdate.js would count it as a new version.
+   Reduced motion is the global rule in index.css (every animation ends at once) */
+
+/* A slot that is still waiting for its photo: the gallery's shine, over sunk paper */
+.recuerdo-hueco { position: absolute; inset: 0; background-color: var(--sunk); overflow: hidden; }
+.recuerdo-hueco::after {
+  content: ""; position: absolute; inset: 0;
+  background: linear-gradient(100deg, transparent 30%, var(--shine) 50%, transparent 70%);
+  transform: translateX(-100%); animation: recuerdo-brillo 1500ms var(--ease-suave) infinite;
+}
+@keyframes recuerdo-brillo { to { transform: translateX(100%); } }
+
+/* The photos of a month, a trip or a day, as the gallery lays them out */
+.mosaico-celda {
+  position: relative; display: block; width: 100%; aspect-ratio: 1; overflow: hidden; background-color: var(--sunk);
+  -webkit-tap-highlight-color: transparent; animation: recuerdo-celda 320ms var(--ease-suave) backwards;
+}
+.mosaico-celda:active { opacity: 0.8; }
+.mosaico-celda:focus-visible { outline: 2px solid var(--lacre); outline-offset: -3px; }
+.mosaico-celda img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+html[data-tema='oscuro'] .mosaico-celda img { filter: brightness(0.92); }
+@keyframes recuerdo-celda { from { opacity: 0; transform: scale(0.94); } to { opacity: 1; transform: none; } }
+/* Selecting: a ring in the corner, a lacre tick when it is on, and the photo steps back */
+.mosaico-marca {
+  position: absolute; right: 6px; top: 6px; width: 22px; height: 22px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+  border: 2px solid oklch(1 0 0 / 0.9); background-color: oklch(0.2 0.02 30 / 0.35); color: var(--on-lacre);
+}
+.mosaico-celda.marcada { outline: 3px solid var(--lacre); outline-offset: -3px; }
+.mosaico-celda.marcada img { opacity: 0.78; }
+.mosaico-celda.marcada .mosaico-marca { background-color: var(--lacre); border-color: var(--lacre); }
+
+/* «Hace un año» on Inicio: the whole card is the link, a small print sits on its right */
+.hace-tarjeta-abrir { -webkit-tap-highlight-color: transparent; }
+.hace-tarjeta-abrir:focus-visible { outline: 2px solid var(--lacre); outline-offset: 2px; }
+.hace-print {
+  flex: none; width: 68px; padding: 5px 5px 9px; border-radius: 4px; transform: rotate(3deg);
+  background-color: var(--raised); border: 1px solid var(--line); box-shadow: var(--sh-2);
+}
+.hace-print > span { position: relative; display: block; width: 100%; aspect-ratio: 1; overflow: hidden; border-radius: 2px; background-color: var(--sunk); }
+.hace-print img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+html[data-tema='oscuro'] .hace-print img { filter: brightness(0.92); }
+
+/* The stamp album: 3 stamps across. A stamp is a perforated sheet with the photo of the month, its date underneath
+   and a lacre seal with the number of the month on its corner; the anniversaries are on rose paper */
+.mes-sello {
+  position: relative; display: block; width: 100%; text-align: center; color: var(--ink);
+  transform: rotate(var(--giro, 0deg)); filter: drop-shadow(0 1px 2px oklch(0.3 0.03 30 / 0.22));
+  -webkit-tap-highlight-color: transparent;
+  transition: transform var(--dur-toque) var(--ease-suave);
+  animation: recuerdo-sello 380ms var(--ease-suave) backwards; animation-delay: calc(var(--k, 0) * 28ms);
+}
+.mes-sello:active { transform: rotate(var(--giro, 0deg)) scale(0.97); }
+.mes-sello:focus-visible { outline: 2px solid var(--lacre); outline-offset: 3px; border-radius: 6px; }
+@keyframes recuerdo-sello { from { opacity: 0; transform: translateY(10px) rotate(var(--giro, 0deg)); } to { opacity: 1; transform: rotate(var(--giro, 0deg)); } }
+.mes-papel {
+  display: flex; flex-direction: column; gap: 6px; padding: 12px 11px 9px; background-color: var(--raised);
+  box-shadow: inset 0 0 0 5px var(--raised), inset 0 0 0 6px var(--line);
+  -webkit-mask: linear-gradient(#000 0 0) center / calc(100% - 8px) calc(100% - 8px) no-repeat,
+    radial-gradient(circle, transparent 2.4px, #000 2.9px) -4px -4px / 8px 8px round;
+  mask: linear-gradient(#000 0 0) center / calc(100% - 8px) calc(100% - 8px) no-repeat,
+    radial-gradient(circle, transparent 2.4px, #000 2.9px) -4px -4px / 8px 8px round;
+}
+.mes-sello.aniversario .mes-papel { background-color: var(--lacre-soft); box-shadow: inset 0 0 0 5px var(--lacre-soft), inset 0 0 0 6px var(--lacre); }
+.mes-foto {
+  position: relative; display: flex; align-items: center; justify-content: center; width: 100%; aspect-ratio: 1; overflow: hidden;
+  background-color: var(--sunk); color: var(--line); box-shadow: inset 0 0 0 1px var(--line);
+}
+.mes-foto img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+html[data-tema='oscuro'] .mes-foto img { filter: brightness(0.92); }
+.mes-pie { display: flex; flex-direction: column; align-items: center; gap: 1px; line-height: 1.15; min-height: 28px; }
+.mes-pie b { font-family: var(--font-serif); font-size: 14px; font-weight: 500; color: var(--accent-ink); }
+.mes-pie span { font-size: 11.5px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.mes-lacre {
+  position: absolute; right: -3px; bottom: 27px; width: 34px; height: 34px; display: flex; align-items: center; justify-content: center;
+  border-radius: 47% 53% 50% 50% / 52% 48% 52% 48%; transform: rotate(-8deg);
+  font-family: var(--font-serif); font-size: 17px; font-weight: 600; line-height: 1; font-variant-numeric: tabular-nums;
+  color: var(--on-lacre);
+  background: radial-gradient(circle at 34% 30%, color-mix(in oklch, var(--lacre) 72%, white), var(--lacre) 58%, color-mix(in oklch, var(--lacre) 80%, black));
+  box-shadow: var(--sh-1), inset 0 0 0 2.5px color-mix(in oklch, var(--lacre) 85%, black);
+}
+/* The seal of a stamp on its sheet of photos and on the one to come, a little bigger */
+.mes-lacre-gran { position: static; width: 48px; height: 48px; font-size: 22px; flex: none; }
+
+/* Albums: two cards across, the cover is the first photo */
+.album-tarjeta { position: relative; display: flex; flex-direction: column; gap: 8px; text-align: left; -webkit-tap-highlight-color: transparent; transition: transform var(--dur-toque) var(--ease-suave); }
+.album-tarjeta:active { transform: scale(0.97); }
+.album-tarjeta:focus-visible { outline: 2px solid var(--lacre); outline-offset: 3px; border-radius: var(--radius-tarjeta); }
+.album-portada {
+  position: relative; display: flex; align-items: center; justify-content: center; width: 100%; aspect-ratio: 1; overflow: hidden;
+  border-radius: var(--radius-tarjeta); background-color: var(--lacre-soft); border: 1px solid var(--line); box-shadow: var(--sh-1); font-size: 44px; line-height: 1;
+}
+.album-portada img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+html[data-tema='oscuro'] .album-portada img { filter: brightness(0.92); }
+.album-emoji-chip {
+  position: absolute; left: 8px; bottom: 8px; min-width: 30px; height: 30px; padding: 0 6px; display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 9999px; background-color: color-mix(in oklab, var(--paper) 88%, transparent); font-size: 16px; line-height: 1;
+  -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+}
+.album-fila { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 56px; padding: 8px 4px; text-align: left; border-top: 1px solid var(--line); -webkit-tap-highlight-color: transparent; }
+.album-fila:active { background-color: var(--sunk); }
+.album-fila:focus-visible { outline: 2px solid var(--lacre); outline-offset: -2px; }
+
+/* The sheet to choose an album: one row for each, 56 px high */
+.picker-fila {
+  display: flex; align-items: center; gap: 12px; width: 100%; min-height: 56px; padding: 6px 4px; text-align: left;
+  border-top: 1px solid var(--line); -webkit-tap-highlight-color: transparent;
+}
+.picker-fila:active:not(:disabled) { background-color: var(--sunk); }
+.picker-fila:disabled { opacity: 0.5; }
+.picker-fila:focus-visible { outline: 2px solid var(--lacre); outline-offset: -2px; }
+.picker-emoji { flex: none; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; border-radius: var(--radius-mini); background-color: var(--lacre-soft); font-size: 22px; line-height: 1; }
+
+/* Emoji chosen for an album */
+.emoji-opcion { width: 44px; height: 44px; display: inline-flex; align-items: center; justify-content: center; border-radius: var(--radius-control); border: 1.5px solid var(--line); font-size: 22px; line-height: 1; background-color: var(--paper); }
+.emoji-opcion[aria-pressed='true'] { border-color: var(--lacre); background-color: var(--lacre-soft); }
+.emoji-opcion:focus-visible { outline: 2px solid var(--lacre); outline-offset: 2px; }
