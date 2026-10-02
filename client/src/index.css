@@ -1,35 +1,163 @@
 @import 'tailwindcss';
 
-/* Tailwind 3.4 values for what v4 changed (font stack, drop shadows) and the hex for every colour the code uses:
-   v4's defaults (oklch) are more saturated at 500-700. R1 swaps them for the canvas tokens */
+/***** Carta tokens *****/
+/* Raw values from the canvas (Prototipo.dc.html .dcr and Sistema.dc.html); @theme inline below gives them Tailwind
+   names (bg-paper, text-ink, shadow-carta…). A theme is only another set of these variables on <html>.
+   The selectors after :root are light islands of the palette bridge: see "Puente" below */
+:root,
+.tema-claro,
+.animate-gradient-subtle, .from-slate-50, .bg-purple-50, .bg-yellow-50, .from-blue-100 {
+  --paper: oklch(0.975 0.009 35);
+  --card: oklch(0.993 0.004 30);
+  --sunk: oklch(0.94 0.014 25);
+  --ink: oklch(0.24 0.020 30);
+  --ink-2: oklch(0.47 0.020 40);
+  --line: oklch(0.90 0.018 20);
+  /* lacre is today's rose-600 (#e11d48): 4.5:1 or more with on-lacre, measured in R1 */
+  --lacre: oklch(0.586 0.222 17.6);
+  --lacre-soft: oklch(0.941 0.03 12.6);
+  --accent-ink: oklch(0.514 0.2 16.9);
+  --on-lacre: oklch(0.99 0.004 30);
+  --sello-el: oklch(0.94 0.035 235);
+  --sello-ella: oklch(0.93 0.04 305);
+  --sello-el-ink: oklch(0.45 0.12 250);
+  --sello-ella-ink: oklch(0.45 0.13 305);
+  --el: oklch(0.62 0.13 72);
+  --ella: oklch(0.47 0.13 305);
+  --danger: oklch(0.53 0.19 32);
+  --press-ink: oklch(0.32 0.02 30);
+  --bar: oklch(0.985 0.008 78 / 0.88);
+  --shine: oklch(1 0 0 / 0.65);
+  --scrim: oklch(0.22 0.02 30 / 0.36);
+  --sh-1: 0 1px 2px oklch(0.3 0.03 30 / 0.06), 0 2px 8px oklch(0.3 0.03 30 / 0.05);
+  --sh-2: 0 12px 32px -10px oklch(0.3 0.04 30 / 0.28), 0 2px 6px oklch(0.3 0.03 30 / 0.08);
+  --sh-hoja: 0 -12px 40px oklch(0.2 0.03 30 / 0.16);
+  /* Roulette wedges and weather sky (R3b, R5) */
+  --w3: oklch(0.90 0.05 80);
+  --w4: oklch(0.90 0.04 300);
+  --w5: oklch(0.92 0.03 150);
+  --cielo-dia: linear-gradient(160deg, oklch(0.93 0.045 230), oklch(0.95 0.05 85));
+  --cielo-noche: linear-gradient(160deg, oklch(0.34 0.07 280), oklch(0.28 0.06 305));
+}
+
+/* Dark values, written now and switched on only in development (lib/theme.js) until R10 brings "Apariencia" */
+html[data-tema='oscuro'] {
+  color-scheme: dark;
+  --paper: oklch(0.185 0.014 25);
+  --card: oklch(0.225 0.016 25);
+  --sunk: oklch(0.25 0.016 25);
+  --ink: oklch(0.94 0.012 70);
+  --ink-2: oklch(0.75 0.016 55);
+  --line: oklch(0.31 0.016 25);
+  --lacre: oklch(0.74 0.16 12);
+  --lacre-soft: oklch(0.32 0.07 10);
+  --accent-ink: oklch(0.84 0.1 10);
+  --on-lacre: oklch(0.2 0.03 20);
+  --sello-el: oklch(0.30 0.05 240);
+  --sello-ella: oklch(0.31 0.05 305);
+  --sello-el-ink: oklch(0.84 0.08 240);
+  --sello-ella-ink: oklch(0.84 0.09 305);
+  --el: oklch(0.82 0.12 82);
+  --ella: oklch(0.74 0.11 305);
+  --danger: oklch(0.72 0.15 32);
+  --press-ink: oklch(0.84 0.012 70);
+  --bar: oklch(0.2 0.015 25 / 0.88);
+  --shine: oklch(1 0 0 / 0.06);
+  --scrim: oklch(0.08 0.01 25 / 0.6);
+  --sh-1: 0 1px 2px oklch(0 0 0 / 0.3);
+  --sh-2: 0 14px 36px -10px oklch(0 0 0 / 0.6), 0 2px 6px oklch(0 0 0 / 0.3);
+  --sh-hoja: 0 -12px 40px oklch(0 0 0 / 0.5);
+  --w3: oklch(0.34 0.04 80);
+  --w4: oklch(0.32 0.04 300);
+  --w5: oklch(0.33 0.03 150);
+  --cielo-dia: linear-gradient(160deg, oklch(0.36 0.05 235), oklch(0.33 0.04 85));
+  --cielo-noche: linear-gradient(160deg, oklch(0.25 0.05 280), oklch(0.21 0.04 305));
+}
+
+/* Motion (Prototipo.dc.html): durations have no Tailwind namespace, use them as duration-(--dur-paso) */
+:root {
+  --dur-toque: 90ms;
+  --dur-fundido: 160ms;
+  --dur-paso: 260ms;
+  --dur-paso-out: 120ms;
+  --dur-hoja: 420ms;
+  --dur-hoja-out: 260ms;
+  --dur-revelar: 380ms;
+  --dur-latido: 640ms;
+  --cascada: 28ms;
+}
+
+@theme inline {
+  --color-paper: var(--paper);
+  --color-card: var(--card);
+  --color-sunk: var(--sunk);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-line: var(--line);
+  --color-lacre: var(--lacre);
+  --color-lacre-soft: var(--lacre-soft);
+  --color-accent-ink: var(--accent-ink);
+  --color-on-lacre: var(--on-lacre);
+  --color-sello-el: var(--sello-el);
+  --color-sello-ella: var(--sello-ella);
+  --color-sello-el-ink: var(--sello-el-ink);
+  --color-sello-ella-ink: var(--sello-ella-ink);
+  --color-el: var(--el);
+  --color-ella: var(--ella);
+  --color-danger: var(--danger);
+  --color-press-ink: var(--press-ink);
+  --color-bar: var(--bar);
+  --color-shine: var(--shine);
+  --color-scrim: var(--scrim);
+  --shadow-carta: var(--sh-1);
+  --shadow-flota: var(--sh-2);
+  --shadow-hoja: var(--sh-hoja);
+
+  /* Puente (bridge, deleted in R10): old screens use rose-*, gray-* and red-*; they point at the tokens so they turn
+     paper/ink/lacre and follow the theme without editing them. color-mix keeps the steps between two tokens.
+     New code uses the token names, never these */
+  --color-gray-50: color-mix(in oklab, var(--sunk) 50%, var(--card));
+  --color-gray-100: var(--sunk);
+  --color-gray-200: var(--line);
+  --color-gray-300: color-mix(in oklab, var(--ink-2) 35%, var(--line));
+  --color-gray-400: color-mix(in oklab, var(--ink-2) 70%, var(--line));
+  --color-gray-500: var(--ink-2);
+  --color-gray-600: var(--ink-2);
+  --color-gray-700: color-mix(in oklab, var(--ink) 60%, var(--ink-2));
+  --color-gray-800: var(--ink);
+  --color-gray-900: var(--ink);
+  --color-rose-50: color-mix(in oklab, var(--lacre-soft) 55%, var(--paper));
+  --color-rose-100: var(--lacre-soft);
+  --color-rose-200: color-mix(in oklab, var(--lacre) 22%, var(--lacre-soft));
+  --color-rose-300: color-mix(in oklab, var(--lacre) 50%, var(--lacre-soft));
+  --color-rose-500: var(--lacre);
+  --color-rose-600: var(--lacre);
+  --color-rose-700: var(--accent-ink);
+  --color-rose-800: color-mix(in oklab, var(--accent-ink) 75%, var(--ink));
+  --color-rose-900: color-mix(in oklab, var(--accent-ink) 55%, var(--ink));
+  --color-red-600: var(--danger);
+  --color-red-700: color-mix(in oklab, var(--danger) 85%, var(--ink));
+}
+
 @theme {
-  --font-sans: ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+  /* Fonts arrive in R1a (self-hosted); until then the names fall back to the system stacks */
+  --font-sans: 'Instrument Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
+  --font-serif: 'Newsreader', 'Iowan Old Style', Georgia, serif;
+  /* Radii (diseno-propuesta.md, Sistema.dc.html): photo grid 0, pill = rounded-full */
+  --radius-mini: 10px;
+  --radius-control: 14px;
+  --radius-tarjeta: 20px;
+  --radius-hero: 22px;
+  --radius-hoja: 28px;
+  --ease-suave: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-rapida: cubic-bezier(0.4, 0, 1, 1);
+  --ease-firme: cubic-bezier(0.2, 0, 0, 1);
+  --ease-hoja: cubic-bezier(0.32, 0.72, 0, 1);
+  --ease-latido: cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  /* Tailwind 3.4 values for what v4 changed, and the v3 hex of the other palettes the old screens use */
   --drop-shadow-sm: 0 1px 2px rgb(0 0 0 / 0.1), 0 1px 1px rgb(0 0 0 / 0.06);
   --drop-shadow-lg: 0 10px 8px rgb(0 0 0 / 0.04), 0 4px 3px rgb(0 0 0 / 0.1);
-
-  --color-gray-50: #f9fafb;
-  --color-gray-100: #f3f4f6;
-  --color-gray-200: #e5e7eb;
-  --color-gray-300: #d1d5db;
-  --color-gray-400: #9ca3af;
-  --color-gray-500: #6b7280;
-  --color-gray-600: #4b5563;
-  --color-gray-700: #374151;
-  --color-gray-800: #1f2937;
-  --color-gray-900: #111827;
-
-  --color-rose-50: #fff1f2;
-  --color-rose-100: #ffe4e6;
-  --color-rose-200: #fecdd3;
-  --color-rose-300: #fda4af;
-  --color-rose-500: #f43f5e;
-  --color-rose-600: #e11d48;
-  --color-rose-700: #be123c;
-  --color-rose-800: #9f1239;
-  --color-rose-900: #881337;
-
-  --color-red-600: #dc2626;
-  --color-red-700: #b91c1c;
 
   --color-yellow-50: #fefce8;
   --color-yellow-100: #fef9c3;
@@ -118,18 +246,39 @@
   }
 }
 
-/* Fix iOS overscroll background color: match app rose tint */
+/* Puente: white is a surface (bg-white → card) but stays white as text, so the variable changes only on the element
+   that paints the surface (bg-white/10 is glass over the dark overlays and keeps white). White text on a rose or red
+   fill takes on-lacre, which is dark in the dark theme */
+@layer utilities {
+  .bg-white, .bg-white\/80, .bg-white\/90, .bg-white\/95, .hover\:bg-white, .from-white, .to-white {
+    --color-white: var(--card);
+  }
+  .text-white:is(.bg-rose-500, .bg-rose-600, .bg-rose-700, .bg-red-600) {
+    color: var(--on-lacre);
+  }
+}
+
+/* Light islands of the bridge (pastels that do not follow the theme until their screen is redone): text inherits the
+   colour already computed outside, so they set ink again */
+@layer base {
+  .tema-claro, .animate-gradient-subtle, .from-slate-50, .bg-purple-50, .bg-yellow-50, .from-blue-100 {
+    color: var(--ink);
+  }
+}
+
+/* The page and the iOS overscroll bounce show the paper */
 html, body {
-  background-color: rgba(255, 241, 242, 0.5) !important; /* tailwind rose-50/50 */
+  background-color: var(--paper);
 }
 
 body {
   overscroll-behavior: none;
+  color: var(--ink);
+  -webkit-font-smoothing: antialiased;
 }
 
-/* Ensure bounce shows rosy tint even when container overscrolls */
 .app-shell, .app-scroll {
-  background-color: rgba(255, 241, 242, 0.5);
+  background-color: var(--paper);
 }
 
 :root {
@@ -139,24 +288,88 @@ body {
 
 html, body, #root { height: 100%; }
 
-body { @apply bg-rose-50/50; }
-
 /***** Tipografía *****/
 @layer base {
-  h1, h2, h3 { @apply text-gray-900; }
+  h1, h2, h3 { color: var(--ink); }
   p { @apply text-gray-700; }
 }
 
-/* Componentes reutilizables para visual más profesional */
+/* Componentes Carta (Componentes.dc.html). Utilities still win over this layer */
 @layer components {
-  .card { @apply bg-white/90 rounded-2xl p-4 border border-rose-100 shadow-xs; }
-  .input { @apply rounded-xl border border-rose-200 px-3 py-2 outline-hidden focus:ring-2 focus:ring-rose-300; }
-  .btn-primary { @apply inline-flex items-center justify-center px-3 py-2 rounded-lg bg-rose-600 text-white hover:bg-rose-500 active:scale-[0.99] transition; }
-  .btn-ghost { @apply inline-flex items-center justify-center px-3 py-2 rounded-lg bg-rose-50 text-rose-700 hover:bg-rose-100; }
-  .btn-link { @apply text-rose-600 hover:underline; }
-  .chip { @apply inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-rose-50 text-rose-700 text-xs border border-rose-100; }
-  .title-sm { @apply font-semibold text-gray-900; }
-  .muted { @apply text-gray-500; }
+  /* Botón único: talla 44 (base), 48 (btn-m), 52 (btn-l), 56 (btn-xl); variantes pri/sec/txt/dan/inv */
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 8px; flex: none;
+    height: 44px; min-width: 44px; padding: 0 18px; border-radius: 9999px;
+    font-size: 15px; font-weight: 600; line-height: 1.2; text-align: center; white-space: nowrap;
+    -webkit-tap-highlight-color: transparent; user-select: none;
+    transition: transform var(--dur-toque) var(--ease-suave), background-color var(--dur-fundido) var(--ease-suave), opacity var(--dur-fundido);
+  }
+  .btn:active:not(:disabled) { transform: scale(0.97); }
+  .btn:disabled { opacity: 0.4; cursor: default; }
+  .btn:focus-visible { outline: 2px solid var(--lacre); outline-offset: 2px; }
+  .btn-m { height: 48px; padding: 0 22px; }
+  .btn-l { height: 52px; padding: 0 24px; font-size: 16px; }
+  .btn-xl { height: 56px; padding: 0 28px; font-size: 17px; }
+  .btn-ic { padding-left: 14px; }
+  .btn-icono { width: 44px; padding: 0; color: var(--ink); }
+  .btn-pri { background-color: var(--lacre); color: var(--on-lacre); }
+  .btn-sec { background-color: var(--card); color: var(--ink); border: 1px solid var(--line); }
+  .btn-txt { padding: 0 12px; color: var(--ink); }
+  .btn-dan { background-color: var(--danger); color: var(--on-lacre); }
+  .btn-inv { background-color: var(--paper); color: var(--ink); }
+  .btn-acc { color: var(--accent-ink); }
+  .btn-pri:active, .btn-dan:active { filter: brightness(0.92); }
+  .btn-sec:active, .btn-txt:active, .btn-icono:active { background-color: var(--sunk); }
+  @media (hover: hover) {
+    .btn-sec:hover, .btn-txt:hover, .btn-icono:hover { background-color: var(--sunk); }
+  }
+
+  /* Alias de los botones viejos: colores Carta, medidas de antes (las pantallas les ponen su h-/px-/text-) */
+  .btn-primary, .btn-ghost {
+    display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+    padding: 0.5rem 1rem; border-radius: 9999px; font-weight: 600;
+    -webkit-tap-highlight-color: transparent;
+    transition: transform var(--dur-toque) var(--ease-suave), background-color var(--dur-fundido) var(--ease-suave);
+  }
+  .btn-primary:active, .btn-ghost:active { transform: scale(0.97); }
+  .btn-primary:focus-visible, .btn-ghost:focus-visible, .btn-link:focus-visible { outline: 2px solid var(--lacre); outline-offset: 2px; }
+  .btn-primary { background-color: var(--lacre); color: var(--on-lacre); }
+  .btn-primary:active { filter: brightness(0.92); }
+  .btn-ghost { background-color: var(--card); color: var(--ink); border: 1px solid var(--line); }
+  .btn-ghost:active { background-color: var(--sunk); }
+  .btn-link { color: var(--accent-ink); }
+  @media (hover: hover) {
+    .btn-ghost:hover { background-color: var(--sunk); }
+    .btn-link:hover { text-decoration: underline; }
+  }
+
+  .card { background-color: var(--card); border: 1px solid var(--line); border-radius: var(--radius-tarjeta); padding: 1rem; box-shadow: var(--sh-1); }
+
+  /* Campo: 16 px para que iOS no haga zoom; foco = borde tinta + halo lacre-soft; error con aria-invalid */
+  .input {
+    min-height: 52px; padding: 0.75rem 0.875rem; border-radius: var(--radius-control);
+    border: 1.5px solid var(--line); background-color: var(--paper); color: var(--ink);
+    font-size: 16px; line-height: 1.5; outline: none;
+    transition: border-color var(--dur-fundido) var(--ease-suave), box-shadow var(--dur-fundido) var(--ease-suave);
+  }
+  .input:focus, .input:focus-within { border-color: var(--ink); box-shadow: 0 0 0 4px var(--lacre-soft); }
+  .input[aria-invalid='true'] { border-color: var(--danger); }
+  .input:disabled { opacity: 0.5; background-color: var(--sunk); }
+  .etiqueta { font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; font-weight: 600; color: var(--ink-2); }
+
+  /* Chip: acento por defecto (el rosa de siempre); neutro y tinta como variantes */
+  .chip {
+    display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; border-radius: 9999px;
+    font-size: 13px; font-weight: 600; line-height: 1; white-space: nowrap;
+    background-color: var(--lacre-soft); color: var(--accent-ink);
+  }
+  .chip-neutro { background-color: var(--sunk); color: var(--ink-2); }
+  .chip-tinta { background-color: var(--ink); color: var(--paper); }
+
+  .title-sm { font-weight: 600; color: var(--ink); }
+  .muted { color: var(--ink-2); }
+  .serif { font-family: var(--font-serif); font-optical-sizing: auto; }
+  .num { font-variant-numeric: tabular-nums; }
 
   /* Rich text editor & note content basic typography */
   .rte a, .note-content a { @apply text-rose-600 underline; }
@@ -251,6 +464,33 @@ body { @apply bg-rose-50/50; }
   }
 }
 
+/* Carta motion: bottom sheet and its scrim (Prototipo.dc.html, "hoja") */
+@keyframes hoja-in {
+  from { transform: translateY(100%); }
+  to { transform: none; }
+}
+@keyframes fundido-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@layer components {
+  .hoja { animation: hoja-in var(--dur-hoja) var(--ease-hoja) backwards; }
+  .velo { animation: fundido-in 240ms var(--ease-suave) backwards; }
+}
+
+/* "Reducir movimiento" is the system setting only (plan §0 nº 2): every CSS animation and transition ends at once.
+   The JS timers (rain, coin, roulette) read the same media query themselves */
+@media (prefers-reduced-motion: reduce) {
+  *, ::before, ::after {
+    animation-duration: 1ms !important;
+    animation-delay: 0ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+    transition-delay: 0ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
 /* Hide scrollbars on mobile (touch devices) */
 @media (hover: none) and (pointer: coarse) {
   /* Hide viewport scrollbar by preventing body scroll */
@@ -299,8 +539,8 @@ body { @apply bg-rose-50/50; }
 .progress-range {
   /* percent filled (0%..100%) and colors overridable from inline style */
   --pct: 0%;
-  --prg: rgb(225, 29, 72); /* rose-600 */
-  --trk: rgba(225, 29, 72, 0.18);
+  --prg: var(--lacre);
+  --trk: color-mix(in oklab, var(--lacre) 18%, transparent);
   -webkit-appearance: none;
   appearance: none;
   width: 100%;
