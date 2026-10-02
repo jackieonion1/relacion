@@ -26,6 +26,15 @@ const MAX_TITULO = 60;
 
 export const idDeEvento = (eventId) => `ev-${eventId}`;
 
+// The calendar stores the end of an event as 23:59:59.999 of its last day in the phone that made it, which for a
+// phone west of Madrid is already the next day here. Only the day counts, so such an end becomes noon in Madrid of
+// the day it was meant (an hour no phone stores, so reading it again leaves it as it is). Any other end is kept
+export function finDeEvento(end) {
+  if (end == null || end % 60000 !== 59999) return end;
+  const [y, m, d] = madridDayKey(new Date(end - 12 * 3600000)).split('-').map(Number);
+  return rangoDiaMadrid(y, m - 1, d).desde + 12 * 3600000;
+}
+
 // Natural days (Madrid) from start to end, both included
 export function diasDeAlbum({ start, end }) {
   if (start == null) return 0;
@@ -59,7 +68,7 @@ export function albumDeDoc(docSnap) {
     emoji: d.emoji || EMOJI_VIAJE,
     tipo: d.kind === 'evento' ? 'evento' : 'manual',
     eventId: d.eventId || null,
-    start: ms(d.start), end: ms(d.end) ?? ms(d.start),
+    start: ms(d.start), end: finDeEvento(ms(d.end)) ?? ms(d.start),
     excluidas: Array.isArray(d.excludedIds) ? d.excludedIds : [],
     virtual: false,
     creadoEn: ms(d.createdAt) ?? 0,
@@ -106,7 +115,7 @@ export async function listarEncuentros(pairId) {
   const snap = await f.getDocs(f.query(f.collection(db, 'pairs', pairId, 'events'), f.where('seeEachOther', '==', true)));
   return snap.docs.map((d) => {
     const x = d.data();
-    return { id: d.id, title: String(x.title || '').trim(), start: x.start?.toMillis?.() ?? null, end: x.end?.toMillis?.() ?? null };
+    return { id: d.id, title: String(x.title || '').trim(), start: x.start?.toMillis?.() ?? null, end: finDeEvento(x.end?.toMillis?.() ?? null) };
   });
 }
 
@@ -122,7 +131,7 @@ export async function leerAlbum(pairId, id) {
   const ev = await f.getDoc(f.doc(db, 'pairs', pairId, 'events', real?.eventId || id.slice(3)));
   if (!ev.exists()) return real;
   const x = ev.data();
-  const deEvento = albumDeEvento({ id: ev.id, title: String(x.title || '').trim(), start: x.start?.toMillis?.() ?? null, end: x.end?.toMillis?.() ?? null });
+  const deEvento = albumDeEvento({ id: ev.id, title: String(x.title || '').trim(), start: x.start?.toMillis?.() ?? null, end: finDeEvento(x.end?.toMillis?.() ?? null) });
   return real ? { ...real, titulo: deEvento.titulo } : deEvento;
 }
 

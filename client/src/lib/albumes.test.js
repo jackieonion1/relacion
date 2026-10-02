@@ -101,6 +101,31 @@ describe('albumDeDoc', () => {
   });
 });
 
+describe('el fin de un evento creado en otro huso', () => {
+  // The calendar stores the end as 23:59:59.999 of the day in the phone that made the event
+  const finLocal = (y, m, d, offset) => Date.UTC(y, m - 1, d, 23, 59, 59, 999) - offset * 3600000;
+  const medioDia = (y, m, d, offset) => Date.UTC(y, m - 1, d, 12) - offset * 3600000;
+  const ts = (ms) => ({ toMillis: () => ms });
+  const deDoc = (inicio, fin) => albumDeDoc({ id: 'ev-a', data: () => ({ kind: 'evento', eventId: 'a', start: ts(inicio), end: ts(fin) }) });
+
+  test.each([['Madrid', 1], ['Londres', 0], ['Bogotá', -5], ['Hawái', -10], ['Tokio', 9], ['Nueva Zelanda', 12]])(
+    'un día desde %s es un día, no dos; un viaje de tres, tres', (_, offset) => {
+      const uno = deDoc(medioDia(2026, 3, 15, offset), finLocal(2026, 3, 15, offset));
+      expect(diasDeAlbum(uno)).toBe(1);
+      const tres = deDoc(medioDia(2026, 3, 14, offset), finLocal(2026, 3, 16, offset));
+      expect(diasDeAlbum(tres)).toBe(3);
+      // Its range ends 3 days of margin after the 16th (00:00 of the 20th in Madrid)
+      expect(iso(rangoDeAlbum(tres).hasta)).toBe('2026-03-19T23:00:00.000Z');
+    },
+  );
+
+  test('el fin de un evento ya leído no se corrige dos veces', () => {
+    const una = deDoc(medioDia(2026, 3, 15, -5), finLocal(2026, 3, 15, -5));
+    const otra = deDoc(una.start, una.end);
+    expect(otra.end).toBe(una.end);
+  });
+});
+
 describe('escritura de un álbum de evento sin doc', () => {
   const viaje = { id: 'ev-a', titulo: 'Roma', emoji: '✈️', tipo: 'evento', eventId: 'a', start: dia(2026, 3, 12), end: dia(2026, 3, 15), excluidas: [], virtual: true, creadoEn: 0 };
   const flush = async () => { for (let i = 0; i < 10; i++) await Promise.resolve(); };
