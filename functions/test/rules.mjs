@@ -1,26 +1,31 @@
-// Test de las reglas REALES de Firestore (firestore.rules, cableadas en firebase.test.json). Falla con exit 1.
-//   firebase emulators:exec --config firebase.test.json --only functions,firestore --project demo-relacion "node functions/test/rules.mjs"
+// Test de las reglas REALES de Firestore y Storage (cableadas en firebase.test.json) y de las callables de
+// membresía. Falla con exit 1.
+//   firebase emulators:exec --config firebase.test.json --only functions,firestore,storage --project demo-relacion "node functions/test/rules.mjs"
 // Peticiones REST con un JWT sin firmar (el emulador no verifica la firma, como en smoke.mjs). Permitido = 200 o
 // 404 (la regla dejó pasar; el doc no existe); denegado = 403. La siembra va por Admin SDK, que se salta las reglas.
 import fs from 'node:fs';
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { initializeApp } from 'firebase-admin/app';
-import { getFirestore } from 'firebase-admin/firestore';
+import { getFirestore, Timestamp } from 'firebase-admin/firestore';
 
 const host = process.env.FIRESTORE_EMULATOR_HOST;
 if (!host) throw new Error('FIRESTORE_EMULATOR_HOST no definido: ejecuta con emulators:exec');
+const storageHost = process.env.FIREBASE_STORAGE_EMULATOR_HOST || '127.0.0.1:9199';
+const functionsBase = 'http://127.0.0.1:5001/demo-relacion/europe-southwest1';
 
 const failures = [];
 const check = (ok, msg) => { console.log(`${ok ? 'OK  ' : 'FAIL'} ${msg}`); if (!ok) failures.push(msg); };
 const b64url = (o) => Buffer.from(JSON.stringify(o)).toString('base64url');
 const jwt = (uid) => [{ alg: 'none', typ: 'JWT' }, { sub: uid, user_id: uid, aud: 'demo-relacion', iss: 'https://securetoken.google.com/demo-relacion', iat: 1, exp: 9999999999, firebase: { sign_in_provider: 'anonymous', identities: {} } }]
   .map(b64url).join('.') + '.';
+const auth = (uid) => (uid ? { Authorization: `Bearer ${jwt(uid)}` } : {});
 const base = `http://${host}/v1/projects/demo-relacion/databases/(default)/documents`;
 const req = async (method, p, { uid, body } = {}) => {
   const res = await fetch(`${base}${p}`, {
     method,
-    headers: { 'Content-Type': 'application/json', ...(uid ? { Authorization: `Bearer ${jwt(uid)}` } : {}) },
+    headers: { 'Content-Type': 'application/json', ...auth(uid) },
     body: body ? JSON.stringify(body) : undefined,
   });
   return res.status;
@@ -28,6 +33,37 @@ const req = async (method, p, { uid, body } = {}) => {
 const allowed = (s) => s === 200 || s === 404;
 const expectAllow = async (label, method, p, opts) => { const s = await req(method, p, opts); check(allowed(s), `ALLOW ${label} (status ${s})`); };
 const expectDeny = async (label, method, p, opts) => { const s = await req(method, p, opts); check(s === 403, `DENY  ${label} (status ${s})`); };
+
+// Storage por su API REST (la del SDK web): GET de metadatos y subida simple
+const bucket = 'demo-relacion.appspot.com';
+const sreq = async (method, p, uid) => {
+  const o = encodeURIComponent(p);
+  const url = method === 'POST'
+    ? `http://${storageHost}/v0/b/${bucket}/o?name=${o}`
+    : `http://${storageHost}/v0/b/${bucket}/o/${o}`;
+  const res = await fetch(url, { method, headers: { 'Content-Type': 'image/jpeg', ...auth(uid) }, body: method === 'POST' ? 'x' : undefined });
+  return res.status;
+};
+const expectStorage = async (want, label, method, p, uid) => {
+  const s = await sreq(method, p, uid);
+  check(want === 'allow' ? allowed(s) : s === 403, `${want === 'allow' ? 'ALLOW' : 'DENY '} storage ${label} (status ${s})`);
+};
+
+// Callables: { status, error } con el código de HttpsError ('' si fue bien)
+const call = async (name, data, uid) => {
+  const res = await fetch(`${functionsBase}/${name}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...auth(uid) },
+    body: JSON.stringify({ data }),
+  });
+  const json = await res.json().catch(() => ({}));
+  return { status: res.status, error: json.error?.status || '', result: json.result };
+};
+const expectCall = async (label, name, data, uid, wantError = '') => {
+  const r = await call(name, data, uid);
+  check(r.error === wantError, `CALL  ${label} (${r.status} ${r.error || 'ok'}${wantError ? `, se esperaba ${wantError}` : ''})`);
+  return r;
+};
 
 // Colecciones que usa la app: se leen del código del cliente, para que una nueva sin cubrir rompa este test
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -44,38 +80,194 @@ const walk = (d) => {
 };
 walk(clientSrc);
 const COLLECTIONS = ['locations', 'notes', 'photos', 'meta', 'pushSubs', 'mapState', 'music', 'events'];
-check(used.size > 0 && [...used].every((c) => COLLECTIONS.includes(c)), `el cliente solo usa colecciones cubiertas aquí (${[...used].sort().join(', ')})`);
+// members: el cliente la lee (Ajustes) pero no la escribe nunca
+const READ_ONLY = ['members'];
+check(used.size > 0 && [...used].every((c) => COLLECTIONS.includes(c) || READ_ONLY.includes(c)), `el cliente solo usa colecciones cubiertas aquí (${[...used].sort().join(', ')})`);
 
 initializeApp({ projectId: 'demo-relacion' });
 const db = getFirestore();
 const PAIR = 'SEB1998';
-for (const c of COLLECTIONS) await db.collection('pairs').doc(PAIR).collection(c).doc('d1').set({ x: 1 });
-
+const OTHER = 'OTRA4242';
 const ME = 'uid-me';
+const STRANGER = 'uid-extrano';
+for (const c of COLLECTIONS) await db.collection('pairs').doc(PAIR).collection(c).doc('d1').set({ x: 1 });
+await db.doc(`pairs/${PAIR}/members/${ME}`).set({ joinedAt: Timestamp.now() });
+await db.doc(`pairs/${OTHER}/members/uid-de-otra`).set({ joinedAt: Timestamp.now() });
+await db.doc(`pairs/${OTHER}/notes/d1`).set({ x: 1 });
+await db.doc(`pairs/${OTHER}`).set({ locked: true });
+
 const write = { fields: { x: { integerValue: '2' } } };
 
-// Todo lo que usa la app (entrada normal, por ?pair=, código de pareja y onboarding acaban en estas rutas)
+// --- Pareja abierta (sin pairs/{p} o sin locked): todo como hasta la 3.0, también para clientes 2.5.1 y 3.0 ---
 for (const c of COLLECTIONS) {
-  await expectAllow(`list ${c}`, 'GET', `/pairs/${PAIR}/${c}`, { uid: ME });
-  await expectAllow(`get ${c}/d1`, 'GET', `/pairs/${PAIR}/${c}/d1`, { uid: ME });
-  await expectAllow(`write ${c}/d2`, 'PATCH', `/pairs/${PAIR}/${c}/d2`, { uid: ME, body: write });
-  await expectAllow(`delete ${c}/d2`, 'DELETE', `/pairs/${PAIR}/${c}/d2`, { uid: ME });
+  await expectAllow(`abierta, no miembro list ${c}`, 'GET', `/pairs/${PAIR}/${c}`, { uid: STRANGER });
+  await expectAllow(`abierta, no miembro get ${c}/d1`, 'GET', `/pairs/${PAIR}/${c}/d1`, { uid: STRANGER });
+  await expectAllow(`abierta, no miembro write ${c}/d2`, 'PATCH', `/pairs/${PAIR}/${c}/d2`, { uid: STRANGER, body: write });
+  await expectAllow(`abierta, no miembro delete ${c}/d2`, 'DELETE', `/pairs/${PAIR}/${c}/d2`, { uid: STRANGER });
 }
 // Pareja nueva (código recién escrito en el onboarding o llegado por ?pair=): aún sin documentos
 await expectAllow('list notes de una pareja nueva', 'GET', '/pairs/NUEVA42/notes', { uid: ME });
 await expectAllow('alta de pushSubs en una pareja nueva', 'PATCH', '/pairs/NUEVA42/pushSubs/ella-abc', { uid: 'uid-otro', body: write });
-await expectAllow('otro uid anónimo lee y escribe lo mismo (cambio de uid)', 'PATCH', `/pairs/${PAIR}/pushSubs/d1`, { uid: 'uid-otro', body: write });
+// pairs/{p} existe pero sin locked (o locked: false): sigue abierta
+await db.doc('pairs/ABIERTA1').set({ locked: false });
+await expectAllow('locked: false sigue abierta', 'GET', '/pairs/ABIERTA1/notes', { uid: STRANGER });
+await db.doc('pairs/ABIERTA2').set({ otra: 1 });
+await expectAllow('pairs/{p} sin campo locked sigue abierta', 'GET', '/pairs/ABIERTA2/notes', { uid: STRANGER });
+// Abierta no quiere decir que members o el doc padre se abran
+await expectDeny('abierta, no miembro lee la lista de miembros', 'GET', `/pairs/${PAIR}/members`, { uid: STRANGER });
+await expectDeny('abierta, no miembro se da de alta solo', 'PATCH', `/pairs/${PAIR}/members/${STRANGER}`, { uid: STRANGER, body: write });
+await expectDeny(`abierta, no miembro lee /pairs/${PAIR}`, 'GET', `/pairs/${PAIR}`, { uid: STRANGER });
+await expectStorage('allow', 'abierta, no miembro sube una foto', 'POST', `pairs/${PAIR}/photos/p0/thumb.jpg`, STRANGER);
+await expectStorage('allow', 'abierta, no miembro lee una foto', 'GET', `pairs/${PAIR}/photos/p0/thumb.jpg`, STRANGER);
+
+// --- Pareja cerrada (locked: true): solo miembros ---
+await db.doc(`pairs/${PAIR}`).set({ locked: true });
+
+// Un miembro: todo lo que usa la app
+for (const c of COLLECTIONS) {
+  await expectAllow(`miembro list ${c}`, 'GET', `/pairs/${PAIR}/${c}`, { uid: ME });
+  await expectAllow(`miembro get ${c}/d1`, 'GET', `/pairs/${PAIR}/${c}/d1`, { uid: ME });
+  await expectAllow(`miembro write ${c}/d2`, 'PATCH', `/pairs/${PAIR}/${c}/d2`, { uid: ME, body: write });
+  await expectAllow(`miembro delete ${c}/d2`, 'DELETE', `/pairs/${PAIR}/${c}/d2`, { uid: ME });
+}
+await expectAllow('miembro lee la lista de miembros', 'GET', `/pairs/${PAIR}/members`, { uid: ME });
+await expectAllow(`miembro lee /pairs/${PAIR} (locked)`, 'GET', `/pairs/${PAIR}`, { uid: ME });
+
+// Un uid con sesión que sabe el código pero no es miembro: nada
+for (const c of COLLECTIONS) {
+  await expectDeny(`no miembro list ${c}`, 'GET', `/pairs/${PAIR}/${c}`, { uid: STRANGER });
+  await expectDeny(`no miembro get ${c}/d1`, 'GET', `/pairs/${PAIR}/${c}/d1`, { uid: STRANGER });
+  await expectDeny(`no miembro write ${c}/d2`, 'PATCH', `/pairs/${PAIR}/${c}/d2`, { uid: STRANGER, body: write });
+}
+await expectDeny('no miembro lee la lista de miembros', 'GET', `/pairs/${PAIR}/members`, { uid: STRANGER });
+await expectDeny(`no miembro lee /pairs/${PAIR}`, 'GET', `/pairs/${PAIR}`, { uid: STRANGER });
+
+// Ser miembro de una pareja no abre otra cerrada
+await expectDeny('miembro de otra pareja: list notes', 'GET', `/pairs/${OTHER}/notes`, { uid: ME });
+await expectDeny('miembro de otra pareja: write notes', 'PATCH', `/pairs/${OTHER}/notes/d2`, { uid: ME, body: write });
+
+// members y pairInvites solo los escribe el Admin SDK (las callables)
+await expectDeny('miembro no se escribe en members (otro uid)', 'PATCH', `/pairs/${PAIR}/members/uid-nuevo`, { uid: ME, body: write });
+await expectDeny('miembro no modifica su propio member', 'PATCH', `/pairs/${PAIR}/members/${ME}`, { uid: ME, body: write });
+await expectDeny('miembro no borra members', 'DELETE', `/pairs/${PAIR}/members/${ME}`, { uid: ME });
+await expectDeny('no miembro no se da de alta solo', 'PATCH', `/pairs/${PAIR}/members/${STRANGER}`, { uid: STRANGER, body: write });
+await expectDeny('nadie lee pairInvites', 'GET', '/pairInvites', { uid: ME });
+await expectDeny('nadie escribe pairInvites', 'PATCH', '/pairInvites/x', { uid: ME, body: write });
 
 // Sin sesión no entra nadie
 await expectDeny('list notes sin auth', 'GET', `/pairs/${PAIR}/notes`);
 await expectDeny('write notes sin auth', 'PATCH', `/pairs/${PAIR}/notes/d3`, { body: write });
 
-// No se puede enumerar /pairs ni tocar el doc padre: ahí viven los códigos de pareja
+// No se puede enumerar /pairs ni escribir el doc padre: ahí viven los códigos de pareja y `locked`
 await expectDeny('list /pairs', 'GET', '/pairs', { uid: ME });
 await expectDeny('list /pairs?showMissing=true', 'GET', '/pairs?showMissing=true', { uid: ME });
-await expectDeny(`get /pairs/${PAIR}`, 'GET', `/pairs/${PAIR}`, { uid: ME });
-await expectDeny(`write /pairs/${PAIR}`, 'PATCH', `/pairs/${PAIR}`, { uid: ME, body: write });
+await expectDeny(`write /pairs/${PAIR} (locked)`, 'PATCH', `/pairs/${PAIR}`, { uid: ME, body: { fields: { locked: { booleanValue: false } } } });
 await expectDeny('subcolección más profunda (la app no la usa)', 'GET', `/pairs/${PAIR}/notes/d1/sub/x`, { uid: ME });
+
+// Storage cerrada: la misma membresía, leída de Firestore
+await expectStorage('allow', 'miembro sube una foto', 'POST', `pairs/${PAIR}/photos/p1/thumb.jpg`, ME);
+await expectStorage('allow', 'miembro lee una foto', 'GET', `pairs/${PAIR}/photos/p1/thumb.jpg`, ME);
+await expectStorage('allow', 'miembro sube música', 'POST', `pairs/${PAIR}/music/m1/orig`, ME);
+await expectStorage('deny', 'no miembro lee una foto', 'GET', `pairs/${PAIR}/photos/p1/thumb.jpg`, STRANGER);
+await expectStorage('deny', 'no miembro sube una foto', 'POST', `pairs/${PAIR}/photos/p2/thumb.jpg`, STRANGER);
+await expectStorage('deny', 'no miembro lee música', 'GET', `pairs/${PAIR}/music/m1/orig`, STRANGER);
+await expectStorage('deny', 'miembro de otra pareja sube una foto', 'POST', `pairs/${OTHER}/photos/p1/thumb.jpg`, ME);
+await expectStorage('deny', 'sin auth lee una foto', 'GET', `pairs/${PAIR}/photos/p1/thumb.jpg`);
+
+// --- Callables de membresía (pareja de prueba propia, para no mezclar con lo de arriba) ---
+const J = 'JOIN2024';
+const A = 'uid-a'; const B = 'uid-b'; const C = 'uid-c'; const D = 'uid-d';
+await expectCall('joinPair sin sesión', 'joinPair', { pairId: J }, null, 'UNAUTHENTICATED');
+await expectCall('joinPair con un código mal formado', 'joinPair', { pairId: 'a/b' }, A, 'INVALID_ARGUMENT');
+// Abierta: basta con el código, como antes (así los móviles de hoy entran solos al abrir la 3.1)
+await expectCall('joinPair en una pareja abierta', 'joinPair', { pairId: J, label: 'iPhone' }, A);
+check((await db.doc(`pairs/${J}/members/${A}`).get()).get('label') === 'iPhone', 'joinPair guarda el member con su label');
+await expectAllow('tras joinPair, el nuevo miembro lee', 'GET', `/pairs/${J}/notes`, { uid: A });
+await expectCall('joinPair es idempotente', 'joinPair', { pairId: J }, A);
+await expectCall('joinPair acepta minúsculas', 'joinPair', { pairId: J.toLowerCase() }, B);
+// Solo los miembros invitan, cierran o quitan
+await expectCall('createInvite de un no miembro', 'createInvite', { pairId: J }, C, 'PERMISSION_DENIED');
+await expectCall('lockPair de un no miembro', 'lockPair', { pairId: J }, C, 'PERMISSION_DENIED');
+await expectCall('removeMember de un no miembro', 'removeMember', { pairId: J, uid: B }, C, 'PERMISSION_DENIED');
+await expectCall('sendTestPush de un no miembro', 'sendTestPush', { pairId: J }, C, 'PERMISSION_DENIED');
+await expectCall('lockPair de un miembro', 'lockPair', { pairId: J }, A);
+check((await db.doc(`pairs/${J}`).get()).get('locked') === true, 'lockPair deja locked: true');
+// Cerrada: sin invitación no, con una mala no, con una buena sí y solo una vez
+await expectCall('joinPair en una pareja cerrada sin invitación', 'joinPair', { pairId: J }, C, 'FAILED_PRECONDITION');
+await expectCall('joinPair con una invitación inventada', 'joinPair', { pairId: J, invite: 'ABCDEFGH' }, C, 'PERMISSION_DENIED');
+await expectCall('un miembro sigue entrando en su pareja cerrada', 'joinPair', { pairId: J }, A);
+const inv = await expectCall('createInvite de un miembro', 'createInvite', { pairId: J }, A);
+const code = inv.result?.code || '';
+check(/^[A-Z2-9]{8}$/.test(code) && inv.result?.expiresAt > Date.now(), `createInvite devuelve un código de 8 y su caducidad (${code})`);
+const stored = await db.collection('pairInvites').where('pairId', '==', J).get();
+check(stored.size === 1 && !stored.docs.some((d) => JSON.stringify(d.data()).includes(code) || d.id.includes(code)), 'la invitación se guarda hasheada');
+await expectCall('la invitación de otra pareja no vale', 'joinPair', { pairId: OTHER, invite: code }, C, 'PERMISSION_DENIED');
+await expectCall('joinPair con la invitación (con guion y minúsculas)', 'joinPair', { pairId: J, invite: `${code.slice(0, 4).toLowerCase()}-${code.slice(4)}` }, C);
+check((await db.doc(`pairs/${J}/members/${C}`).get()).get('via') === 'invite', 'el member invitado queda marcado');
+await expectCall('la invitación es de un solo uso', 'joinPair', { pairId: J, invite: code }, D, 'PERMISSION_DENIED');
+// Caducada: se siembra con el mismo hash que usa la función
+const expired = 'KKKKKKKK';
+await db.collection('pairInvites').doc(createHash('sha256').update(`${J}:${expired}`).digest('hex'))
+  .set({ pairId: J, expiresAt: Timestamp.fromMillis(Date.now() - 1000) });
+await expectCall('una invitación caducada no vale', 'joinPair', { pairId: J, invite: expired }, D, 'PERMISSION_DENIED');
+// Quitar un dispositivo: pierde el acceso y sus suscripciones push
+await db.doc(`pairs/${J}/pushSubs/sub-c`).set({ uid: C, endpoint: 'https://example.invalid/c' });
+await db.doc(`pairs/${J}/pushSubs/sub-a`).set({ uid: A, endpoint: 'https://example.invalid/a' });
+await expectCall('un miembro no se quita a sí mismo', 'removeMember', { pairId: J, uid: A }, A, 'FAILED_PRECONDITION');
+await expectCall('removeMember de un miembro', 'removeMember', { pairId: J, uid: C }, A);
+check(!(await db.doc(`pairs/${J}/members/${C}`).get()).exists, 'el member quitado ya no existe');
+check(!(await db.doc(`pairs/${J}/pushSubs/sub-c`).get()).exists && (await db.doc(`pairs/${J}/pushSubs/sub-a`).get()).exists, 'se borran solo sus pushSubs');
+await expectDeny('el dispositivo quitado ya no lee', 'GET', `/pairs/${J}/notes`, { uid: C });
+await expectCall('el dispositivo quitado no vuelve a entrar sin invitación', 'joinPair', { pairId: J }, C, 'FAILED_PRECONDITION');
+
+// --- Coste de las reglas: llamadas a exists()/get() por petición, contadas en el informe de cobertura del
+// emulador (antes y después de cada petición). Cada documento distinto que miran se factura como una lectura ---
+const coverageCalls = async () => {
+  const c = await (await fetch(`http://${host}/emulator/v1/projects/demo-relacion:ruleCoverage`)).json();
+  const content = c.rules.files[0].content;
+  const out = {};
+  const walk = (nodes) => {
+    for (const n of nodes || []) {
+      const p = n.sourcePosition || {};
+      const txt = content.slice(p.currentOffset, p.endOffset);
+      // Las llamadas de verdad: exists(...members...), exists(pair) y get(pair); no data.get('locked', …). Solo
+      // cuentan los valores evaluados (el informe también lista nodos con valor `undefined`)
+      const key = /^exists\(/.test(txt) ? (/members/.test(txt) ? 'exists(members/uid)' : 'exists(pairs/p)')
+        : /^get\((?!')/.test(txt) ? 'get(pairs/p)' : '';
+      if (key) {
+        for (const v of n.values || []) {
+          if ('boolValue' in v.value || 'mapValue' in v.value) out[key] = (out[key] || 0) + v.count;
+        }
+      }
+      walk(n.children);
+    }
+  };
+  walk(c.report);
+  return out;
+};
+const cost = async (label, method, p, opts) => {
+  const before = await coverageCalls();
+  const s = await req(method, p, opts);
+  const after = await coverageCalls();
+  const delta = Object.fromEntries(Object.keys(after).map((k) => [k, after[k] - (before[k] || 0)]).filter(([, d]) => d > 0));
+  // exists(pair) y get(pair) miran el mismo documento
+  const docs = (delta['exists(members/uid)'] ? 1 : 0) + (delta['exists(pairs/p)'] || delta['get(pairs/p)'] ? 1 : 0);
+  console.log(`COSTE ${label} (status ${s}): ${JSON.stringify(delta)} → ${docs} doc(s)`);
+  return docs;
+};
+await db.doc('pairs/COSTE1/members/uid-c1').set({ joinedAt: Timestamp.now() });
+for (let i = 0; i < 10; i++) await db.doc(`pairs/COSTE1/notes/n${i}`).set({ x: i });
+await db.doc('pairs/COSTE2/members/uid-c2').set({ joinedAt: Timestamp.now() });
+await db.doc('pairs/COSTE2').set({ locked: true });
+// Miembro: un documento por petición, abierta o cerrada; una consulta cuenta una vez, no por documento devuelto
+check(await cost('abierta sin doc, miembro 3.1, get', 'GET', '/pairs/COSTE1/notes/n1', { uid: 'uid-c1' }) === 1, 'coste: miembro, get = 1 doc');
+check(await cost('abierta sin doc, miembro 3.1, list de 10 notas', 'GET', '/pairs/COSTE1/notes', { uid: 'uid-c1' }) === 1, 'coste: miembro, list de 10 = 1 doc');
+check(await cost('abierta sin doc, miembro 3.1, write', 'PATCH', '/pairs/COSTE1/notes/n1', { uid: 'uid-c1', body: write }) === 1, 'coste: miembro, write = 1 doc');
+check(await cost('cerrada, miembro, get', 'GET', '/pairs/COSTE2/notes/x', { uid: 'uid-c2' }) === 1, 'coste: cerrada, miembro, get = 1 doc');
+// Cliente viejo (o 3.1 aún sin unirse) en una pareja abierta: dos documentos (members/uid y pairs/p)
+check(await cost('abierta sin doc, cliente viejo (no miembro), get', 'GET', '/pairs/COSTE1/notes/n1', { uid: 'uid-viejo' }) === 2, 'coste: no miembro en abierta, get = 2 docs');
+check(await cost('abierta sin doc, cliente viejo, list de 10 notas', 'GET', '/pairs/COSTE1/notes', { uid: 'uid-viejo' }) === 2, 'coste: no miembro en abierta, list de 10 = 2 docs');
+check(await cost('cerrada, no miembro, get (denegado)', 'GET', '/pairs/COSTE2/notes/x', { uid: 'uid-viejo' }) === 2, 'coste: no miembro en cerrada = 2 docs');
 
 if (failures.length) { console.error(`reglas FALLÓ: ${failures.length} check(s) en rojo`); process.exit(1); }
 console.log('reglas OK');
