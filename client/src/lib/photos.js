@@ -166,6 +166,54 @@ export async function listPhotos(pairId, max = 100) {
   return items.slice(0, max);
 }
 
+// The item the UI gets for a photo doc (thumbUrl is filled in later). Dates are ms; everything added in 3.1 is
+// optional in the doc, so it comes with a neutral default (identity '' on the oldest photos, takenAt null)
+export function photoItem(docSnap) {
+  const d = docSnap.data() || {};
+  return {
+    id: docSnap.id,
+    thumbUrl: '',
+    createdAt: d.createdAt?.toMillis?.() || Date.now(),
+    identity: d.identity || '', // who uploaded it ('yo' | 'ella')
+    reactions: d.reactions || {}, // { yo?: '💖', ella?: '🥹' }
+    favBy: Array.isArray(d.favBy) ? d.favBy : [],
+    takenAt: d.takenAt?.toMillis?.() ?? null, // the day it was really taken, when set by hand
+    commentCount: d.commentCount || 0,
+    albumIds: Array.isArray(d.albumIds) ? d.albumIds : [],
+  };
+}
+
+// Resolves the thumbs of `docs` (6 at a time, cached first) into `items[i].thumbUrl`, or reports each one to
+// onThumb(id, url) when given. A failed thumb leaves its slot empty
+function fillThumbs(fblib, pairId, docs, items, onThumb) {
+  return mapLimit(docs, THUMB_CONCURRENCY, async (docSnap, i) => {
+    const url = await resolveThumbUrl(fblib, pairId, docSnap);
+    if (onThumb) { if (url) onThumb(docSnap.id, url); } else items[i].thumbUrl = url || '';
+  });
+}
+
+// Photos of any query over the pair's photos, with the same thumb pipeline as the gallery.
+// buildQuery(firestoreLib, photosCollection) returns the query, with the functions of firebase/firestore that
+// lib/photos loads (collection, query, where, orderBy, limit, startAfter, documentId…); dates go as Date.
+// `keep(item)` drops items before their thumbs are resolved. Returns { items } (+ thumbsDone with onThumb, like
+// listPhotosPage). Local-only (no Firebase) there are no photos to query: { items: [] }. A failed query throws
+export async function listPhotosBy(pairId, buildQuery, { onThumb = null, keep = null } = {}) {
+  const fblib = await fb();
+  if (!(db && fblib)) return { items: [] };
+  if (!(await whenAuthed())) throw Object.assign(new Error('no-auth'), { code: 'no-auth' });
+  const snap = await fblib.getDocs(buildQuery(fblib, fblib.collection(db, 'pairs', pairId, 'photos')));
+  const docs = [];
+  const items = [];
+  for (const docSnap of snap.docs) {
+    const item = photoItem(docSnap);
+    if (!keep || keep(item)) { docs.push(docSnap); items.push(item); }
+  }
+  const thumbs = fillThumbs(fblib, pairId, docs, items, onThumb);
+  if (onThumb) return { items, thumbsDone: thumbs };
+  await thumbs;
+  return { items };
+}
+
 // One page of the gallery, newest first. `cursor` is the last doc of the previous page.
 // Returns { items, cursor, hasMore } (+ thumbsDone with onThumb(id, url)). With Firebase a failed page throws,
 // the first one too (also with no session after the wait), so the UI tells "could not load" from "empty"
@@ -182,18 +230,9 @@ export async function listPhotosPage(pairId, { pageSize = 60, cursor = null, onT
       : query(col, orderBy('createdAt', 'desc'), limit(pageSize + 1));
     const snap = await getDocs(q);
     const { page, hasMore } = splitPage(snap.docs, pageSize);
-    // identity: who uploaded it ('yo' | 'ella'); missing on the oldest photos
-    const items = page.map((docSnap) => ({
-      id: docSnap.id,
-      thumbUrl: '',
-      createdAt: docSnap.data()?.createdAt?.toMillis?.() || Date.now(),
-      identity: docSnap.data()?.identity || '',
-    }));
+    const items = page.map(photoItem);
     const nextCursor = page.length ? page[page.length - 1] : cursor;
-    const thumbs = mapLimit(page, THUMB_CONCURRENCY, async (docSnap, i) => {
-      const url = await resolveThumbUrl(fblib, pairId, docSnap);
-      if (onThumb) { if (url) onThumb(docSnap.id, url); } else items[i].thumbUrl = url || '';
-    });
+    const thumbs = fillThumbs(fblib, pairId, page, items, onThumb);
     // With onThumb: return the grid now (empty slots) and report each thumb as it arrives; the caller owns
     // those blob URLs, also the ones arriving after it moved on. Without it: wait and return them filled in
     if (onThumb) return { items, cursor: nextCursor, hasMore, thumbsDone: thumbs };

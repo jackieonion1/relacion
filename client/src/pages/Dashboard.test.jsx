@@ -8,6 +8,8 @@ import { fetchCityWeather } from '../lib/weather';
 vi.mock('../lib/calendar', () => ({ listenEvents: vi.fn() }));
 vi.mock('../lib/firebase', () => ({ db: null }));
 vi.mock('../components/RandomPhoto', () => ({ default: () => null }));
+// The memories cards read photos, events and notes themselves: their own tests drive them, not this page's
+vi.mock('../components/RecuerdosInicio', () => ({ default: () => null }));
 vi.mock('../lib/weather', async (orig) => ({ ...(await orig()), fetchCityWeather: vi.fn() }));
 
 const flush = async () => { for (let i = 0; i < 10; i++) await Promise.resolve(); };
