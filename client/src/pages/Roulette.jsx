@@ -1,10 +1,15 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import RouletteIcon from '../components/icons/RouletteIcon';
 import HeartRainAnimation from '../components/HeartRainAnimation';
-import TrashIcon from '../components/icons/TrashIcon';
+import Button from '../components/Button';
+import Chip from '../components/Chip';
 import Icon from '../components/Icon';
+import { prefersReducedMotion } from '../lib/motion';
 
 const MAX_OPTIONS = 15;
+const SIZE = 280; // wheel canvas, CSS px
+// Radial labels stop fitting a wedge past this many options (C14)
+const LABELS_MAX = 8;
+const FONT = "600 14px 'Instrument Sans', system-ui, sans-serif";
 // 15 distinct hues with similar saturation/lightness, semi-transparent for soft look
 const COLORS = [
   'hsl(0 85% 60% / 0.45)',   // red
@@ -24,12 +29,23 @@ const COLORS = [
   'hsl(336 80% 65% / 0.45)', // rose
 ];
 
+// The label as it fits in maxW px, cut with «…» (by code point, so an emoji is never split)
+function fit(ctx, text, maxW) {
+  const tooWide = (s) => ctx.measureText(s).width > maxW;
+  if (!tooWide(text)) return text;
+  const chars = Array.from(text);
+  while (chars.length > 1 && tooWide(`${chars.join('')}…`)) chars.pop();
+  return `${chars.join('').trimEnd()}…`;
+}
+
 export default function Roulette() {
   const [options, setOptions] = useState([]);
   const [input, setInput] = useState('');
   const [spinning, setSpinning] = useState(false);
   const [winnerIndex, setWinnerIndex] = useState(null);
   const canvasRef = useRef(null);
+  const spinBtnRef = useRef(null);
+  const resultRef = useRef(null);
   const angleRef = useRef(0); // radians
   const animRef = useRef(null);
   const spinStartRef = useRef(0);
@@ -37,7 +53,6 @@ export default function Roulette() {
   const startAngleRef = useRef(0);
   const deltaRef = useRef(0);
   const targetIndexRef = useRef(null);
-  const overlayTimerRef = useRef(null);
   const [showOverlay, setShowOverlay] = useState(false);
   const [resultLabel, setResultLabel] = useState('');
   const [fireworksActive, setFireworksActive] = useState(false);
@@ -94,21 +109,30 @@ export default function Roulette() {
     } catch {}
   }, [options]);
 
-  // Randomize initial orientation and draw
+  // Randomize initial orientation and draw (backing store at the device pixel ratio so the labels stay sharp)
   useEffect(() => {
+    const dpr = Math.min(window.devicePixelRatio || 1, 3);
+    if (canvasRef.current) {
+      canvasRef.current.width = SIZE * dpr;
+      canvasRef.current.height = SIZE * dpr;
+    }
     angleRef.current = Math.random() * Math.PI * 2;
     drawWheel();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Cleanup RAF and timers on unmount
-  useEffect(() => () => {
-    cancelAnim();
-    if (overlayTimerRef.current) {
-      clearTimeout(overlayTimerRef.current);
-      overlayTimerRef.current = null;
-    }
-  }, []);
+  // Cleanup RAF on unmount
+  useEffect(() => () => cancelAnim(), []);
+
+  // The result card takes focus and Escape closes it, like a sheet
+  useEffect(() => {
+    if (!showOverlay) return undefined;
+    resultRef.current?.focus({ preventScroll: true });
+    const onKey = (e) => { if (e.key === 'Escape') closeResult(); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showOverlay]);
 
   const canSpin = options.length >= 2 && !spinning;
 
@@ -149,36 +173,38 @@ export default function Roulette() {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
-    const w = canvas.width, h = canvas.height;
-    const cx = w / 2, cy = h / 2;
-    const r = Math.min(cx, cy) - 2;
-    ctx.clearRect(0, 0, w, h);
-    // background circle border
+    const cx = SIZE / 2, cy = SIZE / 2;
+    const r = SIZE / 2;
+    ctx.setTransform(canvas.width / SIZE, 0, 0, canvas.width / SIZE, 0, 0);
+    ctx.clearRect(0, 0, SIZE, SIZE);
     ctx.save();
     ctx.translate(cx, cy);
     ctx.rotate(angleRef.current);
     // draw segments
-    if (!options.length) {
-      // placeholder pattern
-      ctx.fillStyle = 'rgba(0,0,0,0.04)';
-      ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI * 2); ctx.fill();
-    } else {
+    for (let i = 0; i < options.length; i++) {
+      const start = i * segRad;
+      const end = start + segRad;
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.arc(0, 0, r, start, end);
+      ctx.closePath();
+      ctx.fillStyle = options[i].color;
+      ctx.fill();
+    }
+    // labels run along the radius from the rim inwards, clear of the centre button (C14)
+    if (options.length > 0 && options.length <= LABELS_MAX) {
+      ctx.fillStyle = getComputedStyle(canvas).color;
+      ctx.font = FONT;
+      ctx.textAlign = 'right';
+      ctx.textBaseline = 'middle';
       for (let i = 0; i < options.length; i++) {
-        const start = i * segRad;
-        const end = start + segRad;
-        ctx.beginPath();
-        ctx.moveTo(0, 0);
-        ctx.arc(0, 0, r, start, end);
-        ctx.closePath();
-        ctx.fillStyle = options[i].color;
-        ctx.fill();
+        ctx.save();
+        ctx.rotate((i + 0.5) * segRad);
+        ctx.fillText(fit(ctx, options[i].label, r - 14 - 46), r - 14, 0);
+        ctx.restore();
       }
     }
     ctx.restore();
-    // ring border
-    ctx.strokeStyle = 'rgba(244, 63, 94, 0.3)'; // rose-500/30
-    ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.stroke();
   }
 
   function cancelAnim() {
@@ -191,7 +217,6 @@ export default function Roulette() {
   function spin() {
     if (!canSpin || options.length < 2) return;
     cancelAnim();
-    setSpinning(true);
     setWinnerIndex(null);
     // choose random target segment index
     const k = Math.floor(Math.random() * options.length);
@@ -207,6 +232,14 @@ export default function Roulette() {
     let delta = (desired - theta0) % twoPI;
     if (delta < 0) delta += twoPI;
     delta += spins * twoPI; // add full spins for drama
+    if (prefersReducedMotion()) {
+      // No spin: the wheel is left on the winner and the result shows at once
+      angleRef.current = (((theta0 + delta) % twoPI) + twoPI) % twoPI;
+      drawWheel();
+      showResultFor(k);
+      return;
+    }
+    setSpinning(true);
     startAngleRef.current = theta0;
     deltaRef.current = delta;
     const duration = 5000 + Math.floor(Math.random() * 3000); // 5-8s
@@ -229,17 +262,31 @@ export default function Roulette() {
         const finalAngle = ((angleRef.current % twoPI) + twoPI) % twoPI;
         angleRef.current = finalAngle;
         drawWheel();
-        setSpinning(false);
-        const idx = targetIndexRef.current;
-        setWinnerIndex(idx);
-        const lbl = options[idx]?.label || '';
-        setResultLabel(lbl);
-        setShowOverlay(true);
-        // Fireworks run while overlay is visible; will stop on tap
-        setFireworksActive(true);
+        showResultFor(targetIndexRef.current);
       }
     };
     animRef.current = requestAnimationFrame(step);
+  }
+
+  function showResultFor(idx) {
+    setSpinning(false);
+    setWinnerIndex(idx);
+    setResultLabel(options[idx]?.label || '');
+    setShowOverlay(true);
+    // Fireworks run while the result is visible; they stop on «Parar la fiesta» or when it closes
+    setFireworksActive(true);
+  }
+
+  function closeResult() {
+    setShowOverlay(false);
+    setFireworksActive(false);
+    spinBtnRef.current?.focus({ preventScroll: true });
+  }
+
+  // «Otra vez»: closes the result and spins at once
+  function spinAgain() {
+    closeResult();
+    spin();
   }
 
   // redraw when options change (if not spinning)
@@ -249,138 +296,127 @@ export default function Roulette() {
   }, [options]);
 
   return (
-    <div className="space-y-4">
-      <div className="card">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <RouletteIcon className="w-5 h-5 text-rose-600" />
-            <h2 className="text-lg font-semibold text-rose-600">Ruleta</h2>
+    <div className="flex flex-col gap-4">
+      <header className="flex items-end justify-between">
+        <h1 className="serif text-[36px] leading-[1.05] font-normal tracking-[-0.01em]">Ruleta</h1>
+        <div className="flex items-center gap-2 pb-0.5">
+          <Chip tone="neutro" className="select-none">{options.length} opciones</Chip>
+          {options.length > 1 && (
+            <Button
+              icon="borrar"
+              label="Limpiar todas las opciones"
+              title="Limpiar todas"
+              onClick={clearAll}
+              disabled={spinning}
+            />
+          )}
+        </div>
+      </header>
+
+      {/* Wheel */}
+      <div className="relative mx-auto" style={{ width: SIZE + 12, height: SIZE + 20 }}>
+        {/* Pointer */}
+        <svg viewBox="0 0 24 24" aria-hidden="true" className="absolute left-[134px] top-0 w-6 h-6 z-2 fill-lacre">
+          <path d="M12 22 4 6h16z" />
+        </svg>
+        {/* Wheel body (canvas): the wedge colours are translucent, so they sit on the card */}
+        <div className="absolute left-1.5 top-3.5 rounded-full overflow-hidden bg-card ring-1 ring-line shadow-flota" style={{ width: SIZE, height: SIZE }}>
+          <canvas
+            ref={canvasRef}
+            width={SIZE}
+            height={SIZE}
+            aria-hidden="true"
+            className={`block w-full h-full ${options.length < 2 ? 'invisible' : ''}`}
+          />
+        </div>
+        {options.length < 2 && (
+          <div
+            className="absolute left-1.5 top-3.5 rounded-full border-[1.5px] border-dashed border-line flex items-start justify-center px-15 pt-14 text-center text-[15px] text-ink-2"
+            style={{ width: SIZE, height: SIZE }}
+          >
+            Añade al menos dos opciones
           </div>
-          <div className="flex items-center gap-2">
-            <span className="chip select-none">{options.length} opciones</span>
-            {options.length > 1 && (
+        )}
+        {/* Center spin button */}
+        <button
+          ref={spinBtnRef}
+          type="button"
+          onClick={spin}
+          disabled={!canSpin}
+          className="btn absolute left-27 top-29 z-2 w-19 h-19 rounded-full p-0 bg-ink text-paper text-base font-bold shadow-flota"
+        >
+          Girar
+        </button>
+        {/* The result shows as a sheet over everything, with fireworks */}
+      </div>
+
+      {/* Options editor */}
+      <section aria-label="Opciones" className="flex flex-col gap-3">
+        <div className="flex flex-wrap gap-2 max-h-[22dvh] overflow-y-auto overscroll-contain">
+          {options.map((opt, i) => (
+            <div
+              key={i}
+              className="inline-flex items-center h-11 pl-3.5 rounded-full border border-line bg-card text-[15px] font-medium text-ink"
+              style={{ backgroundImage: `linear-gradient(${opt.color}, ${opt.color})` }}
+            >
+              <span className="truncate max-w-[40vw]">{opt.label}</span>
               <button
                 type="button"
-                className="btn-ghost p-2 rounded-full hover:bg-rose-50 disabled:opacity-60"
-                aria-label="Limpiar todas las opciones"
-                title="Limpiar todas"
-                onClick={clearAll}
-                disabled={spinning}
+                onClick={() => removeOption(i)}
+                aria-label={`Eliminar ${opt.label}`}
+                className="w-11 h-11 inline-flex items-center justify-center rounded-full text-ink-2"
+                title="Eliminar"
               >
-                <TrashIcon className="w-5 h-5 text-rose-700" />
+                <Icon name="cerrar" size={16} />
               </button>
-            )}
-          </div>
+            </div>
+          ))}
         </div>
-
-        <div className="mt-4 grid grid-cols-1 gap-4">
-          {/* Wheel */}
-          <div className="flex flex-col items-center justify-center">
-            <div className="relative" style={{ width: 280, height: 280 }}>
-              {/* Pointer */}
-              <div className="absolute inset-x-0 -top-3 flex justify-center z-20">
-                <div className="w-0 h-0 border-l-8 border-r-8 border-t-14 border-l-transparent border-r-transparent border-t-rose-600 drop-shadow-sm" />
-              </div>
-              {/* Wheel body (canvas) */}
-              <canvas
-                ref={canvasRef}
-                width={280}
-                height={280}
-                className="absolute inset-0 rounded-full shadow-xs"
-              />
-              {/* No text on the wheel (clean look) */}
-              {/* Center spin button */}
-              <div className="absolute inset-0 flex items-center justify-center z-30">
-                <button
-                  onClick={spin}
-                  disabled={!canSpin}
-                  className="w-20 h-20 rounded-full bg-rose-600 text-white text-sm font-semibold shadow-md hover:bg-rose-700 active:scale-95 disabled:opacity-60 border border-rose-700/30"
-                >
-                  Girar
-                </button>
-              </div>
-            </div>
-            {/* Resultado ahora se muestra como overlay a pantalla completa */}
-          </div>
-
-          {/* Options editor */}
-          <div>
-            <div className="flex gap-2">
-              <input
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                placeholder="Añadir opción"
-                className="input flex-1"
-                onKeyDown={(e) => { if (e.key === 'Enter') addOption(); }}
-              />
-              <button className={`btn-primary ${options.length >= MAX_OPTIONS ? 'opacity-60 pointer-events-none' : ''}`} onClick={addOption} disabled={options.length >= MAX_OPTIONS}>Añadir</button>
-            </div>
-            {options.length < 2 && (
-              <div className="mt-2 text-xs text-gray-500">Añade al menos dos opciones</div>
-            )}
-            <div className="mt-3 flex flex-wrap gap-2">
-              {options.map((opt, i) => (
-                <div
-                  key={i}
-                  className="chip pr-1"
-                  style={{ backgroundColor: opt.color, borderColor: 'rgba(244, 63, 94, 0.2)' }}
-                >
-                  <span className="text-sm text-gray-900 truncate max-w-[40vw]">{opt.label}</span>
-                  <button
-                    type="button"
-                    onClick={() => removeOption(i)}
-                    aria-label={`Eliminar ${opt.label}`}
-                    className="ml-1 w-5 h-5 inline-flex items-center justify-center rounded-full text-rose-700 hover:bg-rose-100/80"
-                    title="Eliminar"
-                  >
-                    <Icon name="cerrar" size={14} />
-                  </button>
-                </div>
-              ))}
-            </div>
-            {options.length >= MAX_OPTIONS && (
-              <div className="mt-2 text-xs text-gray-500">Máximo {MAX_OPTIONS} opciones</div>
-            )}
-          </div>
+        <div className="flex gap-2">
+          <label htmlFor="roulette-option" className="sr-only">Añadir opción</label>
+          <input
+            id="roulette-option"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            placeholder="Añadir opción"
+            className="input flex-1 min-w-0 min-h-12 rounded-full px-[18px]"
+            onKeyDown={(e) => { if (e.key === 'Enter') addOption(); }}
+          />
+          <Button variant="sec" size="m" onClick={addOption} disabled={options.length >= MAX_OPTIONS}>Añadir</Button>
         </div>
-      </div>
-      {/* Full-screen result overlay with fireworks */}
+        {options.length >= MAX_OPTIONS && (
+          <div className="text-[13px] text-ink-2">Máximo {MAX_OPTIONS} opciones</div>
+        )}
+      </section>
+
+      {/* Result sheet with fireworks behind the card */}
       {showOverlay && (
         <>
           {/* Dim background below fireworks */}
-          <div
-            className="fixed inset-0 z-10040 bg-black/60 backdrop-blur-xs"
-            onClick={() => {
-              setShowOverlay(false);
-              if (overlayTimerRef.current) { clearTimeout(overlayTimerRef.current); overlayTimerRef.current = null; }
-              setFireworksActive(false);
-            }}
-          />
+          <div className="velo fixed inset-0 z-10040 bg-scrim backdrop-blur-xs" onClick={closeResult} aria-hidden="true" />
 
-          {/* Fireworks layer (pointer-events: none inside component) */}
-          <HeartRainAnimation isActive={fireworksActive} type="fireworks" intensity={0.4} effectOpacity={0.55} zIndex={10045} />
+          {/* Fireworks layer (pointer-events: none inside component); «Parar la fiesta» drops them, the result stays */}
+          <HeartRainAnimation isActive={fireworksActive} type="fireworks" intensity={0.4} effectOpacity={0.55} zIndex={10045} onStop={() => setFireworksActive(false)} />
 
           {/* Result card above everything */}
-          <div
-            className="fixed inset-0 z-10070 flex items-center justify-center"
-            style={{ zIndex: 10070 }}
-            onClick={() => {
-              setShowOverlay(false);
-              if (overlayTimerRef.current) { clearTimeout(overlayTimerRef.current); overlayTimerRef.current = null; }
-              setFireworksActive(false);
-            }}
-          >
+          <div className="fixed inset-x-0 bottom-0 z-10070 flex justify-center pointer-events-none" style={{ zIndex: 10070 }}>
             <div
-              className="relative px-6 py-5 rounded-2xl bg-white/10 border border-white/20 text-white text-center shadow-2xl max-w-[85vw]"
-              onClick={() => {
-                setShowOverlay(false);
-                if (overlayTimerRef.current) { clearTimeout(overlayTimerRef.current); overlayTimerRef.current = null; }
-                setFireworksActive(false);
-              }}
+              ref={resultRef}
+              role="dialog"
+              aria-modal="true"
+              aria-label="Resultado"
+              tabIndex={-1}
+              className="hoja pointer-events-auto w-full max-w-lg px-5 pt-2 bg-card text-ink text-center rounded-t-hoja border border-b-0 border-line shadow-hoja outline-hidden flex flex-col items-center gap-2 transition-[padding] duration-260 ease-suave"
+              // While the fireworks run, «Parar la fiesta» floats above the bar: the buttons make room for it
+              style={{ paddingBottom: `calc(env(safe-area-inset-bottom, 0px) + ${fireworksActive ? 10.5 : 2.125}rem)` }}
             >
-              <div className="text-xs uppercase tracking-wide text-white/80 mb-1">Resultado</div>
-              <div className="font-extrabold text-3xl sm:text-4xl drop-shadow-lg">{resultLabel}</div>
-              <div className="mt-2 text-white/70 text-xs">toca para cerrar</div>
+              <span className="block w-9 h-[5px] rounded-full bg-line mb-3" aria-hidden="true" />
+              <p className="etiqueta">🎉 Ha salido 🎉</p>
+              <p className="serif italic text-[48px] leading-[1.05] text-accent-ink max-w-full break-words">{resultLabel}</p>
+              <div className="grid grid-cols-2 gap-2 w-full pt-4">
+                <Button variant="sec" size="l" onClick={closeResult}>Vale</Button>
+                <Button size="l" onClick={spinAgain}>Otra vez</Button>
+              </div>
             </div>
           </div>
         </>
