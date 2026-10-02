@@ -1,7 +1,15 @@
 import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
+import Sheet from './Sheet';
 
+// Every dialog is now a Carta bottom sheet. `bare` (Gallery viewer, Music player sheet) stays exactly as it was
+// until R6b/R8b redo them
 export default function Modal({ isOpen, onClose, children, bare = false, backdropClosing = false }) {
+  if (!bare) return <Sheet isOpen={isOpen} onClose={onClose}>{children}</Sheet>;
+  return <BareModal isOpen={isOpen} onClose={onClose} backdropClosing={backdropClosing}>{children}</BareModal>;
+}
+
+function BareModal({ isOpen, onClose, children, backdropClosing }) {
   const [backdropVisible, setBackdropVisible] = useState(false);
   useEffect(() => {
     if (isOpen) {
@@ -15,19 +23,19 @@ export default function Modal({ isOpen, onClose, children, bare = false, backdro
   if (!isOpen) return null;
 
   const modalContent = (
-    <div 
-      style={{ 
+    <div
+      style={{
         position: 'fixed',
-        top: bare ? 0 : '-10px', // In bare, use exact viewport
-        left: bare ? 0 : '-10px',
-        right: bare ? 0 : '-10px',
-        bottom: bare ? 0 : '-10px',
-        width: bare ? '100dvw' : 'calc(100vw + 20px)',
-        height: bare ? '100dvh' : 'calc(100vh + 20px)',
-        minHeight: bare ? '100vh' : 'calc(100vh + 20px)', // fallback for browsers without dvh
-        maxHeight: bare ? '100dvh' : 'calc(100vh + 20px)',
+        top: 0, // exact viewport
+        left: 0,
+        right: 0,
+        bottom: 0,
+        width: '100dvw',
+        height: '100dvh',
+        minHeight: '100vh', // fallback for browsers without dvh
+        maxHeight: '100dvh',
         margin: 0,
-        padding: bare ? 0 : '26px 26px 26px 26px', // Remove padding for bare mode
+        padding: 0,
         backgroundColor: backdropClosing ? 'rgba(0, 0, 0, 0)' : (backdropVisible ? 'rgba(0, 0, 0, 0.6)' : 'rgba(0, 0, 0, 0)'),
         display: 'flex',
         alignItems: 'center',
@@ -41,20 +49,11 @@ export default function Modal({ isOpen, onClose, children, bare = false, backdro
       }}
       onClick={onClose}
     >
-      {bare ? (
-        <div
-          style={{ position: 'relative', width: '100%', height: '100%' }}
-        >
-          {children}
-        </div>
-      ) : (
-        <div 
-          className="bg-white rounded-xl shadow-lg w-full max-w-md animate-slide-up-fast"
-          onClick={(e) => e.stopPropagation()}
-        >
-          {children}
-        </div>
-      )}
+      <div
+        style={{ position: 'relative', width: '100%', height: '100%' }}
+      >
+        {children}
+      </div>
     </div>
   );
 
