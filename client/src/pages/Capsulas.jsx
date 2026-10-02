@@ -176,7 +176,9 @@ function Carta({ capsula, contenido, identity, onClose, onBorrar }) {
 
 // A sealed one, tapped: when it opens, and the way to throw it away
 function Sellada({ capsula, identity, onClose, onBorrar }) {
+  const [confirmar, setConfirmar] = useState(false);
   const [borrando, setBorrando] = useState(false);
+  useEffect(() => { setConfirmar(false); }, [capsula]);
   return (
     <Sheet isOpen={!!capsula} onClose={onClose}>
       {capsula && (
@@ -186,14 +188,22 @@ function Sellada({ capsula, identity, onClose, onBorrar }) {
             <p className="text-sm text-ink-2">{[de(capsula), paraQuien(capsula, identity)].filter(Boolean).join(' · ')}</p>
           </div>
           <p className="serif text-[18px] leading-[1.4]">Está sellada hasta el {fechaLarga(capsula.openAt)}. Ese día podréis abrirla.</p>
-          <div className="flex flex-col gap-1.5">
-            <Button variant="sec" size="l" disabled={borrando} onClick={onClose}>Vale</Button>
-            <Button variant="dan" size="l" busy={borrando} busyText="Borrando…"
-              onClick={async () => { setBorrando(true); try { await onBorrar(capsula); } finally { setBorrando(false); } }}
-            >
-              Borrar sin abrir
-            </Button>
-          </div>
+          {confirmar ? (
+            <div className="flex flex-col gap-1.5">
+              <p className="text-[15px]">¿Borrar la cápsula sin abrirla? Se borra para los dos y no se puede leer después.</p>
+              <Button variant="dan" size="l" busy={borrando} busyText="Borrando…"
+                onClick={async () => { setBorrando(true); try { await onBorrar(capsula); } finally { setBorrando(false); } }}
+              >
+                Borrar
+              </Button>
+              <Button variant="txt" size="l" disabled={borrando} onClick={() => setConfirmar(false)}>Cancelar</Button>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-1.5">
+              <Button variant="sec" size="l" onClick={onClose}>Vale</Button>
+              <Button variant="txt" size="l" onClick={() => setConfirmar(true)}>Borrar sin abrir</Button>
+            </div>
+          )}
         </div>
       )}
     </Sheet>
