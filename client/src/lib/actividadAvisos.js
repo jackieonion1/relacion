@@ -31,7 +31,7 @@ function start() {
   quien = { pairId, identity };
   const warn = (e) => console.warn('Activity listener failed', e);
   stops = [
-    escucharActividad(pairId, (list) => { todas = list; llegaron = { ...llegaron, lista: true }; publish(); }, warn),
+    escucharActividad(pairId, identity, (list) => { todas = list; llegaron = { ...llegaron, lista: true }; publish(); }, warn),
     escucharVisto(pairId, identity, (ts) => { if (cmpTs(ts, visto) > 0) visto = ts; llegaron = { ...llegaron, visto: true }; publish(); }, warn),
   ];
 }

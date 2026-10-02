@@ -12,7 +12,7 @@ let lista; let visto;
 beforeEach(() => {
   localStorage.setItem('pairId', 'p1');
   localStorage.setItem('identity', 'ella');
-  escucharActividad.mockImplementation((p, cb) => { lista = cb; return vi.fn(); });
+  escucharActividad.mockImplementation((p, who, cb) => { lista = cb; return vi.fn(); });
   escucharVisto.mockImplementation((p, who, cb) => { visto = cb; return vi.fn(); });
   escucharNoLeidos.mockImplementation(() => vi.fn());
   marcarVisto.mockResolvedValue();
@@ -72,10 +72,12 @@ test('un «visto» más viejo que el que ya tiene este móvil no lo baja', () =>
 test('cambiar «Quién eres» en Ajustes vuelve a escuchar con la persona nueva (actividad y comentarios)', () => {
   const a = renderHook(() => useActividad());
   const g = renderHook(() => useGaleriaBadge());
+  expect(escucharActividad).toHaveBeenLastCalledWith('p1', 'ella', expect.any(Function), expect.any(Function));
   expect(escucharVisto).toHaveBeenLastCalledWith('p1', 'ella', expect.any(Function), expect.any(Function));
   expect(escucharNoLeidos).toHaveBeenLastCalledWith('p1', 'ella', expect.any(Function), expect.any(Function));
   localStorage.setItem('identity', 'yo');
   act(() => avisarCambioIdentidad());
+  expect(escucharActividad).toHaveBeenLastCalledWith('p1', 'yo', expect.any(Function), expect.any(Function));
   expect(escucharVisto).toHaveBeenLastCalledWith('p1', 'yo', expect.any(Function), expect.any(Function));
   expect(escucharNoLeidos).toHaveBeenLastCalledWith('p1', 'yo', expect.any(Function), expect.any(Function));
   expect(escucharNoLeidos).toHaveBeenCalledTimes(2);

@@ -1,6 +1,7 @@
-// What the other one has done (3.1): pairs/{p}/actividad/{id}, written by the phone that does it right after the
-// action, and read by the bell of Inicio. { tipo, quien, para, ref, texto?, n?, tuya?, ambos?, createdAt }.
-// One write per action, never awaited: an entry that fails never touches the action it tells about
+// What the other one has done (3.1): pairs/{p}/actividad-{para}/{id}, one collection per receiver, written by the
+// phone that does it right after the action, and read by the bell of Inicio. { tipo, quien, para, ref, texto?, n?,
+// tuya?, ambos?, createdAt }. One write per action, never awaited: an entry that fails never touches the action it
+// tells about
 import { db, storage, whenAuthed, listenWhenAuthed } from './firebase';
 import { getThumb } from './photoCache';
 import { WHO } from './fotoCampos';
@@ -8,9 +9,8 @@ import { noteMillis } from './noteText';
 
 export const TIPOS = ['comentario', 'reaccion', 'favorita', 'fotos', 'nota', 'evento', 'eventoEditado', 'nosVemos', 'capsula'];
 export const MAX_TEXTO = 80;
-// The sheet shows the last MOSTRADAS for this phone's person out of the last LEIDAS of the pair (the two directions
-// mixed: a `para ==` plus an order on createdAt would want a manual index, so `para` is filtered here)
-export const LEIDAS = 40;
+// The last MOSTRADAS of the collection of this phone's person. One collection per receiver: what one does can never push
+// the other's out of the window, and a single order on createdAt needs no manual index (a `para ==` plus that order would)
 export const MOSTRADAS = 30;
 
 const REF_KEYS = ['photoId', 'noteId', 'threadId', 'eventId', 'dia', 'capsuleId'];
@@ -59,7 +59,7 @@ export function registrarActividad(pairId, quien, tipo, datos) {
     if (!pairId || !db || !e) return;
     await whenAuthed();
     const f = await fb();
-    const col = f.collection(db, 'pairs', pairId, 'actividad');
+    const col = f.collection(db, 'pairs', pairId, `actividad-${e.data.para}`);
     await f.setDoc(e.id ? f.doc(col, e.id) : f.doc(col), { ...e.data, createdAt: f.serverTimestamp() });
   })().catch((err) => console.warn('Activity write failed', err));
 }
@@ -171,12 +171,12 @@ function actividadItem(d) {
 
 const vistoRef = (f, pairId, identity) => f.doc(f.collection(db, 'pairs', pairId, 'meta'), `actividad-visto-${identity}`);
 
-// The last LEIDAS entries of the pair, live (a single order on createdAt: automatic index). onChange(items)
-export function escucharActividad(pairId, onChange, onError) {
-  if (!pairId || !db) return () => {};
+// The last MOSTRADAS entries for `identity`, live (a single order on createdAt: automatic index). onChange(items)
+export function escucharActividad(pairId, identity, onChange, onError) {
+  if (!pairId || !WHO[identity] || !db) return () => {};
   return listenWhenAuthed(async () => {
     const f = await fb();
-    const q = f.query(f.collection(db, 'pairs', pairId, 'actividad'), f.orderBy('createdAt', 'desc'), f.limit(LEIDAS));
+    const q = f.query(f.collection(db, 'pairs', pairId, `actividad-${identity}`), f.orderBy('createdAt', 'desc'), f.limit(MOSTRADAS));
     return f.onSnapshot(q, (snap) => onChange(snap.docs.map(actividadItem).filter((e) => TIPOS.includes(e.tipo))), onError);
   }, onError);
 }

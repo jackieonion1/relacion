@@ -89,14 +89,15 @@ describe('registrarActividad', () => {
     expect(registrarActividad('p1', 'yo', 'comentario', { ref: { photoId: 'F1' }, texto: 'hola', autor: 'ella' })).toBeUndefined();
     await flush();
     expect(setDoc).toHaveBeenCalledTimes(1);
-    expect(setDoc.mock.calls[0][0]).toEqual({ path: 'pairs/p1/actividad/A1', id: 'A1' });
+    // Into the collection of whoever receives it: `yo` comments, so it is for `ella`
+    expect(setDoc.mock.calls[0][0]).toEqual({ path: 'pairs/p1/actividad-ella/A1', id: 'A1' });
     expect(setDoc.mock.calls[0][1]).toMatchObject({ tipo: 'comentario', para: 'ella', createdAt: '<ahora>' });
   });
 
   test('la reacción va a su id fijo', async () => {
     registrarActividad('p1', 'ella', 'reaccion', { ref: { photoId: 'F1' }, texto: '💖', autor: 'yo' });
     await flush();
-    expect(setDoc.mock.calls[0][0].path).toBe('pairs/p1/actividad/reaccion-F1-ella');
+    expect(setDoc.mock.calls[0][0].path).toBe('pairs/p1/actividad-yo/reaccion-F1-ella');
   });
 
   test('si falla, solo avisa en la consola', async () => {
@@ -206,13 +207,15 @@ describe('destinoActividad', () => {
 });
 
 describe('Firebase', () => {
-  test('escucharActividad: un solo orden por createdAt y un límite, sin where (sin índice compuesto)', async () => {
+  test('escucharActividad: la colección de esa persona, un solo orden por createdAt y un límite, sin where (sin índice compuesto)', async () => {
     const onChange = vi.fn();
-    escucharActividad('p1', onChange, () => {});
+    escucharActividad('p1', 'ella', onChange, () => {});
     await flush();
+    expect(collection).toHaveBeenCalledWith(expect.anything(), 'pairs', 'p1', 'actividad-ella');
+    expect(collection).not.toHaveBeenCalledWith(expect.anything(), 'pairs', 'p1', 'actividad');
     expect(where).not.toHaveBeenCalled();
     expect(orderBy).toHaveBeenCalledWith('createdAt', 'desc');
-    expect(limit).toHaveBeenCalledWith(40);
+    expect(limit).toHaveBeenCalledWith(MOSTRADAS);
     expect(query).toHaveBeenCalledTimes(1);
     const next = onSnapshot.mock.calls[0][1];
     next({ docs: [
