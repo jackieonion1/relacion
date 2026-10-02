@@ -63,18 +63,29 @@ export async function listarConTope(pairId, buildQuery, { onThumb = null, max = 
 
 // fotosEnRango with the thumb limit of listarConTope: all the photos in [desde, hasta) by effective date, oldest
 // first, with the thumb of the first `max` of each query. `limite` also cuts the documents each query reads (for a
-// cover: a month with hundreds of photos is not read whole; a photo dated by hand may then be missed). `excluir`
-// is a Set of ids to leave out
+// cover: a month with hundreds of photos is not read whole; a query that the cut leaves with nothing is asked again
+// with more). `excluir` is a Set of ids to leave out
 export async function fotosEnRangoTope(pairId, desde, hasta, { onThumb = null, max = Infinity, limite = 0, excluir = null, alResponder = null } = {}) {
   const d = new Date(desde);
   const h = new Date(hasta);
   const sinExcluidas = excluir?.size ? (it) => !excluir.has(it.id) : null;
-  const rango = (campo) => ({ query, where, orderBy, limit }, col) => query(
-    col, where(campo, '>=', d), where(campo, '<', h), orderBy(campo, 'asc'), ...(limite ? [limit(limite)] : []),
+  const rango = (campo, n) => ({ query, where, orderBy, limit }, col) => query(
+    col, where(campo, '>=', d), where(campo, '<', h), orderBy(campo, 'asc'), ...(n ? [limit(n)] : []),
   );
+  // A query that `limite` cuts and whose documents were all left out (uploads dated by hand to another day, or
+  // excluded ones) may have good ones past the cut: it is asked again with ten times the limit
+  const consultar = async (campo, filtro) => {
+    const una = async (n) => {
+      let leidas = 0;
+      const r = await listarConTope(pairId, rango(campo, n), { onThumb, max, alResponder, filtro: (it) => { leidas += 1; return !filtro || filtro(it); } });
+      return { r, cortada: n > 0 && leidas >= n };
+    };
+    const primera = await una(limite);
+    return primera.cortada && !primera.r.items.length ? (await una(limite * 10)).r : primera.r;
+  };
   const [subidas, tomadas] = await Promise.all([
-    listarConTope(pairId, rango('createdAt'), { onThumb, max, alResponder, filtro: (it) => it.takenAt == null && (!sinExcluidas || sinExcluidas(it)) }),
-    listarConTope(pairId, rango('takenAt'), { onThumb, max, alResponder, filtro: sinExcluidas }),
+    consultar('createdAt', (it) => it.takenAt == null && (!sinExcluidas || sinExcluidas(it))),
+    consultar('takenAt', sinExcluidas),
   ]);
   const items = unirPorFechaEfectiva(subidas.items, tomadas.items, desde, hasta).reverse();
   if (onThumb) return { items, thumbsDone: Promise.all([subidas.thumbsDone, tomadas.thumbsDone]) };
