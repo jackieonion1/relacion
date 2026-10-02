@@ -26,7 +26,8 @@ test('dos grupos, «Nuevas» y «Antes», con el emoji, el texto, el tiempo y la
   await act(async () => {});
   const nuevas = screen.getByRole('heading', { name: 'Nuevas' }).closest('section');
   const antes = screen.getByRole('heading', { name: 'Antes' }).closest('section');
-  expect(within(nuevas).getByRole('button', { name: '🫒 ha comentado tu foto: «qué guapa», hace 5 min' })).toBeTruthy();
+  // The dot of «Nuevas» is aria-hidden: «nuevo» is in the label
+  expect(within(nuevas).getByRole('button', { name: '🫒 ha comentado tu foto: «qué guapa», hace 5 min, nuevo' })).toBeTruthy();
   expect(within(antes).getByRole('button', { name: '🫒 ha subido 12 fotos, hace 30 min' })).toBeTruthy();
   expect(within(antes).getByRole('button', { name: '🫒 ha sellado una cápsula para los dos, ayer' })).toBeTruthy();
   expect(miniaturaFoto).toHaveBeenCalledWith('p1', 'F1');
@@ -37,6 +38,12 @@ test('sin nada que contar, un estado vacío amable y sin grupos', () => {
   render(<ActividadHoja isOpen onClose={() => {}} lista={[]} vistoHasta={NUNCA} pairId="p1" onElegir={() => {}} />);
   expect(screen.getByText(/Aún no hay nada por aquí/)).toBeTruthy();
   expect(screen.queryByRole('heading', { name: 'Nuevas' })).toBeNull();
+});
+
+test('mientras el primer dato no llega dice «Cargando…», no que no hay nada', () => {
+  render(<ActividadHoja isOpen onClose={() => {}} lista={[]} vistoHasta={NUNCA} cargando pairId="p1" onElegir={() => {}} />);
+  expect(screen.getByText('Cargando…')).toBeTruthy();
+  expect(screen.queryByText(/Aún no hay nada por aquí/)).toBeNull();
 });
 
 function Donde() {
@@ -70,6 +77,20 @@ test('la campana lleva el número sin ver, y abrirla marca todo visto sin mover 
   await act(async () => {});
   expect(screen.getByRole('heading', { name: 'Nuevas' })).toBeTruthy();
   expect(screen.getByRole('button', { name: 'Avisos' }).textContent).toBe('');
+});
+
+test('la hoja de la campana espera al listener (listo) antes de decir que está vacía', async () => {
+  const { rerender } = conCampana({ lista: [], vistoHasta: NUNCA, noLeidas: 0, listo: false });
+  fireEvent.click(screen.getByRole('button', { name: 'Avisos' }));
+  expect(screen.getByText('Cargando…')).toBeTruthy();
+  rerender(
+    <MemoryRouter>
+      <Routes><Route path="/" element={<Campana actividad={{ lista: [], vistoHasta: NUNCA, noLeidas: 0, listo: true }} />} /></Routes>
+    </MemoryRouter>
+  );
+  await act(async () => {});
+  expect(screen.queryByText('Cargando…')).toBeNull();
+  expect(screen.getByText(/Aún no hay nada por aquí/)).toBeTruthy();
 });
 
 test('más de nueve: 9+', () => {
