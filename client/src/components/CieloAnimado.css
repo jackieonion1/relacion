@@ -2,7 +2,7 @@
    sits between .cielo-fondo and the text (both z-index -1, this one later); it is a size container so the particles
    fall in cqh (iOS 16+), with a px fallback just before each */
 .cielo-anim {
-  --esc-gota: oklch(0.36 0.08 250 / 0.65);
+  --esc-gota: oklch(0.36 0.08 250 / 0.4); /* the drops fall behind the numbers: faint enough not to cut them */
   --esc-copo: oklch(0.6 0.09 240 / 0.95);
   --esc-nube: oklch(1 0 0 / 0.8);
   --esc-niebla: oklch(1 0 0 / 0.55);
@@ -18,7 +18,7 @@
 /* By night, and in the dark theme at any hour (the sky is dimmed there): light particles, softer clouds */
 .cielo-anim.es-noche,
 html[data-tema='oscuro'] .cielo-anim {
-  --esc-gota: oklch(0.92 0.04 250 / 0.6);
+  --esc-gota: oklch(0.92 0.04 250 / 0.4);
   --esc-copo: oklch(0.98 0.01 240 / 0.95);
   --esc-nube: oklch(0.85 0.03 280 / 0.3);
   --esc-niebla: oklch(0.9 0.02 280 / 0.24);

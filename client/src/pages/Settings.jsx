@@ -14,6 +14,7 @@ import { versionLabel } from '../lib/buildInfo';
 import { readTheme, setTheme } from '../lib/theme';
 import { getPairInfo, createInvite, lockPair, removeMember } from '../lib/pair';
 import { membership } from '../lib/firebase';
+import { avisarCambioIdentidad } from '../lib/fotoAvisos';
 
 const IDENTITY_KEY = 'identity'; // 'yo' | 'ella'
 const PAIR_KEY = 'pairId';
@@ -75,6 +76,7 @@ export default function Settings() {
   function chooseIdentity(id) {
     localStorage.setItem(IDENTITY_KEY, id);
     setIdentity(id);
+    avisarCambioIdentidad();
   }
 
   const [tema, setTema] = useState(() => readTheme(localStorage));

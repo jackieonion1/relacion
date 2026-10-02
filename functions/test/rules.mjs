@@ -80,7 +80,10 @@ const walk = (d) => {
   }
 };
 walk(clientSrc);
-const COLLECTIONS = ['locations', 'notes', 'photos', 'meta', 'pushSubs', 'mapState', 'music', 'events', 'photoComments', 'albums'];
+// Avisos (3.1), una colección por destinatario: la genérica las dejaría escribir con cualquier createdAt, así que
+// tienen reglas propias y sus escrituras se prueban aparte (más abajo); aquí solo la membresía de leer y borrar
+const ACTIVIDAD = ['actividad-yo', 'actividad-ella'];
+const COLLECTIONS = ['locations', 'notes', 'photos', 'meta', 'pushSubs', 'mapState', 'music', 'events', 'photoComments', 'albums', ...ACTIVIDAD];
 // members: el cliente la lee (Ajustes) pero no la escribe nunca
 const READ_ONLY = ['members'];
 // Con reglas propias (fuera de la genérica): sus checks van aparte, más abajo
@@ -107,7 +110,7 @@ const writeAs = (c, uid) => (c === 'pushSubs' ? { fields: { ...write.fields, uid
 for (const c of COLLECTIONS) {
   await expectAllow(`abierta, no miembro list ${c}`, 'GET', `/pairs/${PAIR}/${c}`, { uid: STRANGER });
   await expectAllow(`abierta, no miembro get ${c}/d1`, 'GET', `/pairs/${PAIR}/${c}/d1`, { uid: STRANGER });
-  await expectAllow(`abierta, no miembro write ${c}/d2`, 'PATCH', `/pairs/${PAIR}/${c}/d2`, { uid: STRANGER, body: writeAs(c, STRANGER) });
+  if (!ACTIVIDAD.includes(c)) await expectAllow(`abierta, no miembro write ${c}/d2`, 'PATCH', `/pairs/${PAIR}/${c}/d2`, { uid: STRANGER, body: writeAs(c, STRANGER) });
   await expectAllow(`abierta, no miembro delete ${c}/d2`, 'DELETE', `/pairs/${PAIR}/${c}/d2`, { uid: STRANGER });
 }
 // Pareja nueva (código recién escrito en el onboarding o llegado por ?pair=): aún sin documentos
@@ -139,7 +142,7 @@ await db.doc(`pairs/${PAIR}`).set({ locked: true });
 for (const c of COLLECTIONS) {
   await expectAllow(`miembro list ${c}`, 'GET', `/pairs/${PAIR}/${c}`, { uid: ME });
   await expectAllow(`miembro get ${c}/d1`, 'GET', `/pairs/${PAIR}/${c}/d1`, { uid: ME });
-  await expectAllow(`miembro write ${c}/d2`, 'PATCH', `/pairs/${PAIR}/${c}/d2`, { uid: ME, body: writeAs(c, ME) });
+  if (!ACTIVIDAD.includes(c)) await expectAllow(`miembro write ${c}/d2`, 'PATCH', `/pairs/${PAIR}/${c}/d2`, { uid: ME, body: writeAs(c, ME) });
   await expectAllow(`miembro delete ${c}/d2`, 'DELETE', `/pairs/${PAIR}/${c}/d2`, { uid: ME });
 }
 await expectAllow('miembro lee la lista de miembros', 'GET', `/pairs/${PAIR}/members`, { uid: ME });
@@ -149,7 +152,7 @@ await expectAllow(`miembro lee /pairs/${PAIR} (locked)`, 'GET', `/pairs/${PAIR}`
 for (const c of COLLECTIONS) {
   await expectDeny(`no miembro list ${c}`, 'GET', `/pairs/${PAIR}/${c}`, { uid: STRANGER });
   await expectDeny(`no miembro get ${c}/d1`, 'GET', `/pairs/${PAIR}/${c}/d1`, { uid: STRANGER });
-  await expectDeny(`no miembro write ${c}/d2`, 'PATCH', `/pairs/${PAIR}/${c}/d2`, { uid: STRANGER, body: writeAs(c, STRANGER) });
+  if (!ACTIVIDAD.includes(c)) await expectDeny(`no miembro write ${c}/d2`, 'PATCH', `/pairs/${PAIR}/${c}/d2`, { uid: STRANGER, body: writeAs(c, STRANGER) });
 }
 await expectDeny('cerrada, miembro escribe pushSubs con el uid de otro', 'PATCH', `/pairs/${PAIR}/pushSubs/d3`, { uid: ME, body: writeAs('pushSubs', STRANGER) });
 await expectDeny('no miembro lee la lista de miembros', 'GET', `/pairs/${PAIR}/members`, { uid: STRANGER });
@@ -254,6 +257,39 @@ await expectStorage('deny', 'nadie reemplaza la foto ya abierta', 'POST', `pairs
 await expectStorage('allow', 'miembro borra la foto ya abierta', 'DELETE', `pairs/${PAIR}/capsules/c9/${PRONTO}.jpg`, ME);
 // Abierta y sin unirse (cliente 3.1 recién abierto): sin firestore.get del contenido, canUse mira dos documentos
 await expectStorage('allow', 'abierta, no miembro lee la foto pasado openAt', 'GET', `pairs/ABIERTA1/capsules/c9/${PRONTO}.jpg`, STRANGER);
+
+// --- Avisos (3.1): actividad-yo y actividad-ella, una colección por destinatario. Reglas propias (fuera de la genérica,
+// que las ORearía): el createdAt de lo que se escribe tiene que ser la hora del servidor, no el de un cliente. Leer y
+// borrar, con la misma membresía que el resto: el destinatario puede borrar lo suyo ---
+const campoAviso = { tipo: { stringValue: 'nota' }, quien: { stringValue: 'yo' }, para: { stringValue: 'ella' }, ref: { mapValue: { fields: {} } } };
+const avisoDe = (p, col, id, createdAt) => [{
+  update: { name: docName(`/pairs/${p}/${col}/${id}`), fields: createdAt ? { ...campoAviso, createdAt } : campoAviso },
+  ...(createdAt ? {} : { updateTransforms: [{ fieldPath: 'createdAt', setToServerValue: 'REQUEST_TIME' }] }),
+}];
+for (const col of ACTIVIDAD) {
+  await expectCommit('allow', `miembro escribe un aviso en ${col} con la hora del servidor`, ME, avisoDe(PAIR, col, 'a1'));
+  await expectCommit('allow', `miembro reescribe su aviso de id fijo en ${col} (otra vez con la hora del servidor)`, ME, avisoDe(PAIR, col, 'a1'));
+  await expectCommit('deny', `miembro escribe en ${col} un createdAt futuro (silenciaría la campana)`, ME, avisoDe(PAIR, col, 'a2', ts(FUTURO)));
+  await expectCommit('deny', `miembro escribe en ${col} un createdAt pasado de cliente`, ME, avisoDe(PAIR, col, 'a3', ts(PASADO)));
+  await expectCommit('deny', `miembro escribe en ${col} el createdAt de ahora, pero de su reloj`, ME, avisoDe(PAIR, col, 'a4', ts(Date.now())));
+  await expectCommit('deny', `miembro escribe en ${col} un createdAt que no es una hora`, ME, avisoDe(PAIR, col, 'a5', { stringValue: 'ahora' }));
+  await expectCommit('deny', `miembro reescribe en ${col} su aviso con un createdAt futuro`, ME, avisoDe(PAIR, col, 'a1', ts(FUTURO)));
+  await expectDeny(`miembro escribe en ${col} sin createdAt (PATCH)`, 'PATCH', `/pairs/${PAIR}/${col}/a6`, { uid: ME, body: { fields: campoAviso } });
+  await expectDeny(`miembro escribe en ${col} un createdAt futuro (PATCH)`, 'PATCH', `/pairs/${PAIR}/${col}/a7`, { uid: ME, body: { fields: { ...campoAviso, createdAt: ts(FUTURO) } } });
+  await expectAllow(`miembro lee ${col}/a1`, 'GET', `/pairs/${PAIR}/${col}/a1`, { uid: ME });
+  await expectAllow(`miembro lista ${col}`, 'GET', `/pairs/${PAIR}/${col}`, { uid: ME });
+  await expectAllow(`miembro (el destinatario) borra ${col}/a1`, 'DELETE', `/pairs/${PAIR}/${col}/a1`, { uid: ME });
+  await expectCommit('deny', `cerrada, no miembro escribe en ${col}`, STRANGER, avisoDe(PAIR, col, 'a8'));
+  await expectDeny(`cerrada, no miembro lee ${col}`, 'GET', `/pairs/${PAIR}/${col}`, { uid: STRANGER });
+  await expectDeny(`cerrada, no miembro borra ${col}/d1`, 'DELETE', `/pairs/${PAIR}/${col}/d1`, { uid: STRANGER });
+  await expectCommit('deny', `miembro de otra pareja escribe en ${col} de esta`, 'uid-de-otra', avisoDe(PAIR, col, 'a9'));
+  await expectCommit('allow', `abierta, no miembro escribe en ${col} con la hora del servidor`, STRANGER, avisoDe('ABIERTA1', col, 'a1'));
+  await expectCommit('deny', `abierta, no miembro escribe en ${col} un createdAt futuro`, STRANGER, avisoDe('ABIERTA1', col, 'a2', ts(FUTURO)));
+  await expectAllow(`abierta, no miembro lee ${col}/a1`, 'GET', `/pairs/ABIERTA1/${col}/a1`, { uid: STRANGER });
+  await expectAllow(`abierta, no miembro borra ${col}/a1`, 'DELETE', `/pairs/ABIERTA1/${col}/a1`, { uid: STRANGER });
+}
+// Una sola escritura mala echa abajo el commit entero
+await expectCommit('deny', 'un commit con un aviso bueno y otro con createdAt futuro', ME, [...avisoDe(PAIR, 'actividad-yo', 'b1'), ...avisoDe(PAIR, 'actividad-ella', 'b2', ts(FUTURO))]);
 
 // --- Callables de membresía (pareja de prueba propia, para no mezclar con lo de arriba) ---
 const J = 'JOIN2024';

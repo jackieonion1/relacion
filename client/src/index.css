@@ -401,6 +401,13 @@ html, body, #root { height: 100%; }
     position: absolute; top: 8px; left: calc(50% + 6px); width: 9px; height: 9px; border-radius: 50%;
     background-color: var(--lacre); box-shadow: 0 0 0 2px var(--paper);
   }
+  /* Count of unseen Avisos on the bell of Inicio: the same lacre, ringed in the paper, over the top right corner */
+  .campana-punto {
+    position: absolute; top: 5px; left: 23px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px;
+    background-color: var(--lacre); color: var(--on-lacre); box-shadow: 0 0 0 2px var(--paper);
+    font-size: 11px; line-height: 18px; font-weight: 700; text-align: center; font-variant-numeric: tabular-nums;
+    pointer-events: none;
+  }
   .mas-item {
     min-height: 96px; gap: 8px; border-radius: var(--radius-tarjeta); background-color: var(--paper); border: 1px solid var(--line);
     display: flex; flex-direction: column; align-items: flex-start; justify-content: space-between; padding: 14px 16px;

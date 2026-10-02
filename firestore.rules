@@ -27,7 +27,23 @@ service cloud.firestore {
 
     // Rutas explícitas pairs/{pair}/{colección}/{doc}: sin `**`, que también casaba /pairs y /pairs/{pair}
     match /pairs/{pairId}/{col}/{docId} {
-      allow read, write: if !(col in ['members', 'pushSubs', 'capsules', 'capsuleSecrets']) && canUse(pairId);
+      allow read, write: if !(col in ['members', 'pushSubs', 'capsules', 'capsuleSecrets', 'actividad-yo', 'actividad-ella']) && canUse(pairId);
+    }
+
+    // Avisos (3.1), one collection per receiver: what the other one did, for the bell of Inicio. Out of the generic
+    // rule on purpose (it would OR with this one and allow any createdAt): the bell orders by createdAt and marks
+    // «seen» up to the newest, so a client time in the future would silence everything real after it. The time of
+    // an entry is the server's (what serverTimestamp writes); any member reads and deletes (the receiver cleans up)
+    function validAviso(data) {
+      return data.createdAt == request.time;
+    }
+    match /pairs/{pairId}/actividad-yo/{avisoId} {
+      allow read, delete: if canUse(pairId);
+      allow create, update: if canUse(pairId) && validAviso(request.resource.data);
+    }
+    match /pairs/{pairId}/actividad-ella/{avisoId} {
+      allow read, delete: if canUse(pairId);
+      allow create, update: if canUse(pairId) && validAviso(request.resource.data);
     }
 
     // Time capsules (3.1). Out of the generic rule on purpose: Firestore ORs every matching rule, so that one would

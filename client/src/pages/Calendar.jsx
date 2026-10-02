@@ -12,6 +12,7 @@ import CollapsibleSection from '../components/CollapsibleSection';
 import { DayList, PastList, UpcomingList } from '../components/EventList';
 import HeartRainAnimation from '../components/HeartRainAnimation';
 import { eventTypeOf } from '../lib/eventTypes';
+import { registrarActividad, borrarActividad } from '../lib/actividad';
 import { dayTitle, specialInfo, whenText } from '../lib/eventText';
 import { birthdayOn, celebration, isMonthiversaryDay, nextSpecialEvents, partyAnimation } from '../lib/specialDays';
 
@@ -205,6 +206,12 @@ export default function CalendarPage() {
       const { committed } = editingId
         ? await updateEvent(pairId, editingId, fields)
         : await addEvent(pairId, fields, identity);
+      // Its aviso has the event's id (taking the event back takes it away). A new one has no id until the server
+      // gives it (addDoc), so its aviso waits for that; one that is rejected leaves none
+      const tipo = editingId ? 'eventoEditado' : seeEachOther ? 'nosVemos' : 'evento';
+      const avisar = (eventId) => registrarActividad(pairId, identity, tipo, { ref: { eventId, dia: date }, clave: eventId, texto: title });
+      if (editingId) avisar(editingId);
+      else committed.then((added) => avisar(added?.id || '')).catch(() => {});
       formEl.reset();
       setSelectedEventType('conjunto'); // Reset to default
       setEditingEvent(null);
@@ -247,6 +254,7 @@ export default function CalendarPage() {
     const { id } = deleteTarget;
     try {
       await deleteEvent(pairId, id);
+      borrarActividad(pairId, ['evento', 'eventoEditado', 'nosVemos'], { clave: id }); // their avisos go with it
       setRefreshKey(k => k + 1);
     } catch (e) {
       setNotice('No se pudo borrar el evento.');

@@ -9,6 +9,7 @@ import {
   EMOJI, MAX_TEXTO, MAX_TITULO, borrarCapsula, crearCapsula, cuentaAtras, diaMinimo, escucharCapsulas, fechaLarga,
   leerCapsula, marcarAbierta, paraQuien, repartirCapsulas, validarCapsula,
 } from '../lib/capsulas';
+import { registrarActividad } from '../lib/actividad';
 
 // Cápsulas (3.1): sealed letters that open on their day. Each one is an envelope with a wax seal; on its day the seal
 // breaks, the flap lifts and the letter comes out (without motion when the system asks for less). What opens it is
@@ -66,6 +67,8 @@ function NuevaCapsula({ isOpen, onClose, onSellada, pairId, identity }) {
     setError('');
     try {
       const r = await crearCapsula(pairId, { texto, titulo, dia, para, foto }, identity);
+      // Its Aviso says only that there is one and for whom: neither the title nor the day
+      registrarActividad(pairId, identity, 'capsula', { ref: { capsuleId: r.id }, ambos: v.para === 'ambos' });
       onSellada(r.queued);
     } catch (err) {
       setError(ERRORES[err?.message] ? err.message : 'otro');
@@ -84,7 +87,7 @@ function NuevaCapsula({ isOpen, onClose, onSellada, pairId, identity }) {
         </div>
         <Field
           label="Tu carta" multiline rows={7} value={texto} maxLength={MAX_TEXTO} disabled={guardando}
-          onChange={(e) => setTexto(e.target.value)} className="serif text-[17px] leading-[1.45]"
+          onChange={(e) => setTexto(e.target.value)} className="serif text-[17px] leading-[1.45] resize-none"
           error={error === 'texto' || error === 'largo' ? ERRORES[error] : ''}
         />
         <Field
@@ -97,7 +100,7 @@ function NuevaCapsula({ isOpen, onClose, onSellada, pairId, identity }) {
             {opciones.map((o) => (
               <button
                 key={o.id} type="button" aria-pressed={para === o.id} disabled={guardando} onClick={() => setPara(o.id)}
-                className={`rounded-full text-[15px] font-semibold transition-colors ${para === o.id ? 'bg-raised text-ink shadow-carta' : 'text-ink-2'}`}
+                className={`relative rounded-full text-[15px] font-semibold transition-colors before:absolute before:-inset-y-1 before:inset-x-0 before:content-[''] ${para === o.id ? 'bg-raised text-ink shadow-carta' : 'text-ink-2'}`}
               >
                 {o.label}
               </button>

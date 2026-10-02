@@ -3,6 +3,7 @@
 import { useSyncExternalStore } from 'react';
 import { escucharNoLeidos } from './fotoComentarios';
 
+export const CAMBIO_IDENTIDAD = 'relacion:identidad';
 const EMPTY = new Map();
 let porFoto = EMPTY; // photoId → unread comments
 let total = 0;
@@ -35,20 +36,41 @@ function start() {
   stop = escucharNoLeidos(pairId, identity, publish, (e) => console.warn('Unread comments listener failed', e));
 }
 
+function reset() {
+  stop();
+  stop = null;
+  porFoto = EMPTY;
+  total = 0;
+  confirmado = false;
+  firma = '';
+}
+
+// «Quién eres» changed in Ajustes: the tab bar stays mounted, so the listener of the old person would go on
+function onIdentidad() {
+  if (!stop) return;
+  reset();
+  start();
+  subs.forEach((cb) => cb());
+}
+
 function subscribe(cb) {
   subs.add(cb);
-  if (!stop) start();
+  if (!stop) {
+    start();
+    window.addEventListener(CAMBIO_IDENTIDAD, onIdentidad);
+  }
   return () => {
     subs.delete(cb);
     if (subs.size === 0 && stop) {
-      stop();
-      stop = null;
-      porFoto = EMPTY;
-      total = 0;
-      confirmado = false;
-      firma = '';
+      window.removeEventListener(CAMBIO_IDENTIDAD, onIdentidad);
+      reset();
     }
   };
+}
+
+// Ajustes tells the listeners of the app that this phone is someone else now
+export function avisarCambioIdentidad() {
+  try { window.dispatchEvent(new Event(CAMBIO_IDENTIDAD)); } catch {}
 }
 
 // Map photoId → number of comments still unread by this phone's person (the same Map until something changes)

@@ -3,18 +3,26 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import NuestroAno, { Historias } from './NuestroAno';
 import { analizar, cargarNuestroAno, construirHistorias, ventanaAniversario } from '../lib/nuestroAno';
-import { getPhotoThumbUrl } from '../lib/photos';
+import { getPhotoThumbUrl, thumbDeItem } from '../lib/photos';
 
-vi.mock('../lib/photos', async (orig) => ({ ...(await orig()), getPhotoThumbUrl: vi.fn() }));
+vi.mock('../lib/photos', async (orig) => ({ ...(await orig()), getPhotoThumbUrl: vi.fn(), thumbDeItem: vi.fn() }));
 vi.mock('../lib/nuestroAno', async (orig) => ({ ...(await orig()), cargarNuestroAno: vi.fn() }));
 
 const V = ventanaAniversario(new Date('2026-12-01T10:00:00Z'));
 const dia = (m, d) => Date.UTC(2026, m - 1, d, 11);
 const stats = (extra = {}) => analizar({
-  fotos: [{ id: 'f1', createdAt: dia(3, 2), takenAt: null, identity: 'yo', reactions: { yo: '💖' }, favBy: ['ella'] }],
+  fotos: [{ id: 'f1', createdAt: dia(3, 2), takenAt: null, identity: 'yo', reactions: { yo: '💖' }, favBy: ['ella'], thumbDoc: 'https://doc/f1' }],
   notas: [{ identity: 'ella' }],
   ...extra,
-}, V);
+}, V, 'SEB1998');
+// A year with photos in February and none in March or April, for the chapters
+const conCapitulo = () => stats({
+  fotos: [
+    { id: 'a', createdAt: dia(2, 3), takenAt: null, identity: 'yo', reactions: {}, favBy: [], thumbDoc: '' },
+    { id: 'b', createdAt: dia(2, 9), takenAt: null, identity: 'ella', reactions: {}, favBy: [], thumbDoc: '' },
+    { id: 'c', createdAt: dia(2, 20), takenAt: null, identity: 'ella', reactions: {}, favBy: [], thumbDoc: '' },
+  ],
+});
 const historias = (s = stats()) => construirHistorias(s, new Date('2026-11-24T10:00:00Z'));
 
 const rutas = (url) => (
@@ -34,7 +42,7 @@ beforeEach(() => {
   localStorage.setItem('pairId', 'SEB1998');
   vi.clearAllMocks();
   cargarNuestroAno.mockResolvedValue(stats());
-  getPhotoThumbUrl.mockResolvedValue('https://fotos.test/f1.jpg');
+  thumbDeItem.mockImplementation(async (_, f) => `https://fotos.test/${f.id}.jpg`);
 });
 afterEach(() => {
   vi.useRealTimers();
@@ -43,7 +51,7 @@ afterEach(() => {
 describe('Historias', () => {
   test('arranca en la portada, y tocar pasa de una a otra, hasta el cierre', () => {
     const hs = historias();
-    render(<Historias historias={hs} fotoUrl="https://fotos.test/f1.jpg" onCerrar={() => {}} />);
+    render(<Historias historias={hs} thumbs={{ f1: 'https://fotos.test/f1.jpg' }} onCerrar={() => {}} />);
     expect(screen.getByRole('heading', { level: 1, name: 'Nuestro segundo año' })).not.toBeNull();
     const visto = [];
     for (let k = 1; k < hs.length; k += 1) {
@@ -110,22 +118,55 @@ describe('Historias', () => {
     expect(llenas()).toBe(3);
   });
 
-  test('la foto favorita lleva alt, sus corazones y quién la marcó; sin url, un hueco', () => {
+  test('la foto favorita lleva alt, sus corazones y quién la marcó; mientras llega, un hueco; sin ella, un sello', () => {
     const hs = historias();
-    const { unmount } = render(<Historias historias={hs} fotoUrl="https://fotos.test/f1.jpg" inicial={hs.findIndex((h) => h.id === 'foto')} onCerrar={() => {}} />);
+    const en = hs.findIndex((h) => h.id === 'foto');
+    const { unmount } = render(<Historias historias={hs} thumbs={{ f1: 'https://fotos.test/f1.jpg' }} inicial={en} onCerrar={() => {}} />);
     expect(screen.getByRole('img', { name: 'La foto con más corazones del año' }).getAttribute('src')).toBe('https://fotos.test/f1.jpg');
     expect(screen.getByText('🫒 💖')).not.toBeNull();
     expect(screen.getByText('Favorita de 🍪')).not.toBeNull();
     unmount();
-    render(<Historias historias={hs} inicial={hs.findIndex((h) => h.id === 'foto')} onCerrar={() => {}} />);
+    const { unmount: fuera } = render(<Historias historias={hs} inicial={en} onCerrar={() => {}} />);
     expect(screen.queryByRole('img', { name: 'La foto con más corazones del año' })).toBeNull();
+    expect(document.querySelector('.ano-polaroid .ano-hueco')).not.toBeNull();
+    fuera();
+    render(<Historias historias={hs} thumbs={{ f1: '' }} inicial={en} onCerrar={() => {}} />);
+    expect(document.querySelector('.ano-polaroid .ano-sello-postal').textContent).toBe('2mar');
   });
 
-  test('el gráfico de meses se lee entero para el lector de pantalla', () => {
+  test('una miniatura que no carga se cambia por el sello de su día', () => {
     const hs = historias();
-    render(<Historias historias={hs} inicial={hs.findIndex((h) => h.id === 'meses')} onCerrar={() => {}} />);
-    expect(screen.getByRole('img', { name: /^Fotos por mes: noviembre 0, diciembre 0, enero 0, febrero 0, marzo 1,/ })).not.toBeNull();
-    expect(screen.getByText('Marzo fue el mes con más fotos')).not.toBeNull();
+    render(<Historias historias={hs} thumbs={{ f1: 'https://fotos.test/rota.jpg' }} inicial={hs.findIndex((h) => h.id === 'foto')} onCerrar={() => {}} />);
+    fireEvent.error(screen.getByRole('img', { name: 'La foto con más corazones del año' }));
+    expect(screen.queryByRole('img', { name: 'La foto con más corazones del año' })).toBeNull();
+    expect(document.querySelector('.ano-polaroid .ano-sello-postal')).not.toBeNull();
+  });
+
+  test('un capítulo: cada mes con su nombre y su número, y el que no tiene fotos con el sello de su 24', () => {
+    const hs = construirHistorias(conCapitulo(), new Date('2026-11-24T10:00:00Z'));
+    const thumbs = Object.fromEntries(['a', 'b', 'c'].map((id) => [id, `https://fotos.test/${id}.jpg`]));
+    render(<Historias historias={hs} thumbs={thumbs} inicial={hs.findIndex((h) => h.id === 'capitulo-2')} onCerrar={() => {}} />);
+    expect(screen.getByText('Capítulo II')).not.toBeNull();
+    expect(screen.getByRole('heading', { name: 'De febrero a abril' })).not.toBeNull();
+    expect(screen.getByText('Febrero:')).not.toBeNull();
+    expect(screen.getByText('3 fotos')).not.toBeNull();
+    expect(screen.getByRole('img', { name: 'Una foto de febrero' })).not.toBeNull();
+    expect(screen.getAllByText('sin fotos, pero con sello')).toHaveLength(2);
+    const sellos = [...document.querySelectorAll('.ano-mini.sin-foto .ano-sello-postal')].map((s) => s.textContent);
+    expect(sellos).toEqual(['Mes 1624mar', 'Mes 1724abr']);
+  });
+
+  test('el collage pinta sus fotos según llegan, y las que faltan quedan en papel', () => {
+    const fotos = Array.from({ length: 8 }, (_, k) => ({ id: `f${k}`, createdAt: dia(1 + k, 3), takenAt: null, identity: 'yo', reactions: {}, favBy: [], thumbDoc: '' }));
+    const hs = construirHistorias(stats({ fotos }), new Date('2026-11-24T10:00:00Z'));
+    const h = hs.find((x) => x.id === 'collage');
+    const thumbs = { [h.fotos[0].id]: 'https://fotos.test/0.jpg', [h.fotos[1].id]: '' };
+    render(<Historias historias={hs} thumbs={thumbs} inicial={hs.indexOf(h)} onCerrar={() => {}} />);
+    expect(screen.getByRole('heading', { name: 'Y todo esto.' })).not.toBeNull();
+    expect(document.querySelectorAll('.ano-collage li')).toHaveLength(8);
+    expect(document.querySelectorAll('.ano-collage img')).toHaveLength(1);
+    expect(document.querySelectorAll('.ano-collage .ano-collage-papel')).toHaveLength(1);
+    expect(document.querySelectorAll('.ano-collage .ano-hueco')).toHaveLength(6);
   });
 });
 
@@ -140,7 +181,15 @@ describe('NuestroAno', () => {
     render(rutas('/recuerdos/nuestro-ano?ensayo=1'));
     expect(await screen.findByRole('dialog', { name: 'Nuestro año' })).not.toBeNull();
     expect(cargarNuestroAno).toHaveBeenCalledWith('SEB1998', { ensayo: true });
-    expect(getPhotoThumbUrl).toHaveBeenCalledWith('SEB1998', 'f1');
+  });
+
+  test('las miniaturas se piden por la URL de su doc (thumbDeItem), una vez cada una y sin leer el doc', async () => {
+    cargarNuestroAno.mockResolvedValue(conCapitulo());
+    render(rutas('/recuerdos/nuestro-ano?ensayo=1'));
+    await screen.findByRole('dialog');
+    await waitFor(() => expect(thumbDeItem).toHaveBeenCalledTimes(3));
+    expect(thumbDeItem).toHaveBeenCalledWith('SEB1998', expect.objectContaining({ id: 'a', thumbDoc: '' }));
+    expect(getPhotoThumbUrl).not.toHaveBeenCalled();
   });
 
   test('en la ventana, sin ensayo, y Escape vuelve al hub', async () => {
@@ -152,11 +201,16 @@ describe('NuestroAno', () => {
     expect(screen.getByText('hub')).not.toBeNull();
   });
 
-  test('sin miniatura de la favorita, esa historia no sale', async () => {
-    getPhotoThumbUrl.mockResolvedValue('');
+  test('las historias se abren sin esperar a las fotos, y una que no llega deja su sello', async () => {
+    let soltar;
+    thumbDeItem.mockImplementation(() => new Promise((r) => { soltar = r; }));
     render(rutas('/recuerdos/nuestro-ano?ensayo=1'));
     await screen.findByRole('dialog');
-    expect(document.querySelectorAll('.ano-barras li')).toHaveLength(historias(stats()).length - 1);
+    expect(document.querySelectorAll('.ano-barras li')).toHaveLength(historias(stats()).length);
+    for (let k = 0; k < historias().findIndex((h) => h.id === 'foto'); k += 1) siguiente();
+    expect(document.querySelector('.ano-polaroid .ano-hueco')).not.toBeNull();
+    soltar('');
+    await waitFor(() => expect(document.querySelector('.ano-polaroid .ano-sello-postal')).not.toBeNull());
   });
 
   test('sin conexión pide reintentar, y reintentar carga', async () => {
