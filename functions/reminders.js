@@ -51,11 +51,13 @@ export function remindersFor(now = new Date()) {
     if (b.month !== month || b.day !== day) continue;
     const age = year - b.year;
     const other = otherOf(b.who);
+    // The other one reads "lo"/"la" for the one with the birthday
+    const lo = b.who === 'ella' ? 'la' : 'lo';
     out.push({
       kind: 'birthday',
       texts: {
         [b.who]: { title: `🎂 ¡Feliz cumpleaños, ${EMOJI[b.who]}!`, body: `Hoy cumples ${age} años. Hoy manda quien cumple 💖` },
-        [other]: { title: `🎂 Hoy es el cumple de tu ${EMOJI[b.who]}`, body: `Cumple ${age} años. ¡Que se note lo que lo quieres!` },
+        [other]: { title: `🎂 Hoy es el cumple de tu ${EMOJI[b.who]}`, body: `Cumple ${age} años. ¡Que se note lo que ${lo} quieres!` },
       },
     });
   }

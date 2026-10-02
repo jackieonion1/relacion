@@ -33,11 +33,11 @@ describe('qué push toca hoy', () => {
     const [ella] = remindersFor(at('2026-04-21T07:00:00Z'));
     expect(ella.kind).toBe('birthday');
     expect(ella.texts.ella).toEqual({ title: '🎂 ¡Feliz cumpleaños, 🍪!', body: 'Hoy cumples 23 años. Hoy manda quien cumple 💖' });
-    expect(ella.texts.yo).toEqual({ title: '🎂 Hoy es el cumple de tu 🍪', body: 'Cumple 23 años. ¡Que se note lo que lo quieres!' });
+    expect(ella.texts.yo).toEqual({ title: '🎂 Hoy es el cumple de tu 🍪', body: 'Cumple 23 años. ¡Que se note lo que la quieres!' });
     const [el] = remindersFor(at('2026-11-04T08:00:00Z'));
     expect(el.texts.yo.title).toBe('🎂 ¡Feliz cumpleaños, 🫒!');
     expect(el.texts.yo.body).toMatch('28 años');
-    expect(el.texts.ella.title).toBe('🎂 Hoy es el cumple de tu 🫒');
+    expect(el.texts.ella).toEqual({ title: '🎂 Hoy es el cumple de tu 🫒', body: 'Cumple 28 años. ¡Que se note lo que lo quieres!' });
   });
 });
 
