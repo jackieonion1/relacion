@@ -1,6 +1,7 @@
 import { auth, db, storage, whenAuthed } from './firebase';
 import { getThumb, putThumb, getOrig, putOrig, pruneOrig, deleteThumb, deleteOrig } from './photoCache';
 import { splitPage } from './pagination';
+import { leerFechaExif } from './exifFecha';
 import { mapLimit } from './pool';
 
 // Thumbnails resolved at once on a cold cache (each one: getDownloadURL + fetch + IndexedDB write)
@@ -525,7 +526,7 @@ export async function listPendingPhotos(pairId) {
 // missing mark can't be told apart from a photo that never got one.
 const inflight = new Map();
 const deletedIds = new Set();
-function pushRemote(pairId, id, identity, thumbBlob, origBlob) {
+function pushRemote(pairId, id, identity, thumbBlob, origBlob, takenAt = null) {
   const key = `${pairId}:${id}`;
   if (inflight.has(key)) return inflight.get(key);
   const p = (async () => {
@@ -563,6 +564,8 @@ function pushRemote(pairId, id, identity, thumbBlob, origBlob) {
       identity,
       thumbUrl: thumbUrlRemote,
       origUrl: origUrlRemote,
+      // Only when the file said so: without it the photo stays as before (dated by hand, if at all)
+      ...(takenAt != null ? { takenAt: new Date(takenAt), takenAtFuente: 'exif' } : {}),
     });
     removePending(pairId, id);
   })().finally(() => inflight.delete(key));
@@ -579,6 +582,8 @@ function isOffline() {
 const UPLOAD_WAIT_MS = 45 * 1000;
 export async function uploadPhoto(pairId, file, identity = 'yo') {
   const id = genId();
+  // The canvas derivatives carry no EXIF, so the date is read from the original file (it never blocks the upload)
+  const takenAt = await leerFechaExif(file);
   // make derivatives
   const thumbBlob = await resizeToBlob(file, 480, 0.8);
   const origBlob = await resizeToBlob(file, 1600, 0.9);
@@ -595,7 +600,7 @@ export async function uploadPhoto(pairId, file, identity = 'yo') {
   const fblib = await fb();
   if (db && storage && fblib) {
     // Write-ahead: mark as pending before touching the network
-    addPending(pairId, { id, identity, createdAt: now });
+    addPending(pairId, { id, identity, createdAt: now, ...(takenAt != null ? { takenAt } : {}) });
     pending = true;
   }
   await pruneOrig(20, getPendingIds(pairId));
@@ -607,7 +612,7 @@ export async function uploadPhoto(pairId, file, identity = 'yo') {
     } else {
       // "Online" but useless network: the SDK keeps retrying for minutes. Stop waiting at 45 s without
       // cancelling: the push goes on (joined via `inflight`), the photo stays pending and `done` settles with it
-      const push = pushRemote(pairId, id, identity, thumbBlob, origBlob);
+      const push = pushRemote(pairId, id, identity, thumbBlob, origBlob, takenAt);
       let timer;
       const slow = new Promise((resolve) => { timer = setTimeout(() => resolve('slow'), UPLOAD_WAIT_MS); });
       try {
@@ -671,7 +676,7 @@ export function retryPendingPhotos(pairId) {
           result.lost += 1;
           continue;
         }
-        await pushRemote(pairId, p.id, p.identity || 'yo', thumbBlob, origBlob);
+        await pushRemote(pairId, p.id, p.identity || 'yo', thumbBlob, origBlob, p.takenAt ?? null);
         result.sent += 1;
       } catch (e) {
         if (e?.message !== 'cancelled') result.failed += 1; // deleted while uploading: nothing to retry

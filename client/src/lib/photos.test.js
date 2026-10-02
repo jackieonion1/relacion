@@ -276,6 +276,75 @@ describe('uploadPhoto', () => {
     expect(result.pending).toBe(false);
   });
 
+  describe('fecha de la foto (EXIF)', () => {
+    // JPEG mínimo con DateTimeOriginal '2024:07:14 18:30:15' (big endian, sin offset: hora de Madrid)
+    const fechaTexto = [...'2024:07:14 18:30:15'].map((c) => c.charCodeAt(0)).concat(0);
+    const tiff = [0x4d, 0x4d, 0, 42, 0, 0, 0, 8, 0, 1, 0x87, 0x69, 0, 4, 0, 0, 0, 1, 0, 0, 0, 26, 0, 0, 0, 0,
+      0, 1, 0x90, 0x03, 0, 2, 0, 0, 0, 20, 0, 0, 0, 44, 0, 0, 0, 0, ...fechaTexto];
+    const conExif = () => new File([new Uint8Array([0xff, 0xd8, 0xff, 0xe1, 0, tiff.length + 8, 0x45, 0x78, 0x69, 0x66, 0, 0, ...tiff, 0xff, 0xd9])], 'f.jpg');
+    const TOMADA = Date.UTC(2024, 6, 14, 16, 30, 15);
+
+    test('takenAt sale del EXIF del original y se guarda con takenAtFuente', async () => {
+      const result = await uploadPhoto(PAIR, conExif());
+
+      expect(result.pending).toBe(false);
+      const datos = setDoc.mock.calls[0][1];
+      expect(datos.takenAt).toEqual(new Date(TOMADA));
+      expect(datos.takenAtFuente).toBe('exif');
+    });
+
+    test('sin EXIF el doc queda como antes: ni takenAt ni takenAtFuente', async () => {
+      await uploadPhoto(PAIR, new Blob(['f']));
+
+      const datos = setDoc.mock.calls[0][1];
+      expect('takenAt' in datos).toBe(false);
+      expect('takenAtFuente' in datos).toBe(false);
+    });
+
+    test('si el lector falla la foto se sube igual, sin fecha', async () => {
+      const rota = Object.assign(new Blob(['f']), { slice() { throw new Error('boom'); } });
+
+      const result = await uploadPhoto(PAIR, rota);
+
+      expect(result.cancelled).toBeUndefined();
+      expect(setDoc).toHaveBeenCalledTimes(1);
+      expect('takenAt' in setDoc.mock.calls[0][1]).toBe(false);
+    });
+
+    test('la fecha se guarda en la marca de pendiente, antes de tocar la red', async () => {
+      let marca;
+      uploadBytes.mockImplementation(() => {
+        marca = JSON.parse(localStorage.getItem(PENDING_KEY)).find((p) => p.id !== P1);
+        return Promise.resolve();
+      });
+
+      await uploadPhoto(PAIR, conExif());
+
+      expect(marca.takenAt).toBe(TOMADA);
+    });
+
+    test('el reintento de una marca con takenAt lo escribe en el doc', async () => {
+      localStorage.setItem(PENDING_KEY, JSON.stringify([{ id: P1, identity: 'yo', createdAt: 1, takenAt: TOMADA }]));
+      getDoc.mockResolvedValue({ exists: () => false });
+      getThumb.mockResolvedValue(new Blob(['t']));
+      getOrig.mockResolvedValue(new Blob(['o']));
+
+      await retryPendingPhotos(PAIR);
+
+      expect(setDoc.mock.calls[0][1]).toMatchObject({ takenAt: new Date(TOMADA), takenAtFuente: 'exif' });
+    });
+
+    test('el reintento de una marca sin fecha no escribe takenAt', async () => {
+      getDoc.mockResolvedValue({ exists: () => false });
+      getThumb.mockResolvedValue(new Blob(['t']));
+      getOrig.mockResolvedValue(new Blob(['o']));
+
+      await retryPendingPhotos(PAIR);
+
+      expect('takenAt' in setDoc.mock.calls[0][1]).toBe(false);
+    });
+  });
+
   test('borrada mientras el setDoc espera al servidor no se reescribe la meta y devuelve cancelled', async () => {
     let releaseSetDoc;
     setDoc.mockImplementation(() => new Promise((r) => { releaseSetDoc = r; }));
