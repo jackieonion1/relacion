@@ -5,7 +5,12 @@ import Gallery from './Gallery';
 import { whenAuthed } from '../lib/firebase';
 import { listPhotosPage, listPendingPhotos, getPendingIds, retryPendingPhotos, getOriginal, getOriginalUrl, deletePhoto } from '../lib/photos';
 
-vi.mock('../lib/photos', () => ({
+// The real module underneath: a name that lib/photos gains later is there without touching this mock (a closed list
+// would throw «no "x" export is defined» for the modules Gallery pulls in, e.g. lib/recuerdos). Only what the tests
+// drive is stubbed
+vi.mock('../lib/photos', async (orig) => ({
+  ...(await orig()),
+  listPhotosBy: vi.fn(async () => ({ items: [] })),
   listPhotosPage: vi.fn(),
   listPendingPhotos: vi.fn(),
   getPendingIds: vi.fn(),

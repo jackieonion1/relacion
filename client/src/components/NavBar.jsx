@@ -2,6 +2,7 @@ import React from 'react';
 import { Link, useLocation, useNavigate } from 'react-router';
 import Icon from './Icon';
 import Sheet from './Sheet';
+import { useGaleriaBadge } from '../lib/fotoAvisos';
 
 const tabs = [
   { to: '/', label: 'Inicio', icon: 'inicio' },
@@ -10,19 +11,22 @@ const tabs = [
   { to: '/notes', label: 'Notas', icon: 'notas' },
 ];
 
-// «Más» (Mas.dc.html): the four screens without a tab of their own, as a 2×2 sheet
+// «Más» (Mas.dc.html): the screens without a tab of their own, as a 2×2 sheet; «Recuerdos» (3.1) goes below, full width
 export const MORE = [
   { to: '/map', label: 'Mapa', sub: 'Dónde está cada uno', icon: 'mapa' },
   { to: '/music', label: 'Música', sub: 'Vuestra lista', icon: 'musica' },
   { to: '/roulette', label: 'Ruleta', sub: 'Para decidir entre varias', icon: 'ruleta' },
   { to: '/coin', label: 'Moneda', sub: '🍪 o 🫒', icon: 'moneda' },
+  { to: '/recuerdos', label: 'Recuerdos', sub: 'Álbumes, sellos y cápsulas', icon: 'recuerdos', wide: true },
 ];
 
 export default function NavBar() {
   const loc = useLocation();
   const navigate = useNavigate();
   const [openMore, setOpenMore] = React.useState(false);
-  const inMore = MORE.some((m) => m.to === loc.pathname);
+  // /recuerdos has screens under it (sellos, álbumes…): all of them keep «Más» lit
+  const inMore = MORE.some((m) => loc.pathname === m.to || loc.pathname.startsWith(`${m.to}/`));
+  const galeriaBadge = useGaleriaBadge();
   const tabIdx = tabs.findIndex((t) => t.to === loc.pathname);
   const pillIdx = inMore ? tabs.length : tabIdx;
 
@@ -49,6 +53,8 @@ export default function NavBar() {
                 onClick={() => setOpenMore(false)}
               >
                 <Icon name={t.icon} />
+                {/* Unread photo comments (always 0 until the Gallery lot fills in lib/fotoAvisos) */}
+                {t.to === '/gallery' && galeriaBadge > 0 && <span className="tab-punto" role="img" aria-label="Comentarios sin leer" />}
                 <span>{t.label}</span>
               </Link>
             );
@@ -75,7 +81,7 @@ export default function NavBar() {
                 key={m.to}
                 type="button"
                 aria-current={loc.pathname === m.to ? 'page' : undefined}
-                className="mas-item"
+                className={`mas-item ${m.wide ? 'col-span-2' : ''}`}
                 style={{ animationDelay: `${60 + i * 30}ms` }}
                 onClick={() => { setOpenMore(false); navigate(m.to); }}
               >

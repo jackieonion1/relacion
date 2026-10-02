@@ -5,6 +5,7 @@ import Button from '../components/Button';
 import Countdown from '../components/Countdown';
 import Icon from '../components/Icon';
 import RandomPhoto from '../components/RandomPhoto';
+import RecuerdosInicio from '../components/RecuerdosInicio';
 import { db } from '../lib/firebase';
 import { ANNIVERSARY, timeBetween } from '../lib/together';
 import { nextSpecialEvents } from '../lib/specialDays';
@@ -299,6 +300,8 @@ export default function Dashboard() {
       <div className="px-4">
         <RandomPhoto />
       </div>
+
+      <RecuerdosInicio />
 
       {nextMeetEvent && meetDate && (
         <section aria-label="Próximo encuentro" className="encuentro card relative mx-4 mt-3 rounded-hero py-4 pr-4 pl-[18px] flex items-center gap-4">

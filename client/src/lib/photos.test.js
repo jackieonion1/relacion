@@ -1,6 +1,6 @@
-import { deletePhoto, retryPendingPhotos, uploadPhoto, listPhotosPage, madridDayKey, getOriginal, getOriginalUrl, getPhotoThumbUrl, getDailyPhotoId, dailyPhotoIndex } from './photos';
+import { deletePhoto, retryPendingPhotos, uploadPhoto, listPhotosPage, photoItem, listPhotosBy, madridDayKey, getOriginal, getOriginalUrl, getPhotoThumbUrl, getDailyPhotoId, dailyPhotoIndex } from './photos';
 import { deleteThumb, deleteOrig, getThumb, getOrig } from './photoCache';
-import { collection, doc, deleteDoc, setDoc, updateDoc, getDoc, getDocs, getCountFromServer, query, where, orderBy, limit } from 'firebase/firestore';
+import { collection, doc, deleteDoc, setDoc, updateDoc, getDoc, getDocs, getCountFromServer, documentId, query, where, orderBy, limit } from 'firebase/firestore';
 import { ref, getDownloadURL, deleteObject, uploadBytes } from 'firebase/storage';
 
 vi.mock('./firebase', () => ({
@@ -363,6 +363,54 @@ describe('listPhotosPage', () => {
     whenAuthed.mockResolvedValueOnce(null);
     await expect(listPhotosPage(PAIR, { pageSize: 60 })).rejects.toMatchObject({ code: 'no-auth' });
     expect(getDocs).not.toHaveBeenCalled();
+  });
+});
+
+describe('photoItem y listPhotosBy', () => {
+  const ts = (ms) => ({ toMillis: () => ms });
+  const snap = (id, data) => ({ id, data: () => data });
+  const realFetch = global.fetch;
+  beforeEach(() => { global.fetch = vi.fn(() => Promise.reject(new TypeError('blocked'))); });
+  afterEach(() => { global.fetch = realFetch; });
+
+  test('photoItem copia los campos de la 3.1 y da valores neutros a los que faltan', () => {
+    expect(photoItem(snap('A', {
+      createdAt: ts(500), identity: 'ella', reactions: { yo: '💖' }, favBy: ['yo'], takenAt: ts(100), commentCount: 2, albumIds: ['x'],
+    }))).toEqual({
+      id: 'A', thumbUrl: '', createdAt: 500, identity: 'ella', reactions: { yo: '💖' }, favBy: ['yo'], takenAt: 100, commentCount: 2, albumIds: ['x'],
+    });
+    expect(photoItem(snap('B', { createdAt: ts(7) }))).toEqual({
+      id: 'B', thumbUrl: '', createdAt: 7, identity: '', reactions: {}, favBy: [], takenAt: null, commentCount: 0, albumIds: [],
+    });
+  });
+
+  test('listPhotosBy ejecuta la consulta sobre las fotos de la pareja y rellena las miniaturas', async () => {
+    getDocs.mockResolvedValue({ docs: [snap('D0', { thumbUrl: 'https://t/0?alt=media', createdAt: ts(9) })] });
+    getThumb.mockResolvedValue(null);
+    const build = vi.fn(() => 'la-consulta');
+    const { items } = await listPhotosBy(PAIR, build);
+    expect(build).toHaveBeenCalledWith(expect.objectContaining({ query, where, documentId }), { path: `pairs/${PAIR}/photos` });
+    expect(getDocs).toHaveBeenCalledWith('la-consulta');
+    expect(items.map((it) => [it.id, it.thumbUrl])).toEqual([['D0', 'https://t/0?alt=media']]);
+  });
+
+  test('keep descarta antes de resolver miniaturas, y con onThumb las avisa una a una', async () => {
+    getDocs.mockResolvedValue({ docs: [
+      snap('D0', { thumbUrl: 'https://t/0?alt=media', createdAt: ts(9) }),
+      snap('D1', { thumbUrl: 'https://t/1?alt=media', createdAt: ts(8), takenAt: ts(1) }),
+    ] });
+    getThumb.mockResolvedValue(null);
+    const onThumb = vi.fn();
+    const r = await listPhotosBy(PAIR, () => 'q', { onThumb, keep: (it) => it.takenAt == null });
+    await r.thumbsDone;
+    expect(r.items.map((it) => it.id)).toEqual(['D0']);
+    expect(onThumb).toHaveBeenCalledTimes(1);
+    expect(onThumb).toHaveBeenCalledWith('D0', 'https://t/0?alt=media');
+  });
+
+  test('si la consulta falla lanza, como listPhotosPage', async () => {
+    getDocs.mockRejectedValue(new Error('permission-denied'));
+    await expect(listPhotosBy(PAIR, () => 'q')).rejects.toThrow('permission-denied');
   });
 });
 

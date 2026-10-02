@@ -19,8 +19,21 @@ import { AvisoSlot, Avisos } from './components/Aviso';
 // «Así era» loads on demand (its screenshots weigh more than the rest of the app). Its CSS comes in here: a lazy
 // chunk's CSS would be emitted as another static/css/main.<hash>.css and appUpdate.js would take it for a new version
 import './pages/AsiEra.css';
+// Same for the 3.1 screens under /recuerdos: one CSS file per lot
+import './pages/Recuerdos.css';
+import './pages/Capsulas.css';
+import './pages/NuestroAno.css';
 
 const AsiEra = lazy(() => import('./pages/AsiEra'));
+const Recuerdos = lazy(() => import('./pages/Recuerdos'));
+const Sellos = lazy(() => import('./pages/Sellos'));
+const Albumes = lazy(() => import('./pages/Albumes'));
+const Album = lazy(() => import('./pages/Album'));
+const Capsulas = lazy(() => import('./pages/Capsulas'));
+const NuestroAno = lazy(() => import('./pages/NuestroAno'));
+
+// Titles of the /recuerdos screens, by the first part of the path after it (the hub and unknown ones: Recuerdos)
+const TITULOS_RECUERDOS = { sellos: 'Sellos', albumes: 'Álbumes', capsulas: 'Cápsulas', 'nuestro-ano': 'Nuestro año' };
 
 // Every screen lays out its own width, padding and serif h1 (plan §5 nº 00), so <main> adds none
 export default function App() {
@@ -28,6 +41,9 @@ export default function App() {
   const [isTransitioning, setIsTransitioning] = useState(false);
 
   const title = useMemo(() => {
+    if (location.pathname === '/recuerdos' || location.pathname.startsWith('/recuerdos/')) {
+      return TITULOS_RECUERDOS[location.pathname.split('/')[2]] || 'Recuerdos';
+    }
     switch (location.pathname) {
       case '/': return 'Inicio';
       case '/gallery': return 'Galería';
@@ -88,6 +104,12 @@ export default function App() {
                   <Route path="/music" element={<div />} />
                   <Route path="/settings" element={<Settings />} />
                   <Route path="/asi-era" element={<Suspense fallback={null}><AsiEra /></Suspense>} />
+                  <Route path="/recuerdos" element={<Suspense fallback={null}><Recuerdos /></Suspense>} />
+                  <Route path="/recuerdos/sellos" element={<Suspense fallback={null}><Sellos /></Suspense>} />
+                  <Route path="/recuerdos/albumes" element={<Suspense fallback={null}><Albumes /></Suspense>} />
+                  <Route path="/recuerdos/albumes/:id" element={<Suspense fallback={null}><Album /></Suspense>} />
+                  <Route path="/recuerdos/capsulas" element={<Suspense fallback={null}><Capsulas /></Suspense>} />
+                  <Route path="/recuerdos/nuestro-ano" element={<Suspense fallback={null}><NuestroAno /></Suspense>} />
                   <Route path="*" element={<Navigate to="/" replace />} />
                 </Routes>
                 {/* Keep Music mounted always; it will render its page UI only on /music but keeps audio/mini-player global */}
