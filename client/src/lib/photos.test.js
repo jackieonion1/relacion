@@ -1,6 +1,6 @@
-import { deletePhoto, retryPendingPhotos, uploadPhoto, listPhotosPage, madridDayKey, getOriginal, getOriginalUrl, getPhotoThumbUrl, getDailyPhotoId } from './photos';
+import { deletePhoto, retryPendingPhotos, uploadPhoto, listPhotosPage, madridDayKey, getOriginal, getOriginalUrl, getPhotoThumbUrl, getDailyPhotoId, dailyPhotoIndex } from './photos';
 import { deleteThumb, deleteOrig, getThumb, getOrig } from './photoCache';
-import { collection, doc, deleteDoc, setDoc, updateDoc, getDoc, getDocs, query, where, orderBy, limit } from 'firebase/firestore';
+import { collection, doc, deleteDoc, setDoc, updateDoc, getDoc, getDocs, getCountFromServer, query, where, orderBy, limit } from 'firebase/firestore';
 import { ref, getDownloadURL, deleteObject, uploadBytes } from 'firebase/storage';
 
 vi.mock('./firebase', () => ({
@@ -32,6 +32,8 @@ vi.mock('firebase/firestore', () => ({
   updateDoc: vi.fn(),
   getDoc: vi.fn(),
   getDocs: vi.fn(),
+  getCountFromServer: vi.fn(),
+  documentId: vi.fn(() => '__name__'),
   query: vi.fn(),
   where: vi.fn(),
   orderBy: vi.fn(),
@@ -410,6 +412,7 @@ describe('escrituras de reparación de URL', () => {
 
   test('getDailyPhotoId devuelve la foto sin esperar a la escritura de meta/dailyPhoto', async () => {
     getDoc.mockResolvedValue({ exists: () => false });
+    getCountFromServer.mockResolvedValue({ data: () => ({ count: 1 }) });
     getDocs.mockResolvedValue({ docs: [{ id: 'A1' }] });
     setDoc.mockImplementation(never);
     expect(await getDailyPhotoId(PAIR)).toBe('A1');
@@ -417,29 +420,119 @@ describe('escrituras de reparación de URL', () => {
     expect(setDoc.mock.calls[0][2]).toEqual({ merge: true });
   });
 
-  test('getDailyPhotoId puede elegir fotos más allá de las 200 últimas, con tres lecturas', async () => {
-    const at = (ms) => ({ id: `F${ms}`, data: () => ({ createdAt: { toMillis: () => ms } }) });
-    getDoc.mockResolvedValue({ exists: () => false });
-    query.mockImplementation((c, ...parts) => parts);
-    where.mockImplementation((f, op, v) => ({ where: v }));
-    orderBy.mockImplementation((f, dir) => ({ orderBy: dir }));
-    limit.mockImplementation((n) => ({ limit: n }));
-    getDocs.mockImplementation(async (parts) => {
-      const w = parts.find((p) => p.where);
-      if (w) return { docs: [at(w.where.getTime())] };
-      return { docs: [parts.some((p) => p.orderBy === 'asc') ? at(1000) : at(5000)] };
+  describe('getDailyPhotoId sobre una galería falsa', () => {
+    // `ids` va de la más antigua a la más nueva; getDocs respeta el sentido del orderBy y el limit
+    let reads;
+    const fakeGallery = (ids) => {
+      reads = 0;
+      getDoc.mockResolvedValue({ exists: () => false });
+      getCountFromServer.mockResolvedValue({ data: () => ({ count: ids.length }) });
+      query.mockImplementation((c, ...parts) => parts);
+      orderBy.mockImplementation((f, dir) => ({ orderBy: f, dir }));
+      limit.mockImplementation((n) => ({ limit: n }));
+      getDocs.mockImplementation(async (parts) => {
+        const dir = parts.find((p) => p.orderBy).dir;
+        const n = parts.find((p) => p.limit).limit;
+        const ordered = dir === 'desc' ? [...ids].reverse() : ids;
+        const docs = ordered.slice(0, n).map((id) => ({ id }));
+        reads += docs.length;
+        return { docs };
+      });
+      setDoc.mockResolvedValue();
+    };
+
+    test('elige la k-ésima de todas las fotos, no solo las últimas, con un orden total', async () => {
+      const ids = Array.from({ length: 1625 }, (_, i) => `F${i}`);
+      fakeGallery(ids);
+      const id = await getDailyPhotoId(PAIR);
+      expect(id).toBe(ids[dailyPhotoIndex(PAIR, madridDayKey(), ids.length)]);
+      // El desempate por id hace el orden total aunque varias fotos compartan createdAt
+      expect(orderBy).toHaveBeenCalledWith('createdAt', expect.any(String));
+      expect(orderBy).toHaveBeenCalledWith('__name__', expect.any(String));
+      expect(setDoc.mock.calls[0][1].photoId).toBe(id);
     });
-    setDoc.mockResolvedValue();
-    const id = await getDailyPhotoId(PAIR);
-    expect(getDocs).toHaveBeenCalledTimes(3);
-    const ms = Number(id.slice(1));
-    expect(ms).toBeGreaterThanOrEqual(1000);
-    expect(ms).toBeLessThanOrEqual(5000);
-    expect(setDoc.mock.calls[0][1].photoId).toBe(id);
+
+    test('lee desde el extremo más cercano: como mucho count/2 + 1 documentos', async () => {
+      const ids = Array.from({ length: 1000 }, (_, i) => `F${i}`);
+      let max = 0;
+      for (let d = 1; d <= 28; d++) {
+        const noon = new Date(Date.UTC(2026, 10, d, 12));
+        vi.useFakeTimers({ toFake: ['Date'] });
+        vi.setSystemTime(noon);
+        fakeGallery(ids);
+        const id = await getDailyPhotoId(PAIR);
+        vi.useRealTimers();
+        expect(id).toBe(ids[dailyPhotoIndex(PAIR, madridDayKey(noon), ids.length)]);
+        max = Math.max(max, reads);
+      }
+      expect(max).toBeLessThanOrEqual(501);
+    });
+
+    test('sin fotos devuelve vacío y no escribe; con una foto, esa', async () => {
+      fakeGallery([]);
+      expect(await getDailyPhotoId(PAIR)).toBe('');
+      expect(setDoc).not.toHaveBeenCalled();
+      fakeGallery(['SOLO']);
+      expect(await getDailyPhotoId(PAIR)).toBe('SOLO');
+      expect(reads).toBe(1);
+    });
+
+    test('si la foto elegida se borró, se vuelve a elegir (determinista) y se persiste', async () => {
+      const ids = Array.from({ length: 50 }, (_, i) => `F${i}`);
+      fakeGallery(ids);
+      // meta apunta a una foto de hoy que ya no existe
+      getDoc.mockImplementation(async (ref) => (ref.path.endsWith('/meta/dailyPhoto')
+        ? { exists: () => true, data: () => ({ dayKey: madridDayKey(), photoId: 'BORRADA' }) }
+        : { exists: () => false }));
+      const id = await getDailyPhotoId(PAIR);
+      expect(id).toBe(ids[dailyPhotoIndex(PAIR, madridDayKey(), 50)]);
+      expect(setDoc.mock.calls[0][1].photoId).toBe(id);
+    });
+
+    test('sin conexión para contar: la más nueva de la caché, sin escribir meta', async () => {
+      fakeGallery(['A', 'B', 'C']);
+      getCountFromServer.mockRejectedValue(new Error('offline'));
+      expect(await getDailyPhotoId(PAIR)).toBe('C');
+      expect(setDoc).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('dailyPhotoIndex', () => {
+    const days = (n) => Array.from({ length: n }, (_, i) => madridDayKey(new Date(Date.UTC(2026, 9, 1) + i * 86400000)));
+
+    test('es uniforme: chi² por deciles sobre 10 años, con 1625 fotos', () => {
+      const count = 1625;
+      const bins = new Array(10).fill(0);
+      for (const day of days(3650)) bins[Math.floor((dailyPhotoIndex(PAIR, day, count) / count) * 10)]++;
+      const expected = 365;
+      const chi2 = bins.reduce((s, o) => s + (o - expected) ** 2 / expected, 0);
+      // gl = 9; 21,7 deja el 1 % de falsos fallos
+      expect(chi2).toBeLessThan(21.7);
+    });
+
+    test('una ráfaga de 300 fotos el primer día sale en proporción: el hueco anterior no pesa', () => {
+      // Con índices por posición, las 300 primeras fotos son 300/1625 de las opciones, vengan juntas o no
+      const count = 1625;
+      const hits = days(3650).filter((day) => dailyPhotoIndex(PAIR, day, count) < 300).length;
+      const p = 300 / count;
+      const mean = 3650 * p;
+      const sd = Math.sqrt(3650 * p * (1 - p));
+      expect(Math.abs(hits - mean)).toBeLessThan(4 * sd);
+    });
+
+    test('días seguidos no caen en fotos vecinas', () => {
+      const count = 1625;
+      const idx = days(365).map((day) => dailyPhotoIndex(PAIR, day, count));
+      // Con salto aleatorio, |Δ| < count/20 ocurre ~10 % de las veces (con FNV sin mezclar era la mayoría)
+      const near = idx.slice(1).filter((v, i) => Math.abs(v - idx[i]) < count / 20).length;
+      expect(near / 364).toBeLessThan(0.2);
+      expect(new Set(idx).size).toBeGreaterThan(300);
+    });
   });
 
   test('si la escritura de dailyPhoto falla, sigue devolviendo la foto', async () => {
     getDoc.mockResolvedValue({ exists: () => false });
+    getCountFromServer.mockResolvedValue({ data: () => ({ count: 1 }) });
     getDocs.mockResolvedValue({ docs: [{ id: 'A1' }] });
     setDoc.mockRejectedValue(new Error('offline'));
     expect(await getDailyPhotoId(PAIR)).toBe('A1');
