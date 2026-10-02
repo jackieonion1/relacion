@@ -1,8 +1,9 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
-import { getFirestore, enableIndexedDbPersistence } from 'firebase/firestore';
+import { getFirestore, enableIndexedDbPersistence, doc, getDocFromServer } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
 import { createSignIn, createWhenAuthed, listenAfterAuth } from './authGate';
+import { createMembership, deviceLabel } from './membership';
 
 const firebaseConfig = {
   apiKey: import.meta.env.REACT_APP_FIREBASE_API_KEY,
@@ -14,7 +15,7 @@ const firebaseConfig = {
   measurementId: import.meta.env.REACT_APP_FIREBASE_MEASUREMENT_ID,
 };
 
-let app; let auth; let db; let storage; let authReady;
+let app; let auth; let db; let storage; let authReady; let membership;
 
 const required = [
   firebaseConfig.apiKey,
@@ -39,8 +40,31 @@ if (required.every(Boolean)) {
     onError: (e) => console.warn('Anonymous auth failed', e),
   });
   signIn();
-  if (typeof window !== 'undefined') window.addEventListener('online', () => { signIn(); });
   db = getFirestore(app);
+  const isOnline = () => typeof navigator === 'undefined' || navigator.onLine !== false;
+  // joinPair before the first read on a new uid (see membership.js). The SDK loads on demand, as in Ajustes
+  const whenSignedIn = createWhenAuthed(authReady, () => auth.currentUser);
+  membership = createMembership({
+    join: async (data) => {
+      const { getFunctions, httpsCallable } = await import('firebase/functions');
+      const fn = httpsCallable(getFunctions(app, 'europe-southwest1'), 'joinPair', { timeout: 15000 });
+      const label = typeof navigator === 'undefined' ? '' : deviceLabel(navigator.userAgent, navigator.maxTouchPoints);
+      return (await fn({ ...data, label })).data;
+    },
+    check: async (pairId, uid) => {
+      if (!isOnline()) return null;
+      try {
+        return (await getDocFromServer(doc(db, 'pairs', pairId, 'members', uid))).exists();
+      } catch (e) {
+        return e?.code === 'permission-denied' ? false : null;
+      }
+    },
+    getUid: async () => (await whenSignedIn(Infinity))?.uid || null,
+    store: typeof localStorage === 'undefined' ? null : localStorage,
+    isOnline,
+    onError: (e) => console.warn('joinPair failed', e?.code || e),
+  });
+  if (typeof window !== 'undefined') window.addEventListener('online', () => { signIn(); membership.retry(); });
   // Enable offline persistence where possible
   enableIndexedDbPersistence(db).catch((err) => {
     // err.code can be 'failed-precondition' (multiple tabs) or 'unimplemented' (browser)
@@ -52,11 +76,13 @@ if (required.every(Boolean)) {
 } else {
   console.warn('Firebase config missing (REACT_APP_*) — skipping initialization for now.');
   authReady = Promise.resolve(null);
+  membership = createMembership();
 }
 
-// The session, or null after `ms` (Infinity = no cap). Shared by every module instead of its own waitAuth
-const whenAuthed = createWhenAuthed(authReady, () => auth?.currentUser);
+// The session, or null after `ms` (Infinity = no cap). Shared by every module instead of its own waitAuth.
+// It also waits for pair membership; after `ms` it goes on without it, as it does without a session
+const whenAuthed = createWhenAuthed(authReady.then(() => membership.ready()), () => auth?.currentUser);
 // listenWhenAuthed(start, onError): sync unsubscribe for a listener that needs the session (see authGate)
 const listenWhenAuthed = (start, onError) => listenAfterAuth(whenAuthed, start, onError);
 
-export { app, auth, db, storage, authReady, whenAuthed, listenWhenAuthed };
+export { app, auth, db, storage, authReady, whenAuthed, listenWhenAuthed, membership };
