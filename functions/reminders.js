@@ -21,6 +21,11 @@ export function madridDate(now = new Date()) {
   return { year: get('year'), month: get('month'), day: get('day') };
 }
 
+// Pair ids to leave out of the reminders, from a comma-separated list (REMINDER_SKIP_PAIRS)
+export function skipPairs(raw = '') {
+  return new Set(String(raw).split(',').map((id) => id.trim()).filter(Boolean));
+}
+
 // "N meses", "N años" or "N años y M meses"
 function spanText(totalMonths) {
   if (totalMonths < 12) return `${totalMonths} ${totalMonths === 1 ? 'mes' : 'meses'}`;

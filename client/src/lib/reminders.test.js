@@ -1,4 +1,4 @@
-import { BIRTHDAYS, START, madridDate, remindersFor } from '../../../functions/reminders';
+import { BIRTHDAYS, START, madridDate, remindersFor, skipPairs } from '../../../functions/reminders';
 import { ANNIVERSARY } from './together';
 import { BIRTHDAYS as APP_BIRTHDAYS } from './specialDays';
 
@@ -51,6 +51,18 @@ describe('el día es el de Madrid, no el de UTC', () => {
   test('en invierno (UTC+1) la frontera se mueve una hora', () => {
     expect(kinds(at('2026-12-23T22:30:00Z'))).toEqual([]);
     expect(kinds(at('2026-12-23T23:30:00Z'))).toEqual(['monthiversary']);
+  });
+});
+
+describe('REMINDER_SKIP_PAIRS', () => {
+  test('lista separada por comas, con espacios y huecos', () => {
+    expect([...skipPairs('AAA, BBB ,,CCC')]).toEqual(['AAA', 'BBB', 'CCC']);
+  });
+
+  test('sin definir o vacía, no se salta ninguna', () => {
+    expect(skipPairs(undefined).size).toBe(0);
+    expect(skipPairs('').size).toBe(0);
+    expect(skipPairs(' , ').size).toBe(0);
   });
 });
 

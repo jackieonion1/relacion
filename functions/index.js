@@ -1,12 +1,12 @@
 import { initializeApp, getApps } from 'firebase-admin/app';
-import { getFirestore } from 'firebase-admin/firestore';
+import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import { onDocumentCreated } from 'firebase-functions/v2/firestore';
 import { setGlobalOptions } from 'firebase-functions/v2/options';
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
 import webpush from 'web-push';
 import { eventBody } from './pushLogic.js';
-import { remindersFor } from './reminders.js';
+import { madridDate, remindersFor, skipPairs } from './reminders.js';
 
 // Global options
 setGlobalOptions({ region: 'europe-southwest1', maxInstances: 5 });
@@ -144,11 +144,25 @@ export const onNewEvent = onDocumentCreated('pairs/{pairId}/events/{eventId}', a
 // Every morning at 9:00 Madrid time: the monthiversary (every 24th, anniversary in November) and birthdays.
 // What is due today is decided in reminders.js; each identity gets its own text
 export const morningReminders = onSchedule({ schedule: '0 9 * * *', timeZone: 'Europe/Madrid' }, async () => {
-  const due = remindersFor(new Date());
+  const now = new Date();
+  const due = remindersFor(now);
   if (due.length === 0) return;
+  // Pairs listed in REMINDER_SKIP_PAIRS (functions/.env, comma-separated) get nothing; none by default
+  const skip = skipPairs(process.env.REMINDER_SKIP_PAIRS);
+  const { year, month, day } = madridDate(now);
+  const today = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
   // listDocuments also returns pair ids that only have subcollections (no pair doc of their own)
   const pairs = await db.collection('pairs').listDocuments();
   for (const pair of pairs) {
+    if (skip.has(pair.id)) continue;
+    // One lock per pair and day: if Scheduler delivers the run twice, the second finds it and sends nothing
+    try {
+      await pair.collection('meta').doc(`reminders-${today}`).create({ at: FieldValue.serverTimestamp() });
+    } catch (e) {
+      // 6 = ALREADY_EXISTS; any other failure sends anyway (a duplicate beats a missed greeting)
+      if (e?.code === 6) continue;
+      console.warn('morningReminders lock error', pair.id, e);
+    }
     for (const reminder of due) {
       for (const [identity, text] of Object.entries(reminder.texts)) {
         try {
